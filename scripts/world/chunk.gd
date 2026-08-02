@@ -1,6 +1,8 @@
 extends Node3D
 class_name VoxelChunk
 
+const CHUNK_MESHER_SCRIPT := preload("res://scripts/world/chunk_mesher.gd")
+
 const SIZE := Vector3i(16, 16, 16)
 const BLOCK_AIR := 0
 const BLOCK_GRASS := 1
@@ -20,6 +22,7 @@ var chunk_coord: Vector3i = Vector3i.ZERO
 var blocks: PackedByteArray = PackedByteArray()
 var biomes: PackedByteArray = PackedByteArray()
 var vegetation_density: PackedByteArray = PackedByteArray()
+var mesh_instance: MeshInstance3D
 
 
 func configure(coord: Vector3i) -> void:
@@ -35,6 +38,7 @@ func configure(coord: Vector3i) -> void:
 	biomes.fill(BIOME_PLAINS)
 	vegetation_density.resize(SIZE.x * SIZE.z)
 	vegetation_density.fill(PLAINS_VEGETATION_DENSITY)
+	_ensure_mesh_instance()
 
 
 func generate_terrain(
@@ -59,6 +63,21 @@ func generate_terrain(
 				var world_y := chunk_coord.y * SIZE.y + local_y
 				var block_id := _block_for_depth(sampled_height - world_y, biome_id)
 				set_block(Vector3i(local_x, local_y, local_z), block_id)
+
+
+func rebuild_mesh() -> void:
+	_ensure_mesh_instance()
+	mesh_instance.mesh = CHUNK_MESHER_SCRIPT.build_mesh(self)
+	if mesh_instance.material_override == null:
+		mesh_instance.material_override = CHUNK_MESHER_SCRIPT.create_material()
+
+
+func _ensure_mesh_instance() -> void:
+	if is_instance_valid(mesh_instance):
+		return
+	mesh_instance = MeshInstance3D.new()
+	mesh_instance.name = "ChunkMesh"
+	add_child(mesh_instance)
 
 
 func _biome_from_noise(sample: float) -> int:
