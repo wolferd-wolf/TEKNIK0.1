@@ -23,6 +23,8 @@ var blocks: PackedByteArray = PackedByteArray()
 var biomes: PackedByteArray = PackedByteArray()
 var vegetation_density: PackedByteArray = PackedByteArray()
 var mesh_instance: MeshInstance3D
+var collision_body: StaticBody3D
+var collision_shape: CollisionShape3D
 
 
 func configure(coord: Vector3i) -> void:
@@ -38,7 +40,7 @@ func configure(coord: Vector3i) -> void:
 	biomes.fill(BIOME_PLAINS)
 	vegetation_density.resize(SIZE.x * SIZE.z)
 	vegetation_density.fill(PLAINS_VEGETATION_DENSITY)
-	_ensure_mesh_instance()
+	_ensure_render_nodes()
 
 
 func generate_terrain(
@@ -65,19 +67,31 @@ func generate_terrain(
 				set_block(Vector3i(local_x, local_y, local_z), block_id)
 
 
-func rebuild_mesh() -> void:
-	_ensure_mesh_instance()
-	mesh_instance.mesh = CHUNK_MESHER_SCRIPT.build_mesh(self)
+func rebuild_mesh(world_block_lookup: Callable) -> void:
+	_ensure_render_nodes()
+	var chunk_mesh: ArrayMesh = CHUNK_MESHER_SCRIPT.build_mesh(self, world_block_lookup)
+	mesh_instance.mesh = chunk_mesh
 	if mesh_instance.material_override == null:
 		mesh_instance.material_override = CHUNK_MESHER_SCRIPT.create_material()
 
+	collision_shape.shape = null
+	if chunk_mesh != null and chunk_mesh.get_surface_count() > 0:
+		collision_shape.shape = chunk_mesh.create_trimesh_shape()
 
-func _ensure_mesh_instance() -> void:
-	if is_instance_valid(mesh_instance):
-		return
-	mesh_instance = MeshInstance3D.new()
-	mesh_instance.name = "ChunkMesh"
-	add_child(mesh_instance)
+
+func _ensure_render_nodes() -> void:
+	if not is_instance_valid(mesh_instance):
+		mesh_instance = MeshInstance3D.new()
+		mesh_instance.name = "ChunkMesh"
+		add_child(mesh_instance)
+	if not is_instance_valid(collision_body):
+		collision_body = StaticBody3D.new()
+		collision_body.name = "ChunkCollision"
+		add_child(collision_body)
+	if not is_instance_valid(collision_shape):
+		collision_shape = CollisionShape3D.new()
+		collision_shape.name = "CollisionShape3D"
+		collision_body.add_child(collision_shape)
 
 
 func _biome_from_noise(sample: float) -> int:
