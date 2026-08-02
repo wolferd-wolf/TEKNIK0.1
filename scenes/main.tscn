@@ -1,8 +1,17 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/chunk_manager.gd" id="1_chunk_manager"]
+[ext_resource type="Script" path="res://scripts/world/chunk_streaming_probe.gd" id="2_probe"]
 
 [node name="Main" type="Node3D"]
 
+[node name="StreamingAnchor" type="Node3D" parent="."]
+
 [node name="ChunkManager" type="Node3D" parent="."]
 script = ExtResource("1_chunk_manager")
+streaming_target_path = NodePath("../StreamingAnchor")
+
+[node name="ChunkStreamingProbe" type="Node" parent="."]
+script = ExtResource("2_probe")
+chunk_manager_path = NodePath("../ChunkManager")
+streaming_anchor_path = NodePath("../StreamingAnchor")
