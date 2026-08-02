@@ -9,6 +9,14 @@ const TERRAIN_SEED := 1701
 const BIOME_SEED := 2718
 const TERRAIN_BASE_HEIGHT := 8
 const TERRAIN_HEIGHT_AMPLITUDE := 6
+const NEIGHBOR_DIRECTIONS := [
+	Vector3i.LEFT,
+	Vector3i.RIGHT,
+	Vector3i.DOWN,
+	Vector3i.UP,
+	Vector3i.FORWARD,
+	Vector3i.BACK,
+]
 
 @export_range(1, 8, 1) var render_radius: int = 2
 @export var streaming_target_path: NodePath
@@ -71,6 +79,26 @@ static func chunk_coord_to_world_origin(chunk_coord: Vector3i) -> Vector3:
 		chunk_coord.y * CHUNK_SIZE,
 		chunk_coord.z * CHUNK_SIZE
 	)
+
+
+func world_to_local_coord(world_block_coord: Vector3i) -> Vector3i:
+	return Vector3i(
+		posmod(world_block_coord.x, CHUNK_SIZE),
+		posmod(world_block_coord.y, CHUNK_SIZE),
+		posmod(world_block_coord.z, CHUNK_SIZE)
+	)
+
+
+func get_block_world(world_block_coord: Vector3i) -> int:
+	var chunk_coord := Vector3i(
+		floori(world_block_coord.x / float(CHUNK_SIZE)),
+		floori(world_block_coord.y / float(CHUNK_SIZE)),
+		floori(world_block_coord.z / float(CHUNK_SIZE))
+	)
+	var chunk := get_chunk(chunk_coord)
+	if not is_instance_valid(chunk):
+		return 0
+	return chunk.get_block(world_to_local_coord(world_block_coord))
 
 
 func refresh_streaming(world_position: Vector3) -> void:
@@ -142,8 +170,8 @@ func create_empty_chunk(chunk_coord: Vector3i) -> Node3D:
 		TERRAIN_HEIGHT_AMPLITUDE
 	)
 	BIOME_PROBE_SCRIPT.run(chunk)
-	chunk.rebuild_mesh()
 	register_chunk(chunk_coord, chunk)
+	_rebuild_chunk_and_neighbors(chunk_coord)
 	return chunk
 
 
@@ -155,7 +183,21 @@ func remove_chunk(chunk_coord: Vector3i) -> bool:
 	chunks.erase(chunk_coord)
 	if is_instance_valid(chunk):
 		chunk.queue_free()
+	for direction in NEIGHBOR_DIRECTIONS:
+		_rebuild_chunk(chunk_coord + direction)
 	return true
+
+
+func _rebuild_chunk_and_neighbors(chunk_coord: Vector3i) -> void:
+	_rebuild_chunk(chunk_coord)
+	for direction in NEIGHBOR_DIRECTIONS:
+		_rebuild_chunk(chunk_coord + direction)
+
+
+func _rebuild_chunk(chunk_coord: Vector3i) -> void:
+	var chunk := get_chunk(chunk_coord)
+	if is_instance_valid(chunk):
+		chunk.rebuild_mesh(Callable(self, "get_block_world"))
 
 
 func clear_chunks() -> void:
