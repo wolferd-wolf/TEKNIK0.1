@@ -26,3 +26,6 @@ When done, list the commits (hash + message) in order. Do not summarize in prose
 ## Decisions
 - Hour 1: Use a Godot 4.x GDScript `Node3D` scaffold with the GL Compatibility renderer as the Android baseline. This avoids introducing platform-specific rendering code before the world subsystem is proven.
 - Hour 1: Use `Vector3i` chunk coordinates as dictionary keys and floor-based world-to-chunk conversion. Floor conversion is required so negative world positions map consistently to negative chunk coordinates instead of truncating toward zero.
+- Hour 2: Use a full three-dimensional Euclidean chunk radius rather than a horizontal-only radius because each chunk is explicitly 16x16x16. The implementation brute-forces offsets inside a radius-squared check and does not use a priority queue.
+- Hour 2: Use a temporary `StreamingAnchor` node until the Step 4 player exists. The manager depends only on a `Node3D` position, so the future player can replace the anchor without rewriting streaming logic.
+- Hour 2 blocker: Step 1 is not marked complete. The smoke probe checks stable chunk counts and positive/negative boundary transitions, but screenshot evidence is not meaningful yet because chunks intentionally have no mesh until Step 3, and no verified Godot runtime/CI screenshot artifact is currently available.
