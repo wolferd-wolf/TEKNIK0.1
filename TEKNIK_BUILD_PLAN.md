@@ -22,3 +22,7 @@ Playable desktop build: player walks around chunked, biome-varied procedural ter
 
 ## Report format
 When done, list the commits (hash + message) in order. Do not summarize in prose — the commit log is the report.
+
+## Decisions
+- Hour 1: Use a Godot 4.x GDScript `Node3D` scaffold with the GL Compatibility renderer as the Android baseline. This avoids introducing platform-specific rendering code before the world subsystem is proven.
+- Hour 1: Use `Vector3i` chunk coordinates as dictionary keys and floor-based world-to-chunk conversion. Floor conversion is required so negative world positions map consistently to negative chunk coordinates instead of truncating toward zero.
