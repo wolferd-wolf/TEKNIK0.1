@@ -1,6 +1,12 @@
 extends RefCounted
 class_name ChunkMesher
 
+const CHUNK_SIZE := Vector3i(16, 16, 16)
+const BLOCK_AIR := 0
+const BLOCK_GRASS := 1
+const BLOCK_DIRT := 2
+const BLOCK_STONE := 3
+const BLOCK_SAND := 4
 const TRIANGLE_INDICES := [0, 1, 2, 0, 2, 3]
 
 const FACE_NORMALS := [
@@ -22,16 +28,16 @@ const FACE_VERTICES := [
 ]
 
 
-static func build_mesh(chunk: VoxelChunk) -> ArrayMesh:
+static func build_mesh(chunk) -> ArrayMesh:
 	var surface_tool := SurfaceTool.new()
 	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	for local_y in range(VoxelChunk.SIZE.y):
-		for local_z in range(VoxelChunk.SIZE.z):
-			for local_x in range(VoxelChunk.SIZE.x):
+	for local_y in range(CHUNK_SIZE.y):
+		for local_z in range(CHUNK_SIZE.z):
+			for local_x in range(CHUNK_SIZE.x):
 				var local_coord := Vector3i(local_x, local_y, local_z)
-				var block_id := chunk.get_block(local_coord)
-				if block_id == VoxelChunk.BLOCK_AIR:
+				var block_id: int = chunk.get_block(local_coord)
+				if block_id == BLOCK_AIR:
 					continue
 
 				_append_block_faces(surface_tool, local_coord, block_id)
@@ -65,13 +71,13 @@ static func create_material() -> StandardMaterial3D:
 
 static func _color_for_block(block_id: int) -> Color:
 	match block_id:
-		VoxelChunk.BLOCK_GRASS:
+		BLOCK_GRASS:
 			return Color(0.29, 0.62, 0.22)
-		VoxelChunk.BLOCK_DIRT:
+		BLOCK_DIRT:
 			return Color(0.42, 0.26, 0.14)
-		VoxelChunk.BLOCK_STONE:
+		BLOCK_STONE:
 			return Color(0.46, 0.48, 0.50)
-		VoxelChunk.BLOCK_SAND:
+		BLOCK_SAND:
 			return Color(0.78, 0.70, 0.45)
 		_:
 			return Color.WHITE
