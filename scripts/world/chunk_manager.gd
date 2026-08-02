@@ -142,6 +142,7 @@ func create_empty_chunk(chunk_coord: Vector3i) -> Node3D:
 		TERRAIN_HEIGHT_AMPLITUDE
 	)
 	BIOME_PROBE_SCRIPT.run(chunk)
+	chunk.rebuild_mesh()
 	register_chunk(chunk_coord, chunk)
 	return chunk
 
