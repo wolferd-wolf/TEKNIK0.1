@@ -2,9 +2,11 @@ extends Node3D
 class_name ChunkManager
 
 const VOXEL_CHUNK_SCRIPT := preload("res://scripts/world/chunk.gd")
+const BIOME_PROBE_SCRIPT := preload("res://scripts/world/biome_probe.gd")
 const CHUNK_SIZE := 16
 const CHUNK_DIMENSIONS := Vector3i(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
 const TERRAIN_SEED := 1701
+const BIOME_SEED := 2718
 const TERRAIN_BASE_HEIGHT := 8
 const TERRAIN_HEIGHT_AMPLITUDE := 6
 
@@ -15,10 +17,12 @@ var chunks: Dictionary = {}
 var last_center_chunk: Vector3i = Vector3i(2147483647, 2147483647, 2147483647)
 var _streaming_target: Node3D
 var _elevation_noise := FastNoiseLite.new()
+var _biome_noise := FastNoiseLite.new()
 
 
 func _ready() -> void:
 	_configure_elevation_noise()
+	_configure_biome_noise()
 	_streaming_target = get_node_or_null(streaming_target_path) as Node3D
 	if _streaming_target != null:
 		refresh_streaming(_streaming_target.global_position)
@@ -41,6 +45,16 @@ func _configure_elevation_noise() -> void:
 	_elevation_noise.fractal_octaves = 4
 	_elevation_noise.fractal_lacunarity = 2.0
 	_elevation_noise.fractal_gain = 0.5
+
+
+func _configure_biome_noise() -> void:
+	_biome_noise.seed = BIOME_SEED
+	_biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_biome_noise.frequency = 0.0035
+	_biome_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_biome_noise.fractal_octaves = 3
+	_biome_noise.fractal_lacunarity = 2.0
+	_biome_noise.fractal_gain = 0.5
 
 
 static func world_to_chunk_coord(world_position: Vector3) -> Vector3i:
@@ -121,11 +135,13 @@ func create_empty_chunk(chunk_coord: Vector3i) -> Node3D:
 
 	var chunk := VOXEL_CHUNK_SCRIPT.new()
 	chunk.configure(chunk_coord)
-	chunk.generate_elevation(
+	chunk.generate_terrain(
 		_elevation_noise,
+		_biome_noise,
 		TERRAIN_BASE_HEIGHT,
 		TERRAIN_HEIGHT_AMPLITUDE
 	)
+	BIOME_PROBE_SCRIPT.run(chunk)
 	register_chunk(chunk_coord, chunk)
 	return chunk
 
