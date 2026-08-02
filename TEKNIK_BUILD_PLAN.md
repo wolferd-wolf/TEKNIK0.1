@@ -7,6 +7,7 @@
 4. Commit message format: `[TEKNIK] step N: <short description>`
 5. If a step fails or you have to guess at a design decision, write the decision and why in a `## Decisions` section at the bottom of this file, and commit that update alongside the code.
 6. Stop at the end of step 5. Do not continue into mining, crafting, or mechanical systems even if there's time left — those are separate sessions.
+7. Target platform is Android. Desktop keyboard/mouse is a temporary testing harness only — do not hardcode movement or camera logic directly to keyboard/mouse. Abstract input behind an input layer (e.g. Godot's InputMap actions, not raw key checks) so touch controls can be swapped in later without rewriting the player controller. If you write `Input.is_key_pressed()` or similar hardcoded checks anywhere, that's a rule violation — use `Input.is_action_pressed("move_forward")` etc. and bind those actions to keyboard for now.
 
 ## Steps
 
