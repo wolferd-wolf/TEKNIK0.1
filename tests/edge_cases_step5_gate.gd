@@ -2,6 +2,7 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SCREENSHOT_PATH := "res://artifacts/edge-cases-step5.png"
+const CHUNK_SIZE := 16
 const BLOCK_AIR := 0
 const BLOCK_STONE := 3
 const BLOCK_SAND := 4
@@ -190,8 +191,8 @@ func _validate_player_overlap_rejection(manager, player) -> void:
 
 func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> void:
 	var center_chunk: Vector3i = manager.last_center_chunk
-	var edge_chunk_coord := center_chunk + Vector3i(manager.render_radius, 0, 0)
-	var outside_chunk_coord := edge_chunk_coord + Vector3i.RIGHT
+	var edge_chunk_coord: Vector3i = center_chunk + Vector3i(int(manager.render_radius), 0, 0)
+	var outside_chunk_coord: Vector3i = edge_chunk_coord + Vector3i.RIGHT
 	if not manager.has_chunk(edge_chunk_coord):
 		_fail("Render-radius edge chunk was not loaded: %s" % edge_chunk_coord)
 		return
@@ -199,7 +200,7 @@ func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> v
 		_fail("Outward chunk was unexpectedly loaded: %s" % outside_chunk_coord)
 		return
 
-	var target := edge_chunk_coord * manager.CHUNK_SIZE + Vector3i(manager.CHUNK_SIZE - 1, 4, 0)
+	var target: Vector3i = edge_chunk_coord * CHUNK_SIZE + Vector3i(CHUNK_SIZE - 1, 4, 0)
 	var edge_chunk = manager.get_chunk(edge_chunk_coord)
 	_clear_if_solid(manager, target)
 	if not manager.place_block_world(target, BLOCK_STONE):
