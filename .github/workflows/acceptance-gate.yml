@@ -66,6 +66,15 @@ jobs:
             --script res://tests/face_winding_diagnostic.gd \
             2>&1 | tee artifacts/face-winding-diagnostic.log
 
+      - name: Validate mining targeting and capture screenshot
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/mining_targeting_gate.gd \
+            2>&1 | tee artifacts/mining-targeting-step1.log
+
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
