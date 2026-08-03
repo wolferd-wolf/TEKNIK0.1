@@ -31,112 +31,31 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse project and launch headlessly
+      - name: Parse project
         run: |
           mkdir -p artifacts
           set -o pipefail
-          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-launch.log
+          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
-      - name: Create acceptance runner
-        run: |
-          cat > /tmp/acceptance_gate.gd <<'GDSCRIPT'
-          extends SceneTree
-
-          const MAIN_SCENE := "res://scenes/main.tscn"
-          const SCREENSHOT_PATH := "res://artifacts/acceptance-gate.png"
-
-          var failures: Array[String] = []
-
-          func _initialize() -> void:
-              call_deferred("_run_gate")
-
-          func _fail(message: String) -> void:
-              failures.append(message)
-              push_error(message)
-
-          func _wait_frames(count: int) -> void:
-              for _frame in range(count):
-                  await process_frame
-
-          func _run_gate() -> void:
-              var packed_scene := load(MAIN_SCENE) as PackedScene
-              if packed_scene == null:
-                  _fail("Main scene failed to load: %s" % MAIN_SCENE)
-                  quit(1)
-                  return
-
-              var main := packed_scene.instantiate()
-              root.add_child(main)
-              await _wait_frames(20)
-
-              var manager := main.get_node_or_null("ChunkManager")
-              var player := main.get_node_or_null("Player")
-              var camera := main.get_node_or_null("Player/Camera3D") as Camera3D
-              if manager == null:
-                  _fail("ChunkManager node is missing")
-              if player == null:
-                  _fail("Player node is missing")
-              if camera == null:
-                  _fail("Player camera is missing")
-              if not failures.is_empty():
-                  quit(1)
-                  return
-
-              var expected_count: int = manager.expected_chunk_count()
-              if manager.chunk_count() != expected_count:
-                  _fail("Initial chunk count mismatch: expected %d, got %d" % [expected_count, manager.chunk_count()])
-
-              var traversal_positions := [
-                  Vector3(0, 20, 0),
-                  Vector3(33, 20, 0),
-                  Vector3(-33, 20, 0),
-                  Vector3(0, 20, 33),
-                  Vector3(0, 20, -33),
-                  Vector3(0, 20, 0),
-              ]
-
-              for traversal_position in traversal_positions:
-                  player.global_position = traversal_position
-                  manager.refresh_streaming(traversal_position)
-                  await _wait_frames(8)
-                  if manager.chunk_count() != expected_count:
-                      _fail(
-                          "Traversal chunk count mismatch at %s: expected %d, got %d"
-                          % [traversal_position, expected_count, manager.chunk_count()]
-                      )
-                      break
-
-              player.global_position = Vector3(0, 18, 0)
-              camera.rotation_degrees.x = -25.0
-              manager.refresh_streaming(player.global_position)
-              await _wait_frames(20)
-              await RenderingServer.frame_post_draw
-
-              var image := root.get_texture().get_image()
-              if image == null or image.is_empty():
-                  _fail("Viewport screenshot capture returned an empty image")
-              else:
-                  var save_error := image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
-                  if save_error != OK:
-                      _fail("Screenshot save failed with error %d" % save_error)
-
-              if failures.is_empty():
-                  print("TEKNIK_ACCEPTANCE_GATE_PASS")
-                  print("TRAVERSAL_POSITIONS_TESTED=%d" % traversal_positions.size())
-                  print("EXPECTED_CHUNK_COUNT=%d" % expected_count)
-                  print("SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
-                  quit(0)
-              else:
-                  print("TEKNIK_ACCEPTANCE_GATE_FAIL")
-                  for failure in failures:
-                      print("FAILURE=%s" % failure)
-                  quit(1)
-          GDSCRIPT
-
-      - name: Run graphical gate, traversal, and screenshot
+      - name: Launch actual scene headlessly
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot --path . --script /tmp/acceptance_gate.gd 2>&1 | tee artifacts/acceptance-gate.log
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/acceptance_gate.gd \
+            -- --headless-only \
+            2>&1 | tee artifacts/headless-runtime.log
+
+      - name: Run graphical gates and capture screenshot
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/acceptance_gate.gd \
+            2>&1 | tee artifacts/acceptance-gate.log
 
       - name: Upload acceptance artifacts
         if: always()
