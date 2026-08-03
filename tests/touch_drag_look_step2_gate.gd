@@ -144,6 +144,7 @@ func _run_gate() -> void:
 	if active_look_vector.x < 0.69 or active_look_vector.y > -0.69:
 		_fail("Touch look vector did not reflect up-right drag: %s" % active_look_vector)
 
+	await process_frame
 	var yaw_after_up_right: float = player.rotation.y
 	var pitch_after_up_right: float = camera.rotation.x
 	if yaw_after_up_right >= baseline_yaw - 0.01:
@@ -165,6 +166,7 @@ func _run_gate() -> void:
 	_assert_action_pressed(LOOK_DOWN_ACTION, 0.69, "down-left drag down")
 	_assert_action_released(LOOK_RIGHT_ACTION, "down-left drag right")
 	_assert_action_released(LOOK_UP_ACTION, "down-left drag up")
+	await process_frame
 	if player.rotation.y <= yaw_after_up_right + 0.01:
 		_fail("Leftward touch drag did not reverse yaw direction")
 	if camera.rotation.x >= pitch_after_up_right - 0.01:
