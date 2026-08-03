@@ -3,6 +3,7 @@ extends SceneTree
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SCREENSHOT_PATH := "res://artifacts/placement-step3.png"
 const BLOCK_AIR := 0
+const BLOCK_STONE := 3
 
 var failures: Array[String] = []
 
@@ -49,6 +50,16 @@ func _run_gate() -> void:
 	if not failures.is_empty():
 		_finish()
 		return
+	if not player.has_method("get_inventory") or not player.has_method("select_inventory_slot"):
+		_fail("Player inventory placement API is missing")
+		_finish()
+		return
+
+	var inventory = player.get_inventory()
+	if not inventory.add_item(BLOCK_STONE, 2):
+		_fail("Failed to seed placement regression inventory")
+	if not player.select_inventory_slot(0):
+		_fail("Failed to select seeded placement slot")
 
 	player.set_physics_process(false)
 	player.set_process(true)
@@ -101,11 +112,9 @@ func _run_gate() -> void:
 	await _wait_frames(12)
 
 	var placed_block_id: int = manager.get_block_world(placement_coord)
-	if placed_block_id != player.active_placement_block_id:
-		_fail(
-			"place_block action wrote block id %d instead of active id %d"
-			% [placed_block_id, player.active_placement_block_id]
-		)
+	if placed_block_id != BLOCK_STONE:
+		_fail("place_block action wrote block id %d instead of stone ID 3" % placed_block_id)
+	_assert_slot(inventory.get_slot(0), BLOCK_STONE, 1, "placement regression slot after action")
 	if placement_chunk.mesh_instance.mesh == null:
 		_fail("Affected chunk mesh became null after placement")
 	elif placement_chunk.mesh_instance.mesh == mesh_before:
@@ -117,16 +126,20 @@ func _run_gate() -> void:
 
 	await _validate_placed_collision(player, placement_coord)
 
+	var inventory_before_occupied: Array[Dictionary] = inventory.get_slots()
 	if player.place_block_at(placement_coord):
 		_fail("Occupied placement coordinate accepted a second block")
 	if manager.get_block_world(placement_coord) != placed_block_id:
 		_fail("Occupied-placement rejection changed the existing block")
+	if inventory.get_slots() != inventory_before_occupied:
+		_fail("Occupied-placement rejection consumed inventory")
 
 	var overlap_coord := Vector3i(
 		floori(player.global_position.x),
 		floori(player.global_position.y + 0.5),
 		floori(player.global_position.z)
 	)
+	var inventory_before_overlap: Array[Dictionary] = inventory.get_slots()
 	if manager.get_block_world(overlap_coord) != BLOCK_AIR:
 		_fail("Player-overlap probe coordinate was unexpectedly solid: %s" % overlap_coord)
 	elif player.can_place_block_at(overlap_coord):
@@ -135,9 +148,11 @@ func _run_gate() -> void:
 		_fail("Capsule-overlapping block placement returned true: %s" % overlap_coord)
 	elif manager.get_block_world(overlap_coord) != BLOCK_AIR:
 		_fail("Capsule-overlap rejection still modified the world")
+	if inventory.get_slots() != inventory_before_overlap:
+		_fail("Capsule-overlap rejection consumed inventory")
 
 	var unloaded_coord := Vector3i(2048, 2048, 2048)
-	if manager.place_block_world(unloaded_coord, player.active_placement_block_id):
+	if manager.place_block_world(unloaded_coord, BLOCK_STONE):
 		_fail("Placement into an unloaded chunk returned true")
 
 	camera.global_position = Vector3(
@@ -158,6 +173,14 @@ func _run_gate() -> void:
 		print("PLACED_BLOCK_ID=%d" % placed_block_id)
 		print("PLAYER_OVERLAP_REJECTED=%s" % overlap_coord)
 	_finish()
+
+
+func _assert_slot(slot: Dictionary, expected_block_id: int, expected_count: int, context: String) -> void:
+	if slot.is_empty():
+		_fail("%s returned an empty slot dictionary" % context)
+		return
+	if int(slot.get("block_id", -1)) != expected_block_id or int(slot.get("count", -1)) != expected_count:
+		_fail("%s expected %d/%d, got %s" % [context, expected_block_id, expected_count, slot])
 
 
 func _validate_placed_collision(player, placement_coord: Vector3i) -> void:
