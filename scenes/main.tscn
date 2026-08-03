@@ -54,6 +54,9 @@ shape = SubResource("CapsuleShape3D_player")
 position = Vector3(0, 1.55, 0)
 current = true
 
+[node name="TargetHighlight" type="MeshInstance3D" parent="."]
+visible = false
+
 [node name="ChunkManager" type="Node3D" parent="."]
 script = ExtResource("1_chunk_manager")
 streaming_target_path = NodePath("../Player")
