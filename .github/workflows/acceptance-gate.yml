@@ -31,11 +31,11 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse project and launch headlessly
+      - name: Parse project
         run: |
           mkdir -p artifacts
           set -o pipefail
-          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-launch.log
+          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
       - name: Create acceptance runner
         run: |
@@ -58,11 +58,15 @@ jobs:
               for _frame in range(count):
                   await process_frame
 
+          func _wait_physics_frames(count: int) -> void:
+              for _frame in range(count):
+                  await physics_frame
+
           func _run_gate() -> void:
               var packed_scene := load(MAIN_SCENE) as PackedScene
               if packed_scene == null:
                   _fail("Main scene failed to load: %s" % MAIN_SCENE)
-                  quit(1)
+                  _finish()
                   return
 
               var main := packed_scene.instantiate()
@@ -70,17 +74,25 @@ jobs:
               await _wait_frames(20)
 
               var manager := main.get_node_or_null("ChunkManager")
-              var player := main.get_node_or_null("Player")
+              var player := main.get_node_or_null("Player") as CharacterBody3D
               var camera := main.get_node_or_null("Player/Camera3D") as Camera3D
+              var environment := main.get_node_or_null("WorldEnvironment") as WorldEnvironment
+              var sun := main.get_node_or_null("Sun") as DirectionalLight3D
               if manager == null:
                   _fail("ChunkManager node is missing")
               if player == null:
                   _fail("Player node is missing")
               if camera == null:
                   _fail("Player camera is missing")
+              if environment == null or environment.environment == null:
+                  _fail("WorldEnvironment is missing or unconfigured")
+              if sun == null:
+                  _fail("DirectionalLight3D sun is missing")
               if not failures.is_empty():
-                  quit(1)
+                  _finish()
                   return
+
+              print("HEADLESS_SCENE_LAUNCH_PASS")
 
               var expected_count: int = manager.expected_chunk_count()
               if manager.chunk_count() != expected_count:
@@ -94,7 +106,6 @@ jobs:
                   Vector3(0, 20, -33),
                   Vector3(0, 20, 0),
               ]
-
               for traversal_position in traversal_positions:
                   player.global_position = traversal_position
                   manager.refresh_streaming(traversal_position)
@@ -105,26 +116,121 @@ jobs:
                           % [traversal_position, expected_count, manager.chunk_count()]
                       )
                       break
+              if failures.is_empty():
+                  print("STEP_1_GATE_PASS")
 
-              player.global_position = Vector3(0, 18, 0)
-              camera.rotation_degrees.x = -25.0
-              manager.refresh_streaming(player.global_position)
-              await _wait_frames(20)
-              await RenderingServer.frame_post_draw
-
-              var image := root.get_texture().get_image()
-              if image == null or image.is_empty():
-                  _fail("Viewport screenshot capture returned an empty image")
+              var biome_samples: Dictionary = {}
+              for sample_x in range(-4096, 4097, 128):
+                  for sample_z in range(-4096, 4097, 128):
+                      var noise_value: float = manager._biome_noise.get_noise_2d(sample_x, sample_z)
+                      var biome_id := 0
+                      if noise_value < -0.25:
+                          biome_id = 2
+                      elif noise_value > 0.25:
+                          biome_id = 1
+                      if not biome_samples.has(biome_id):
+                          biome_samples[biome_id] = Vector2i(sample_x, sample_z)
+                      if biome_samples.size() == 3:
+                          break
+                  if biome_samples.size() == 3:
+                      break
+              if biome_samples.size() != 3:
+                  _fail("Biome noise scan found %d of 3 configured biomes" % biome_samples.size())
               else:
-                  var save_error := image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
-                  if save_error != OK:
-                      _fail("Screenshot save failed with error %d" % save_error)
+                  for expected_biome in biome_samples.keys():
+                      var sample_position: Vector2i = biome_samples[expected_biome]
+                      var world_position := Vector3(sample_position.x + 0.5, 20.0, sample_position.y + 0.5)
+                      manager.refresh_streaming(world_position)
+                      await _wait_frames(5)
+                      var center_coord = manager.world_to_chunk_coord(world_position)
+                      var sample_chunk = manager.get_chunk(center_coord)
+                      if sample_chunk == null:
+                          _fail("Biome sample chunk failed to load at %s" % center_coord)
+                          continue
+                      var local_column := Vector2i(posmod(sample_position.x, 16), posmod(sample_position.y, 16))
+                      var actual_biome: int = sample_chunk.get_biome(local_column)
+                      if actual_biome != int(expected_biome):
+                          _fail("Biome mismatch at %s: expected %d, got %d" % [sample_position, expected_biome, actual_biome])
+                  if failures.is_empty():
+                      print("STEP_2_GATE_PASS")
 
+              manager.refresh_streaming(Vector3(0.5, 20.0, 0.5))
+              await _wait_frames(8)
+              var terrain_chunk = manager.get_chunk(Vector3i(0, 0, 0))
+              if terrain_chunk == null:
+                  _fail("Terrain chunk (0, 0, 0) was unavailable for mesh validation")
+              else:
+                  if terrain_chunk.mesh_instance == null or terrain_chunk.mesh_instance.mesh == null:
+                      _fail("Terrain chunk render mesh is missing")
+                  elif terrain_chunk.mesh_instance.mesh.get_surface_count() == 0:
+                      _fail("Terrain chunk render mesh has no surfaces")
+                  if terrain_chunk.collision_shape == null or terrain_chunk.collision_shape.shape == null:
+                      _fail("Terrain chunk collision shape is missing")
+              if failures.is_empty():
+                  print("STEP_3_GATE_PASS")
+
+              player.global_position = Vector3(0.5, 15.0, 0.5)
+              player.velocity = Vector3.ZERO
+              manager.refresh_streaming(player.global_position)
+              var grounded := false
+              for _frame in range(180):
+                  await physics_frame
+                  if player.is_on_floor():
+                      grounded = true
+                      break
+              if not grounded:
+                  _fail("Player did not reach a grounded state within 180 physics frames")
+              else:
+                  var movement_start := player.global_position
+                  Input.action_press("move_forward", 1.0)
+                  await _wait_physics_frames(30)
+                  Input.action_release("move_forward")
+                  var horizontal_distance := Vector2(
+                      player.global_position.x - movement_start.x,
+                      player.global_position.z - movement_start.z
+                  ).length()
+                  if horizontal_distance < 0.5:
+                      _fail("Player movement action produced only %.3f units of horizontal travel" % horizontal_distance)
+                  Input.action_press("jump", 1.0)
+                  await physics_frame
+                  Input.action_release("jump")
+                  await physics_frame
+                  if player.velocity.y <= 0.0:
+                      _fail("Jump action did not produce positive vertical velocity")
+              if failures.is_empty():
+                  print("STEP_4_GATE_PASS")
+
+              if environment.environment.background_mode != Environment.BG_SKY:
+                  _fail("World environment is not using the configured sky background")
+              if not sun.shadow_enabled:
+                  _fail("Directional light shadows are disabled")
+              if failures.is_empty():
+                  print("STEP_5_GATE_PASS")
+
+              if not OS.get_cmdline_user_args().has("--skip-screenshot"):
+                  player.set_physics_process(false)
+                  player.set_process(false)
+                  player.global_position = Vector3(0.5, 18.0, 24.0)
+                  player.rotation = Vector3.ZERO
+                  camera.rotation_degrees.x = -22.0
+                  manager.refresh_streaming(player.global_position)
+                  await _wait_frames(20)
+                  await RenderingServer.frame_post_draw
+                  var image := root.get_texture().get_image()
+                  if image == null or image.is_empty():
+                      _fail("Viewport screenshot capture returned an empty image")
+                  else:
+                      var save_error := image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
+                      if save_error != OK:
+                          _fail("Screenshot save failed with error %d" % save_error)
+                      else:
+                          print("SCREENSHOT_PASS=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
+
+              _finish()
+
+          func _finish() -> void:
               if failures.is_empty():
                   print("TEKNIK_ACCEPTANCE_GATE_PASS")
-                  print("TRAVERSAL_POSITIONS_TESTED=%d" % traversal_positions.size())
-                  print("EXPECTED_CHUNK_COUNT=%d" % expected_count)
-                  print("SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
                   quit(0)
               else:
                   print("TEKNIK_ACCEPTANCE_GATE_FAIL")
@@ -133,10 +239,25 @@ jobs:
                   quit(1)
           GDSCRIPT
 
-      - name: Run graphical gate, traversal, and screenshot
+      - name: Launch actual scene headlessly and run gates
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot --path . --script /tmp/acceptance_gate.gd 2>&1 | tee artifacts/acceptance-gate.log
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script /tmp/acceptance_gate.gd \
+            -- --skip-screenshot \
+            2>&1 | tee artifacts/headless-runtime.log
+
+      - name: Run graphical gate and capture screenshot
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script /tmp/acceptance_gate.gd \
+            2>&1 | tee artifacts/acceptance-gate.log
 
       - name: Upload acceptance artifacts
         if: always()
