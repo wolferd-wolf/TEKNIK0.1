@@ -161,7 +161,7 @@ func _run_gate() -> void:
 
 
 func _validate_placed_collision(player, placement_coord: Vector3i) -> void:
-	var world_3d = player.get_world_3d()
+	var world_3d: World3D = player.get_world_3d()
 	if world_3d == null:
 		_fail("World3D was unavailable for placement collision ray")
 		return
@@ -174,7 +174,7 @@ func _validate_placed_collision(player, placement_coord: Vector3i) -> void:
 	query.exclude = [player.get_rid()]
 	query.collide_with_areas = false
 	query.collide_with_bodies = true
-	var hit := world_3d.direct_space_state.intersect_ray(query)
+	var hit: Dictionary = world_3d.direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		_fail("Placed block had no collision ray hit")
 		return
