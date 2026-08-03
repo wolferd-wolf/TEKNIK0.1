@@ -19,6 +19,7 @@ var _root: Control
 var _action_buttons: Dictionary = {}
 var _hotbar_buttons: Array[Button] = []
 var _pressed_actions: Dictionary = {}
+var _touch_actions: Dictionary = {}
 
 
 func _ready() -> void:
@@ -30,10 +31,33 @@ func _ready() -> void:
 		viewport.size_changed.connect(_update_layout)
 
 
+func _input(event: InputEvent) -> void:
+	if not event is InputEventScreenTouch:
+		return
+	var touch := event as InputEventScreenTouch
+	if touch.pressed:
+		if _touch_actions.has(touch.index):
+			return
+		var action := _action_at_position(touch.position)
+		if action == StringName():
+			return
+		_touch_actions[touch.index] = action
+		_press_action(action)
+		get_viewport().set_input_as_handled()
+	else:
+		var action: StringName = _touch_actions.get(touch.index, StringName())
+		if action == StringName():
+			return
+		_touch_actions.erase(touch.index)
+		_release_action(action)
+		get_viewport().set_input_as_handled()
+
+
 func _exit_tree() -> void:
 	for action in _pressed_actions.keys():
 		Input.action_release(action)
 	_pressed_actions.clear()
+	_touch_actions.clear()
 
 
 func get_action_button(button_name: StringName) -> Button:
@@ -100,6 +124,18 @@ func _label_for_action(action: StringName) -> String:
 			return "CRAFT"
 		_:
 			return String(action).to_upper()
+
+
+func _action_at_position(position: Vector2) -> StringName:
+	for button_name in ACTION_BUTTONS.keys():
+		var button := _action_buttons.get(String(button_name)) as Button
+		if button != null and button.is_visible_in_tree() and button.get_global_rect().has_point(position):
+			return ACTION_BUTTONS[button_name]
+	for slot_index in range(_hotbar_buttons.size()):
+		var hotbar_button := _hotbar_buttons[slot_index]
+		if hotbar_button.is_visible_in_tree() and hotbar_button.get_global_rect().has_point(position):
+			return StringName(HOTBAR_ACTION_PREFIX + str(slot_index + 1))
+	return StringName()
 
 
 func _press_action(action: StringName) -> void:
