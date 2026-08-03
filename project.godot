@@ -59,6 +59,22 @@ place_block={
 "deadzone": 0.2,
 "events": [Object(InputEventMouseButton,"button_index":2)]
 }
+select_block_1={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":49)]
+}
+select_block_2={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":50)]
+}
+select_block_3={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":51)]
+}
+select_block_4={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":52)]
+}
 
 [rendering]
 

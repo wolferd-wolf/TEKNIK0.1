@@ -123,6 +123,15 @@ jobs:
             --script res://tests/placement_step3_gate.gd \
             2>&1 | tee artifacts/placement-step3.log
 
+      - name: Validate palette selection, placement IDs, and indicator
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/palette_step4_gate.gd \
+            2>&1 | tee artifacts/palette-step4.log
+
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
