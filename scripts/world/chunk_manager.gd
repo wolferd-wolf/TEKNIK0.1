@@ -5,6 +5,9 @@ const VOXEL_CHUNK_SCRIPT := preload("res://scripts/world/chunk.gd")
 const BIOME_PROBE_SCRIPT := preload("res://scripts/world/biome_probe.gd")
 const CHUNK_SIZE := 16
 const CHUNK_DIMENSIONS := Vector3i(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
+const BLOCK_AIR := 0
+const MIN_PLACEABLE_BLOCK := 1
+const MAX_PLACEABLE_BLOCK := 4
 const TERRAIN_SEED := 1701
 const BIOME_SEED := 2718
 const TERRAIN_BASE_HEIGHT := 8
@@ -97,7 +100,7 @@ func get_block_world(world_block_coord: Vector3i) -> int:
 	)
 	var chunk := get_chunk(chunk_coord)
 	if not is_instance_valid(chunk):
-		return 0
+		return BLOCK_AIR
 	return chunk.get_block(world_to_local_coord(world_block_coord))
 
 
@@ -122,9 +125,17 @@ func set_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
 
 
 func mine_block_world(world_block_coord: Vector3i) -> bool:
-	if get_block_world(world_block_coord) == 0:
+	if get_block_world(world_block_coord) == BLOCK_AIR:
 		return false
-	return set_block_world(world_block_coord, 0)
+	return set_block_world(world_block_coord, BLOCK_AIR)
+
+
+func place_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
+	if block_id < MIN_PLACEABLE_BLOCK or block_id > MAX_PLACEABLE_BLOCK:
+		return false
+	if get_block_world(world_block_coord) != BLOCK_AIR:
+		return false
+	return set_block_world(world_block_coord, block_id)
 
 
 func _rebuild_boundary_neighbors(chunk_coord: Vector3i, local_coord: Vector3i) -> void:
