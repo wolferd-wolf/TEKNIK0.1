@@ -160,6 +160,15 @@ jobs:
             --script res://tests/inventory_placement_step3_gate.gd \
             2>&1 | tee artifacts/inventory-placement-step3.log
 
+      - name: Validate rendered hotbar contents and InputMap selection
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/inventory_hotbar_step4_gate.gd \
+            2>&1 | tee artifacts/inventory-hotbar-step4.log
+
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
