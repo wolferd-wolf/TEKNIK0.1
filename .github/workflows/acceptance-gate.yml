@@ -66,6 +66,15 @@ jobs:
             --script res://tests/biome_transition_diagnostic.gd \
             2>&1 | tee artifacts/biome-transition.log
 
+      - name: Distinguish missing geometry from shading
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/geometry_shading_diagnostic.gd \
+            2>&1 | tee artifacts/geometry-shading.log
+
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
