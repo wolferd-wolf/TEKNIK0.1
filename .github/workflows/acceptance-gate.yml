@@ -37,6 +37,20 @@ jobs:
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
+      - name: Validate empty remesh safety headlessly
+        run: |
+          set -o pipefail
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/null_mesh_remesh_gate.gd \
+            2>&1 | tee artifacts/null-mesh-remesh-gate.log
+          if grep -F 'Parameter "m" is null.' artifacts/null-mesh-remesh-gate.log; then
+            echo "Null mesh renderer error recurred during remesh stress"
+            exit 1
+          fi
+
       - name: Launch actual scene headlessly
         run: |
           set -o pipefail
@@ -47,6 +61,10 @@ jobs:
             --script res://tests/acceptance_gate.gd \
             -- --headless-only \
             2>&1 | tee artifacts/headless-runtime.log
+          if grep -F 'Parameter "m" is null.' artifacts/headless-runtime.log; then
+            echo "Null mesh renderer error recurred during scene launch or traversal"
+            exit 1
+          fi
 
       - name: Run graphical gates and capture screenshot
         run: |
@@ -74,6 +92,15 @@ jobs:
             --path . \
             --script res://tests/mining_targeting_gate.gd \
             2>&1 | tee artifacts/mining-targeting-step1.log
+
+      - name: Validate mining removal, collision, and boundary remesh
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/mining_step2_gate.gd \
+            2>&1 | tee artifacts/mining-step2.log
 
       - name: Upload acceptance artifacts
         if: always()
