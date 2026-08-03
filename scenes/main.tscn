@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/chunk_manager.gd" id="1_chunk_manager"]
-[ext_resource type="Script" path="res://scripts/player/first_person_controller.gd" id="2_player"]
+[ext_resource type="Script" path="res://scripts/player/inventory_first_person_controller.gd" id="2_player"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
