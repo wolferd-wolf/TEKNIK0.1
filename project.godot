@@ -51,6 +51,10 @@ look_down={
 "deadzone": 0.2,
 "events": []
 }
+mine_block={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"button_index":1)]
+}
 
 [rendering]
 

@@ -43,6 +43,8 @@ func _process(delta: float) -> void:
 	if not action_look.is_zero_approx():
 		apply_look_delta(action_look * action_look_speed * delta)
 	_update_block_target()
+	if Input.is_action_just_pressed("mine_block"):
+		mine_targeted_block()
 
 
 func apply_look_delta(look_delta: Vector2) -> void:
@@ -66,6 +68,18 @@ func get_block_target() -> Dictionary:
 
 func get_target_highlight() -> MeshInstance3D:
 	return _target_highlight
+
+
+func mine_targeted_block() -> bool:
+	if not _has_block_target or _chunk_manager == null:
+		return false
+
+	var mined_coord := _targeted_block_coord
+	if not _chunk_manager.mine_block_world(mined_coord):
+		return false
+
+	_clear_block_target()
+	return true
 
 
 func _configure_target_highlight() -> void:

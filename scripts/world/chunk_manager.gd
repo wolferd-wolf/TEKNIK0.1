@@ -101,6 +101,49 @@ func get_block_world(world_block_coord: Vector3i) -> int:
 	return chunk.get_block(world_to_local_coord(world_block_coord))
 
 
+func set_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
+	var chunk_coord := Vector3i(
+		floori(world_block_coord.x / float(CHUNK_SIZE)),
+		floori(world_block_coord.y / float(CHUNK_SIZE)),
+		floori(world_block_coord.z / float(CHUNK_SIZE))
+	)
+	var chunk := get_chunk(chunk_coord)
+	if not is_instance_valid(chunk):
+		return false
+
+	var local_coord := world_to_local_coord(world_block_coord)
+	if chunk.get_block(local_coord) == block_id:
+		return false
+
+	chunk.set_block(local_coord, block_id)
+	_rebuild_chunk(chunk_coord)
+	_rebuild_boundary_neighbors(chunk_coord, local_coord)
+	return true
+
+
+func mine_block_world(world_block_coord: Vector3i) -> bool:
+	if get_block_world(world_block_coord) == 0:
+		return false
+	return set_block_world(world_block_coord, 0)
+
+
+func _rebuild_boundary_neighbors(chunk_coord: Vector3i, local_coord: Vector3i) -> void:
+	if local_coord.x == 0:
+		_rebuild_chunk(chunk_coord + Vector3i.LEFT)
+	elif local_coord.x == CHUNK_SIZE - 1:
+		_rebuild_chunk(chunk_coord + Vector3i.RIGHT)
+
+	if local_coord.y == 0:
+		_rebuild_chunk(chunk_coord + Vector3i.DOWN)
+	elif local_coord.y == CHUNK_SIZE - 1:
+		_rebuild_chunk(chunk_coord + Vector3i.UP)
+
+	if local_coord.z == 0:
+		_rebuild_chunk(chunk_coord + Vector3i.FORWARD)
+	elif local_coord.z == CHUNK_SIZE - 1:
+		_rebuild_chunk(chunk_coord + Vector3i.BACK)
+
+
 func refresh_streaming(world_position: Vector3) -> void:
 	var center_chunk := world_to_chunk_coord(world_position)
 	var desired_chunks: Dictionary = {}
