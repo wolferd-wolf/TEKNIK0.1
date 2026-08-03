@@ -1,9 +1,11 @@
 extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
-const SCREENSHOT_PATH := "res://artifacts/unshaded-geometry.png"
+const CULLED_SCREENSHOT_PATH := "res://artifacts/unshaded-geometry.png"
+const DOUBLE_SIDED_SCREENSHOT_PATH := "res://artifacts/unshaded-double-sided.png"
 
 var failures: Array[String] = []
+var diagnostic_materials: Array[StandardMaterial3D] = []
 
 
 func _initialize() -> void:
@@ -18,6 +20,20 @@ func _wait_frames(count: int) -> void:
 func _fail(message: String) -> void:
 	failures.append(message)
 	push_error(message)
+
+
+func _capture(path: String, label: String) -> void:
+	await _wait_frames(10)
+	await RenderingServer.frame_post_draw
+	var image: Image = root.get_texture().get_image()
+	if image == null or image.is_empty():
+		_fail("%s screenshot was empty" % label)
+		return
+	var save_error: Error = image.save_png(ProjectSettings.globalize_path(path))
+	if save_error != OK:
+		_fail("%s screenshot failed with error %d" % [label, save_error])
+	else:
+		print("%s=%s" % [label, ProjectSettings.globalize_path(path)])
 
 
 func _run() -> void:
@@ -64,21 +80,15 @@ func _run() -> void:
 		var diagnostic_material := material.duplicate() as StandardMaterial3D
 		diagnostic_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		chunk.mesh_instance.material_override = diagnostic_material
+		diagnostic_materials.append(diagnostic_material)
 		chunk_count += 1
 
 	print("UNSHADED_CHUNKS=%d" % chunk_count)
-	await _wait_frames(10)
-	await RenderingServer.frame_post_draw
+	await _capture(CULLED_SCREENSHOT_PATH, "UNSHADED_GEOMETRY_SCREENSHOT")
 
-	var image: Image = root.get_texture().get_image()
-	if image == null or image.is_empty():
-		_fail("Unshaded geometry screenshot was empty")
-	else:
-		var save_error: Error = image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
-		if save_error != OK:
-			_fail("Unshaded screenshot failed with error %d" % save_error)
-		else:
-			print("UNSHADED_GEOMETRY_SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
+	for material in diagnostic_materials:
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	await _capture(DOUBLE_SIDED_SCREENSHOT_PATH, "DOUBLE_SIDED_GEOMETRY_SCREENSHOT")
 
 	_finish()
 
