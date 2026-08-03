@@ -209,17 +209,22 @@ func _test_player_controller(manager, player: CharacterBody3D, camera: Camera3D)
 	player.set_physics_process(true)
 	player.set_process(true)
 
-	var grounded := await _wait_until_grounded(player, 240)
+	var grounded := await _wait_until_stably_grounded(player, 3, 240)
 	if not grounded:
-		_fail("Player did not reach a grounded state within 240 physics frames")
+		_fail("Player did not remain grounded for three consecutive physics frames")
 		return
 
 	Input.action_release("jump")
 	await physics_frame
 	var jump_start_y := player.global_position.y
+	player.set_physics_process(false)
 	Input.action_press("jump", 1.0)
-	await _wait_physics_frames(2)
+	player.call("_physics_process", 1.0 / float(Engine.physics_ticks_per_second))
 	Input.action_release("jump")
+	player.set_physics_process(true)
+	if player.velocity.y <= 0.0:
+		_fail("Jump InputMap action did not produce upward controller velocity")
+		return
 	var rose_above_ground := await _wait_until_above_y(player, jump_start_y + 0.05, 12)
 	if not rose_above_ground:
 		_fail("Jump action did not raise the player above the grounded position")
@@ -259,6 +264,23 @@ func _wait_until_grounded(player: CharacterBody3D, frame_limit: int) -> bool:
 		await physics_frame
 		if player.is_on_floor():
 			return true
+	return false
+
+
+func _wait_until_stably_grounded(
+	player: CharacterBody3D,
+	required_consecutive_frames: int,
+	frame_limit: int
+) -> bool:
+	var consecutive_frames := 0
+	for _frame in range(frame_limit):
+		await physics_frame
+		if player.is_on_floor():
+			consecutive_frames += 1
+			if consecutive_frames >= required_consecutive_frames:
+				return true
+		else:
+			consecutive_frames = 0
 	return false
 
 
