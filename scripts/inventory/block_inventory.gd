@@ -172,6 +172,84 @@ func remove_from_slot(slot_index: int, count: int = 1) -> bool:
 	return true
 
 
+func craft_item(
+	input_block_id: int,
+	input_count: int,
+	output_block_id: int,
+	output_count: int
+) -> bool:
+	if (
+		input_block_id <= EMPTY_BLOCK_ID
+		or output_block_id <= EMPTY_BLOCK_ID
+		or input_count <= 0
+		or output_count <= 0
+	):
+		return false
+	if get_item_count(input_block_id) < input_count:
+		return false
+
+	var staged_slots: Array[Dictionary] = []
+	for slot in _slots:
+		staged_slots.append(slot.duplicate(true))
+	if not _remove_item_from_slots(staged_slots, input_block_id, input_count):
+		return false
+	if not _add_item_to_slots(staged_slots, output_block_id, output_count):
+		return false
+
+	_slots = staged_slots
+	changed.emit()
+	return true
+
+
+func _add_item_to_slots(slots: Array[Dictionary], block_id: int, count: int) -> bool:
+	var remaining := count
+	for slot_index in range(slots.size()):
+		var slot: Dictionary = slots[slot_index]
+		if int(slot["block_id"]) != block_id:
+			continue
+		var available := _max_stack_size - int(slot["count"])
+		if available <= 0:
+			continue
+		var added := mini(available, remaining)
+		slot["count"] = int(slot["count"]) + added
+		slots[slot_index] = slot
+		remaining -= added
+		if remaining == 0:
+			return true
+
+	for slot_index in range(slots.size()):
+		if int(slots[slot_index]["block_id"]) != EMPTY_BLOCK_ID:
+			continue
+		var added := mini(_max_stack_size, remaining)
+		slots[slot_index] = {
+			"block_id": block_id,
+			"count": added,
+		}
+		remaining -= added
+		if remaining == 0:
+			return true
+	return remaining == 0
+
+
+func _remove_item_from_slots(slots: Array[Dictionary], block_id: int, count: int) -> bool:
+	var remaining := count
+	for slot_index in range(slots.size() - 1, -1, -1):
+		var slot: Dictionary = slots[slot_index]
+		if int(slot["block_id"]) != block_id:
+			continue
+		var removed := mini(int(slot["count"]), remaining)
+		var new_count := int(slot["count"]) - removed
+		slots[slot_index] = (
+			_empty_slot()
+			if new_count == 0
+			else {"block_id": block_id, "count": new_count}
+		)
+		remaining -= removed
+		if remaining == 0:
+			return true
+	return remaining == 0
+
+
 func _available_capacity(block_id: int) -> int:
 	var capacity := 0
 	for slot in _slots:

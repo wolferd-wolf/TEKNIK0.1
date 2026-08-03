@@ -15,6 +15,10 @@ const HOTBAR_SLOT_ACTIONS := [
 	"select_hotbar_8",
 	"select_hotbar_9",
 ]
+const TEST_RECIPE_INPUT_BLOCK_ID := BLOCK_DIRT
+const TEST_RECIPE_INPUT_COUNT := 4
+const TEST_RECIPE_OUTPUT_BLOCK_ID := BLOCK_STONE
+const TEST_RECIPE_OUTPUT_COUNT := 1
 
 var _inventory: BlockInventory = BLOCK_INVENTORY_SCRIPT.new()
 var _selected_inventory_slot: int = 0
@@ -44,6 +48,8 @@ func _process(delta: float) -> void:
 		mine_targeted_block()
 	if Input.is_action_just_pressed("place_block"):
 		place_targeted_block()
+	if Input.is_action_just_pressed("craft_test_recipe"):
+		craft_test_recipe()
 
 
 func get_inventory() -> BlockInventory:
@@ -68,6 +74,15 @@ func select_inventory_slot(slot_index: int) -> bool:
 	_selected_inventory_slot = slot_index
 	_refresh_hotbar()
 	return true
+
+
+func craft_test_recipe() -> bool:
+	return _inventory.craft_item(
+		TEST_RECIPE_INPUT_BLOCK_ID,
+		TEST_RECIPE_INPUT_COUNT,
+		TEST_RECIPE_OUTPUT_BLOCK_ID,
+		TEST_RECIPE_OUTPUT_COUNT
+	)
 
 
 func mine_targeted_block() -> bool:
