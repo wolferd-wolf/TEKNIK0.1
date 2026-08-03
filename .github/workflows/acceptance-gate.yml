@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   acceptance-gate:
@@ -65,6 +66,65 @@ jobs:
             --path . \
             --script res://tests/face_winding_diagnostic.gd \
             2>&1 | tee artifacts/face-winding-diagnostic.log
+
+      - name: Verify automatic main push run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: 808a4ef0eb50a9ad61338fabaf31b43f4ca3c94e
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          merge_sha = os.environ["MERGE_SHA"]
+          url = (
+              "https://api.github.com/repos/wolferd-wolf/TEKNIK0.1/actions/runs"
+              f"?event=push&head_sha={merge_sha}&per_page=10"
+          )
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "TEKNIK-post-merge-verifier",
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              payload = json.load(response)
+
+          runs = [
+              run for run in payload.get("workflow_runs", [])
+              if run.get("head_sha") == merge_sha
+              and run.get("event") == "push"
+              and run.get("head_branch") == "main"
+          ]
+          if not runs:
+              raise SystemExit(f"No main push workflow run found for {merge_sha}")
+
+          run = max(runs, key=lambda item: item["id"])
+          result = {
+              "id": run["id"],
+              "run_number": run["run_number"],
+              "head_sha": run["head_sha"],
+              "head_branch": run["head_branch"],
+              "event": run["event"],
+              "status": run["status"],
+              "conclusion": run["conclusion"],
+              "html_url": run["html_url"],
+          }
+          print("POST_MERGE_MAIN_RUN=" + json.dumps(result, sort_keys=True))
+          with open("artifacts/post-merge-main-run.json", "w", encoding="utf-8") as handle:
+              json.dump(result, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+
+          if run["status"] != "completed" or run["conclusion"] != "success":
+              raise SystemExit(
+                  "Post-merge main run is not green: "
+                  f"status={run['status']} conclusion={run['conclusion']}"
+              )
+          PY
 
       - name: Upload acceptance artifacts
         if: always()
