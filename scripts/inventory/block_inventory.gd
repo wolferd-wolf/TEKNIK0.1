@@ -1,6 +1,8 @@
 extends RefCounted
 class_name BlockInventory
 
+signal changed
+
 const EMPTY_BLOCK_ID := 0
 const DEFAULT_SLOT_COUNT := 24
 const DEFAULT_MAX_STACK_SIZE := 64
@@ -101,6 +103,7 @@ func add_item(block_id: int, count: int = 1) -> bool:
 		_slots[slot_index] = slot
 		remaining -= added
 		if remaining == 0:
+			changed.emit()
 			return true
 
 	for slot_index in range(_slots.size()):
@@ -114,9 +117,13 @@ func add_item(block_id: int, count: int = 1) -> bool:
 		}
 		remaining -= added
 		if remaining == 0:
+			changed.emit()
 			return true
 
-	return remaining == 0
+	if remaining == 0:
+		changed.emit()
+		return true
+	return false
 
 
 func remove_item(block_id: int, count: int = 1) -> bool:
@@ -139,9 +146,13 @@ func remove_item(block_id: int, count: int = 1) -> bool:
 		)
 		remaining -= removed
 		if remaining == 0:
+			changed.emit()
 			return true
 
-	return remaining == 0
+	if remaining == 0:
+		changed.emit()
+		return true
+	return false
 
 
 func remove_from_slot(slot_index: int, count: int = 1) -> bool:
@@ -157,6 +168,7 @@ func remove_from_slot(slot_index: int, count: int = 1) -> bool:
 		if new_count == 0
 		else {"block_id": int(slot["block_id"]), "count": new_count}
 	)
+	changed.emit()
 	return true
 
 

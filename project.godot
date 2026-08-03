@@ -59,6 +59,50 @@ place_block={
 "deadzone": 0.2,
 "events": [Object(InputEventMouseButton,"button_index":2)]
 }
+select_hotbar_1={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":49)]
+}
+select_hotbar_2={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":50)]
+}
+select_hotbar_3={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":51)]
+}
+select_hotbar_4={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":52)]
+}
+select_hotbar_5={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":53)]
+}
+select_hotbar_6={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":54)]
+}
+select_hotbar_7={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":55)]
+}
+select_hotbar_8={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":56)]
+}
+select_hotbar_9={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":57)]
+}
+hotbar_previous={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"button_index":4)]
+}
+hotbar_next={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"button_index":5)]
+}
 
 [rendering]
 

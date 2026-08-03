@@ -2,15 +2,31 @@ extends "res://scripts/player/first_person_controller.gd"
 class_name InventoryFirstPersonController
 
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
+const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
+const HOTBAR_SLOT_COUNT := 9
+const HOTBAR_SLOT_ACTIONS := [
+	"select_hotbar_1",
+	"select_hotbar_2",
+	"select_hotbar_3",
+	"select_hotbar_4",
+	"select_hotbar_5",
+	"select_hotbar_6",
+	"select_hotbar_7",
+	"select_hotbar_8",
+	"select_hotbar_9",
+]
 
 var _inventory: BlockInventory = BLOCK_INVENTORY_SCRIPT.new()
 var _selected_inventory_slot: int = 0
+var _hotbar: InventoryHotbar
 
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_pitch_radians = camera.rotation.x
 	_configure_target_highlight()
+	_inventory.changed.connect(_refresh_hotbar)
+	call_deferred("_configure_hotbar")
 
 
 func _process(delta: float) -> void:
@@ -22,6 +38,7 @@ func _process(delta: float) -> void:
 	)
 	if not action_look.is_zero_approx():
 		apply_look_delta(action_look * action_look_speed * delta)
+	_update_hotbar_selection()
 	_update_block_target()
 	if Input.is_action_just_pressed("mine_block"):
 		mine_targeted_block()
@@ -31,6 +48,10 @@ func _process(delta: float) -> void:
 
 func get_inventory() -> BlockInventory:
 	return _inventory
+
+
+func get_hotbar() -> InventoryHotbar:
+	return _hotbar
 
 
 func get_selected_inventory_slot() -> int:
@@ -45,6 +66,7 @@ func select_inventory_slot(slot_index: int) -> bool:
 	if slot_index < 0 or slot_index >= _inventory.get_slot_count():
 		return false
 	_selected_inventory_slot = slot_index
+	_refresh_hotbar()
 	return true
 
 
@@ -92,3 +114,33 @@ func place_block_at(world_block_coord: Vector3i) -> bool:
 			push_error("Inventory placement rollback failed at %s" % world_block_coord)
 		return false
 	return true
+
+
+func _update_hotbar_selection() -> void:
+	for slot_index in range(HOTBAR_SLOT_COUNT):
+		if Input.is_action_just_pressed(HOTBAR_SLOT_ACTIONS[slot_index]):
+			select_inventory_slot(slot_index)
+			return
+
+	if Input.is_action_just_pressed("hotbar_next"):
+		select_inventory_slot(posmod(_selected_inventory_slot + 1, HOTBAR_SLOT_COUNT))
+	elif Input.is_action_just_pressed("hotbar_previous"):
+		select_inventory_slot(posmod(_selected_inventory_slot - 1, HOTBAR_SLOT_COUNT))
+
+
+func _configure_hotbar() -> void:
+	var main_root := get_parent()
+	if main_root == null:
+		return
+	_hotbar = main_root.get_node_or_null("InventoryHotbar") as InventoryHotbar
+	if _hotbar == null:
+		_hotbar = INVENTORY_HOTBAR_SCRIPT.new() as InventoryHotbar
+		_hotbar.name = "InventoryHotbar"
+		main_root.add_child(_hotbar)
+	_refresh_hotbar()
+
+
+func _refresh_hotbar() -> void:
+	if not is_instance_valid(_hotbar):
+		return
+	_hotbar.refresh(_inventory.get_slots(), _selected_inventory_slot)

@@ -55,6 +55,7 @@ var _has_block_target: bool = false
 var _targeted_block_coord: Vector3i = Vector3i.ZERO
 var _targeted_hit_face: Vector3i = Vector3i.ZERO
 var _palette_indicator: Label
+var _jump_action_was_pressed: bool = false
 
 
 func _ready() -> void:
@@ -369,10 +370,12 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, world_direction.x * walk_speed, acceleration * delta)
 	velocity.z = move_toward(velocity.z, world_direction.z * walk_speed, acceleration * delta)
 
+	var jump_action_pressed := Input.is_action_pressed("jump")
 	if is_on_floor():
-		if Input.is_action_just_pressed("jump"):
+		if jump_action_pressed and not _jump_action_was_pressed:
 			velocity.y = jump_velocity
 	else:
 		velocity.y -= gravity * delta
+	_jump_action_was_pressed = jump_action_pressed
 
 	move_and_slide()
