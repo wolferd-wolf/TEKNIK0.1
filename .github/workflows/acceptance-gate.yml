@@ -37,6 +37,36 @@ jobs:
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
+      - name: Validate empty remesh runtime window headlessly
+        run: |
+          set -o pipefail
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/null_mesh_remesh_gate.gd \
+            2>&1 | tee artifacts/null-mesh-remesh-gate.log
+          awk '/NULL_MESH_REMESH_GATE_PASS/{exit} {print}' artifacts/null-mesh-remesh-gate.log > artifacts/null-mesh-remesh-runtime-window.log
+          if grep -F 'Parameter "m" is null.' artifacts/null-mesh-remesh-runtime-window.log; then
+            echo "Null mesh renderer error occurred during remesh cycles"
+            exit 1
+          fi
+
+      - name: Validate boundary remesh spread headlessly
+        run: |
+          set -o pipefail
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/boundary_remesh_spread_gate.gd \
+            2>&1 | tee artifacts/boundary-remesh-spread.log
+          awk '/BOUNDARY_REMESH_SPREAD_GATE_PASS/{exit} {print}' artifacts/boundary-remesh-spread.log > artifacts/boundary-remesh-spread-runtime-window.log
+          if grep -F 'Parameter "m" is null.' artifacts/boundary-remesh-spread-runtime-window.log; then
+            echo "Null mesh renderer error occurred during boundary remesh spread"
+            exit 1
+          fi
+
       - name: Launch actual scene headlessly
         run: |
           set -o pipefail
@@ -65,6 +95,51 @@ jobs:
             --path . \
             --script res://tests/face_winding_diagnostic.gd \
             2>&1 | tee artifacts/face-winding-diagnostic.log
+
+      - name: Validate mining targeting and capture screenshot
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/mining_targeting_gate.gd \
+            2>&1 | tee artifacts/mining-targeting-step1.log
+
+      - name: Validate mining removal, collision, and boundary remesh
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/mining_step2_gate.gd \
+            2>&1 | tee artifacts/mining-step2.log
+
+      - name: Validate placement, collision, and player overlap rejection
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/placement_step3_gate.gd \
+            2>&1 | tee artifacts/placement-step3.log
+
+      - name: Validate palette selection, placement IDs, and indicator
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/palette_step4_gate.gd \
+            2>&1 | tee artifacts/palette-step4.log
+
+      - name: Validate final mining and placement edge cases
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/edge_cases_step5_gate.gd \
+            2>&1 | tee artifacts/edge-cases-step5.log
 
       - name: Upload acceptance artifacts
         if: always()
