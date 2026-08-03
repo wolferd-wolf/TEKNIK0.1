@@ -2,7 +2,36 @@ extends CharacterBody3D
 class_name FirstPersonController
 
 const BLOCK_AIR := 0
+const BLOCK_GRASS := 1
+const BLOCK_DIRT := 2
 const BLOCK_STONE := 3
+const BLOCK_SAND := 4
+const PALETTE_ENTRIES := [
+	{
+		"slot": 1,
+		"action": "select_block_1",
+		"block_id": BLOCK_STONE,
+		"name": "Stone",
+	},
+	{
+		"slot": 2,
+		"action": "select_block_2",
+		"block_id": BLOCK_DIRT,
+		"name": "Dirt",
+	},
+	{
+		"slot": 3,
+		"action": "select_block_3",
+		"block_id": BLOCK_GRASS,
+		"name": "Grass",
+	},
+	{
+		"slot": 4,
+		"action": "select_block_4",
+		"block_id": BLOCK_SAND,
+		"name": "Sand",
+	},
+]
 
 @export var walk_speed: float = 6.0
 @export var ground_acceleration: float = 28.0
@@ -25,12 +54,15 @@ var _pitch_radians: float = 0.0
 var _has_block_target: bool = false
 var _targeted_block_coord: Vector3i = Vector3i.ZERO
 var _targeted_hit_face: Vector3i = Vector3i.ZERO
+var _palette_indicator: Label
 
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_pitch_radians = camera.rotation.x
 	_configure_target_highlight()
+	_configure_palette_indicator()
+	_update_palette_indicator()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -47,6 +79,7 @@ func _process(delta: float) -> void:
 	)
 	if not action_look.is_zero_approx():
 		apply_look_delta(action_look * action_look_speed * delta)
+	_update_palette_selection()
 	_update_block_target()
 	if Input.is_action_just_pressed("mine_block"):
 		mine_targeted_block()
@@ -75,6 +108,27 @@ func get_block_target() -> Dictionary:
 
 func get_target_highlight() -> MeshInstance3D:
 	return _target_highlight
+
+
+func get_palette_indicator() -> Label:
+	return _palette_indicator
+
+
+func get_active_placement_block_name() -> String:
+	for entry in PALETTE_ENTRIES:
+		if entry["block_id"] == active_placement_block_id:
+			return entry["name"]
+	return "Unknown"
+
+
+func select_placement_slot(slot: int) -> bool:
+	for entry in PALETTE_ENTRIES:
+		if entry["slot"] != slot:
+			continue
+		active_placement_block_id = entry["block_id"]
+		_update_palette_indicator()
+		return true
+	return false
 
 
 func mine_targeted_block() -> bool:
@@ -165,6 +219,64 @@ static func _interval_distance(
 	if second_max < first_min:
 		return first_min - second_max
 	return 0.0
+
+
+func _update_palette_selection() -> void:
+	for entry in PALETTE_ENTRIES:
+		if Input.is_action_just_pressed(entry["action"]):
+			select_placement_slot(entry["slot"])
+			return
+
+
+func _configure_palette_indicator() -> void:
+	var main_root := get_parent()
+	if main_root == null:
+		return
+
+	var palette_layer := main_root.get_node_or_null("PaletteUI") as CanvasLayer
+	if palette_layer == null:
+		palette_layer = CanvasLayer.new()
+		palette_layer.name = "PaletteUI"
+		palette_layer.layer = 10
+		main_root.add_child(palette_layer)
+
+	var palette_panel := palette_layer.get_node_or_null("PalettePanel") as PanelContainer
+	if palette_panel == null:
+		palette_panel = PanelContainer.new()
+		palette_panel.name = "PalettePanel"
+		palette_panel.offset_left = 16.0
+		palette_panel.offset_top = 16.0
+		palette_panel.offset_right = 564.0
+		palette_panel.offset_bottom = 66.0
+		palette_layer.add_child(palette_panel)
+
+	_palette_indicator = palette_panel.get_node_or_null("PaletteIndicator") as Label
+	if _palette_indicator == null:
+		_palette_indicator = Label.new()
+		_palette_indicator.name = "PaletteIndicator"
+		_palette_indicator.custom_minimum_size = Vector2(532.0, 42.0)
+		_palette_indicator.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_palette_indicator.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_palette_indicator.add_theme_font_size_override("font_size", 20)
+		_palette_indicator.add_theme_color_override("font_color", Color.WHITE)
+		_palette_indicator.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+		_palette_indicator.add_theme_constant_override("shadow_offset_x", 2)
+		_palette_indicator.add_theme_constant_override("shadow_offset_y", 2)
+		palette_panel.add_child(_palette_indicator)
+
+
+func _update_palette_indicator() -> void:
+	if not is_instance_valid(_palette_indicator):
+		return
+
+	var parts: PackedStringArray = PackedStringArray()
+	for entry in PALETTE_ENTRIES:
+		var block_name: String = entry["name"]
+		if entry["block_id"] == active_placement_block_id:
+			parts.append("[%d] %s" % [entry["slot"], block_name.to_upper()])
+		else:
+			parts.append("%d %s" % [entry["slot"], block_name])
+	_palette_indicator.text = "Placement: " + "   ".join(parts)
 
 
 func _configure_target_highlight() -> void:
