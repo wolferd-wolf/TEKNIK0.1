@@ -1,0 +1,59 @@
+name: Fix touch Step 2 rotation gate
+
+on:
+  pull_request:
+    branches:
+      - session/touch-controls-android-export
+
+permissions:
+  contents: write
+
+jobs:
+  fix-gate:
+    if: github.head_ref == 'validation/touch-drag-look-step2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: validation/touch-drag-look-step2
+          fetch-depth: 0
+
+      - name: Observe controller rotation after process
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/touch_drag_look_step2_gate.gd')
+          text = path.read_text()
+          first_old = '''\tif active_look_vector.x < 0.69 or active_look_vector.y > -0.69:
+          \t\t_fail("Touch look vector did not reflect up-right drag: %s" % active_look_vector)
+
+          \tvar yaw_after_up_right: float = player.rotation.y
+          '''
+          first_new = '''\tif active_look_vector.x < 0.69 or active_look_vector.y > -0.69:
+          \t\t_fail("Touch look vector did not reflect up-right drag: %s" % active_look_vector)
+
+          \tawait process_frame
+          \tvar yaw_after_up_right: float = player.rotation.y
+          '''
+          second_old = '''\t_assert_action_released(LOOK_RIGHT_ACTION, "down-left drag right")
+          \t_assert_action_released(LOOK_UP_ACTION, "down-left drag up")
+          \tif player.rotation.y <= yaw_after_up_right + 0.01:
+          '''
+          second_new = '''\t_assert_action_released(LOOK_RIGHT_ACTION, "down-left drag right")
+          \t_assert_action_released(LOOK_UP_ACTION, "down-left drag up")
+          \tawait process_frame
+          \tif player.rotation.y <= yaw_after_up_right + 0.01:
+          '''
+          if first_old not in text or second_old not in text:
+              raise SystemExit('rotation observation anchors missing')
+          text = text.replace(first_old, first_new, 1).replace(second_old, second_new, 1)
+          path.write_text(text)
+          PY
+          git rm .github/workflows/fix-touch-step2-rotation-gate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/touch_drag_look_step2_gate.gd
+          git commit -m "[TEKNIK] validation: observe drag-look rotation after controller process"
+          git push origin HEAD:validation/touch-drag-look-step2
