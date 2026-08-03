@@ -1,0 +1,54 @@
+name: Patch touch Step 2 gate
+
+on:
+  pull_request:
+    branches:
+      - session/touch-controls-android-export
+
+permissions:
+  contents: write
+
+jobs:
+  patch-gate:
+    if: github.head_ref == 'validation/touch-drag-look-step2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: validation/touch-drag-look-step2
+          fetch-depth: 0
+
+      - name: Add Step 2 gate and remove helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/acceptance-gate.yml')
+          text = path.read_text()
+          anchor = '''      - name: Upload acceptance artifacts
+          if: always()
+          uses: actions/upload-artifact@v4
+          '''
+          block = '''      - name: Validate right-side drag-look simulated touch InputMap states
+          run: |
+            set -o pipefail
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \\
+              --audio-driver Dummy \\
+              --path . \\
+              --script res://tests/touch_drag_look_step2_gate.gd \\
+              2>&1 | tee artifacts/touch-drag-look-step2.log
+
+          '''
+          if 'touch_drag_look_step2_gate.gd' not in text:
+              if anchor not in text:
+                  raise SystemExit('acceptance workflow insertion anchor missing')
+              text = text.replace(anchor, block + anchor, 1)
+              path.write_text(text)
+          PY
+          git rm .github/workflows/patch-touch-step2-gate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/acceptance-gate.yml
+          git commit -m "[TEKNIK] validation: run drag-look acceptance gate"
+          git push origin HEAD:validation/touch-drag-look-step2
