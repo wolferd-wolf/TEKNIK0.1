@@ -52,6 +52,21 @@ jobs:
             exit 1
           fi
 
+      - name: Validate boundary remesh spread headlessly
+        run: |
+          set -o pipefail
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/boundary_remesh_spread_gate.gd \
+            2>&1 | tee artifacts/boundary-remesh-spread.log
+          awk '/BOUNDARY_REMESH_SPREAD_GATE_PASS/{exit} {print}' artifacts/boundary-remesh-spread.log > artifacts/boundary-remesh-spread-runtime-window.log
+          if grep -F 'Parameter "m" is null.' artifacts/boundary-remesh-spread-runtime-window.log; then
+            echo "Null mesh renderer error occurred during boundary remesh spread"
+            exit 1
+          fi
+
       - name: Launch actual scene headlessly
         run: |
           set -o pipefail
@@ -98,6 +113,15 @@ jobs:
             --path . \
             --script res://tests/mining_step2_gate.gd \
             2>&1 | tee artifacts/mining-step2.log
+
+      - name: Validate placement, collision, and player overlap rejection
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/placement_step3_gate.gd \
+            2>&1 | tee artifacts/placement-step3.log
 
       - name: Upload acceptance artifacts
         if: always()
