@@ -103,6 +103,10 @@ hotbar_next={
 "deadzone": 0.2,
 "events": [Object(InputEventMouseButton,"button_index":5)]
 }
+craft_test_recipe={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":67)]
+}
 
 [rendering]
 
