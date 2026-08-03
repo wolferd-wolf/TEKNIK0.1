@@ -70,12 +70,18 @@ func generate_terrain(
 func rebuild_mesh(world_block_lookup: Callable) -> void:
 	_ensure_render_nodes()
 	var chunk_mesh: ArrayMesh = CHUNK_MESHER_SCRIPT.build_mesh(self, world_block_lookup)
+
+	collision_shape.shape = null
+	if chunk_mesh == null:
+		mesh_instance.visible = false
+		return
+
 	mesh_instance.mesh = chunk_mesh
+	mesh_instance.visible = true
 	if mesh_instance.material_override == null:
 		mesh_instance.material_override = CHUNK_MESHER_SCRIPT.create_material()
 
-	collision_shape.shape = null
-	if chunk_mesh != null and chunk_mesh.get_surface_count() > 0:
+	if chunk_mesh.get_surface_count() > 0:
 		collision_shape.shape = chunk_mesh.create_trimesh_shape()
 
 
@@ -83,6 +89,7 @@ func _ensure_render_nodes() -> void:
 	if not is_instance_valid(mesh_instance):
 		mesh_instance = MeshInstance3D.new()
 		mesh_instance.name = "ChunkMesh"
+		mesh_instance.visible = false
 		add_child(mesh_instance)
 	if not is_instance_valid(collision_body):
 		collision_body = StaticBody3D.new()
