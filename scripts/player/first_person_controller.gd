@@ -6,6 +6,44 @@ class_name FirstPersonController
 @export var air_acceleration: float = 8.0
 @export var jump_velocity: float = 7.0
 @export var gravity: float = 20.0
+@export var look_sensitivity: float = 0.0025
+@export var action_look_speed: float = 2.2
+@export var pitch_limit_degrees: float = 89.0
+
+@onready var camera: Camera3D = $Camera3D
+
+var _pitch_radians: float = 0.0
+
+
+func _ready() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_pitch_radians = camera.rotation.x
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		apply_look_delta(event.relative * look_sensitivity)
+
+
+func _process(delta: float) -> void:
+	var action_look := Input.get_vector(
+		"look_left",
+		"look_right",
+		"look_up",
+		"look_down"
+	)
+	if not action_look.is_zero_approx():
+		apply_look_delta(action_look * action_look_speed * delta)
+
+
+func apply_look_delta(look_delta: Vector2) -> void:
+	rotate_y(-look_delta.x)
+	_pitch_radians = clampf(
+		_pitch_radians - look_delta.y,
+		deg_to_rad(-pitch_limit_degrees),
+		deg_to_rad(pitch_limit_degrees)
+	)
+	camera.rotation.x = _pitch_radians
 
 
 func _physics_process(delta: float) -> void:
