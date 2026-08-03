@@ -1,0 +1,61 @@
+name: Fix touch Step 2 reverse baseline
+
+on:
+  pull_request:
+    branches:
+      - session/touch-controls-android-export
+
+permissions:
+  contents: write
+
+jobs:
+  fix-gate:
+    if: github.head_ref == 'validation/touch-drag-look-step2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: validation/touch-drag-look-step2
+          fetch-depth: 0
+
+      - name: Compare reverse drag against immediate baseline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/touch_drag_look_step2_gate.gd')
+          text = path.read_text()
+          old = '''\tif int(touch_controls.get_active_look_touch_index()) != 22:
+          \t\t_fail("Drag-look touch stopped being tracked after its action pulse")
+
+          \tvar down_left_relative := Vector2(-64.0, 64.0)
+          '''
+          new = '''\tif int(touch_controls.get_active_look_touch_index()) != 22:
+          \t\t_fail("Drag-look touch stopped being tracked after its action pulse")
+
+          \tvar yaw_before_down_left: float = player.rotation.y
+          \tvar pitch_before_down_left: float = camera.rotation.x
+          \tvar down_left_relative := Vector2(-64.0, 64.0)
+          '''
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              'if player.rotation.y <= yaw_after_up_right + 0.01:',
+              'if player.rotation.y <= yaw_before_down_left + 0.01:',
+              1,
+          )
+          text = text.replace(
+              'if camera.rotation.x >= pitch_after_up_right - 0.01:',
+              'if camera.rotation.x >= pitch_before_down_left - 0.01:',
+              1,
+          )
+          if text == path.read_text():
+              raise SystemExit('reverse baseline anchors missing')
+          path.write_text(text)
+          PY
+          git rm .github/workflows/fix-touch-step2-reverse-baseline.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/touch_drag_look_step2_gate.gd
+          git commit -m "[TEKNIK] validation: compare reverse drag from immediate camera state"
+          git push origin HEAD:validation/touch-drag-look-step2
