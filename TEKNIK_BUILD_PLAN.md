@@ -90,3 +90,24 @@ Commit log in order, plus Actions run status. No prose summary in place of the c
 - Step 5 validation design: The final gate uses an isolated two-block cross-chunk pair at `(15, 20, 0)` and `(16, 20, 0)`. Mining the first block must clear its chunk collision, replace the neighbor mesh and collision, and expose the neighbor from 30 to 36 vertices. Placing sand back must restore both chunks to 30 vertices with valid, replaced collision resources and correct physics-ray hits.
 - Step 5 render-edge safety: The gate mines `(47, 20, 0)` through the actual `mine_block` InputMap action while its outward chunk `(3, 1, 0)` is unloaded, then performs 16 additional place/mine cycles. The outward chunk must remain unloaded, the loaded chunk count must remain stable, and the edge chunk must alternate cleanly between valid render/collision and empty state without a crash.
 - Step 5 gate: The first run `30804500497` was rejected because the new test script had an ambiguous inferred vector type; no production code was changed. After explicit `Vector3i` typing, Actions run `30804784558` passed the full inherited suite, the Step 4 four-coordinate placement-ID regression, exact boundary mesh/collision replacement, physics-ray verification, capsule-overlap rejection at `(8, 20, 4)`, actual render-edge InputMap mining, 16 unloaded-neighbor stress cycles, screenshot capture, and crash checks. Artifact `8852342031` has digest `sha256:51d16efdd7d3d4781ea5ec0ef1115adab8444ac45ad2197098b45bd2396cb371`.
+
+## Session: Inventory and Crafting
+
+### Rules (in addition to all prior session rules)
+1. GDScript only, one step per commit, screenshot/crash gate before marking any step complete, no Android export this session.
+2. This session modifies existing systems from the Mining and Placement session — mining currently discards blocks, placement currently uses a hardcoded palette. Both get rewired to use real inventory. Do not leave the old discard/hardcoded-palette behavior running in parallel with the new system — replace it.
+3. No crafting recipes beyond a single simple test recipe this session (e.g. 4 dirt → 1 stone, or similar placeholder) — full recipe design is a later session. The goal is a working crafting mechanism, not a complete recipe list.
+4. No hotbar/inventory art polish — placeholder text/shapes for slots are fine.
+
+### Steps
+1. Inventory data structure: a fixed-size slot array (e.g. 20-30 slots) storing block ID + stack count per slot. Add/remove/query methods. No UI yet — verify via test assertions reading the data structure directly.
+2. Wire mining into inventory: mined blocks add to inventory (existing stacking logic if a matching ID/space exists, new slot otherwise). If inventory is full, define and test the fallback (block is lost, or mining is blocked — pick one and state which).
+3. Wire placement into inventory: placement consumes one item from the currently selected inventory slot instead of the old 4-key hardcoded palette. Placement fails safely if the selected slot is empty.
+4. Minimal UI: on-screen hotbar showing slot contents (block type + count) and current selection, using placeholder shapes/text — no art pass. Selection via number keys or scroll, via InputMap actions.
+5. Single test crafting recipe: one simple recipe (e.g. 4 dirt → 1 stone) triggered by a dedicated crafting action, consuming inputs from inventory and producing output into inventory. Verify insufficient-ingredients case fails safely.
+
+### Definition of done
+Player mines a block, sees it appear in the hotbar with correct count, places it back out of inventory (stack decrements, empties correctly at 0), and can trigger the one test recipe when they have enough ingredients, with correct consumption and output.
+
+### Report format
+Commit log in order, plus Actions run status for each step. No prose summary in place of the commit log.
