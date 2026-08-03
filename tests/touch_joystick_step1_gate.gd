@@ -101,6 +101,8 @@ func _run_gate() -> void:
 	_assert_action_pressed(MOVE_RIGHT_ACTION, 0.65, "up-right drag right")
 	_assert_action_released(MOVE_LEFT_ACTION, "up-right drag left")
 	_assert_action_released(MOVE_BACKWARD_ACTION, "up-right drag backward")
+	var up_right_forward_strength := Input.get_action_strength(MOVE_FORWARD_ACTION)
+	var up_right_right_strength := Input.get_action_strength(MOVE_RIGHT_ACTION)
 	var up_right_vector := Input.get_vector(
 		MOVE_LEFT_ACTION,
 		MOVE_RIGHT_ACTION,
@@ -143,8 +145,8 @@ func _run_gate() -> void:
 		print("TOUCH_JOYSTICK_STEP_1_GATE_PASS")
 		print("TOUCH_JOYSTICK_RENDERED_RECT=%s" % base_rect)
 		print("TOUCH_JOYSTICK_UP_RIGHT=move_forward+move_right strengths %.3f/%.3f" % [
-			Input.get_action_strength(MOVE_FORWARD_ACTION),
-			Input.get_action_strength(MOVE_RIGHT_ACTION),
+			up_right_forward_strength,
+			up_right_right_strength,
 		])
 		print("TOUCH_JOYSTICK_SIMULATION=InputEventScreenTouch+InputEventScreenDrag through Input.parse_input_event")
 		print("TOUCH_JOYSTICK_RELEASE=all four movement InputMap actions released")
