@@ -79,6 +79,8 @@ func _run_gate() -> void:
 	player.set_physics_process(false)
 	_release_all_actions()
 	await _wait_frames(2)
+	if Input.emulate_mouse_from_touch:
+		_fail("Touch-to-mouse emulation is enabled, allowing touch drags to bleed into mouse-look")
 
 	var viewport_rect := Rect2(Vector2.ZERO, Vector2(1280.0, 720.0))
 	var look_hint := touch_controls.get_look_hint() as PanelContainer
@@ -176,6 +178,17 @@ func _run_gate() -> void:
 	_assert_all_actions_released(LOOK_ACTIONS, "right-side touch release")
 	_assert_hint_border(look_hint, 2, "released look hint")
 
+	var mouse_yaw_before: float = player.rotation.y
+	var mouse_pitch_before: float = camera.rotation.x
+	await _simulate_mouse_motion(Vector2(40.0, -24.0))
+	var mouse_yaw_after: float = player.rotation.y
+	var mouse_pitch_after: float = camera.rotation.x
+	if mouse_yaw_after >= mouse_yaw_before - 0.05:
+		_fail("Physical-style mouse motion no longer rotates yaw: %.5f -> %.5f" % [mouse_yaw_before, mouse_yaw_after])
+	if mouse_pitch_after <= mouse_pitch_before + 0.03:
+		_fail("Physical-style mouse motion no longer rotates pitch: %.5f -> %.5f" % [mouse_pitch_before, mouse_pitch_after])
+	_assert_all_actions_released(LOOK_ACTIONS, "physical mouse direct-look path")
+
 	var pitch_limit_degrees: float = float(player.get("pitch_limit_degrees"))
 	var pitch_limit_radians: float = deg_to_rad(pitch_limit_degrees)
 	var clamp_touch := Vector2(1000.0, 260.0)
@@ -227,6 +240,12 @@ func _run_gate() -> void:
 			lower_clamped_pitch,
 		])
 		print("TOUCH_DRAG_LOOK_BOUNDARY=left joystick drag left look actions and camera unchanged; right look drag left movement actions unchanged")
+		print("TOUCH_DRAG_LOOK_MOUSE_ISOLATION=touch-to-mouse emulation disabled; physical mouse yaw %.5f->%.5f pitch %.5f->%.5f" % [
+			mouse_yaw_before,
+			mouse_yaw_after,
+			mouse_pitch_before,
+			mouse_pitch_after,
+		])
 		print("TOUCH_DRAG_LOOK_RELEASE=look action pulse released while touch ownership remained until touch-up")
 		print("TOUCH_DRAG_LOOK_SIMULATION=InputEventScreenTouch+InputEventScreenDrag through Input.parse_input_event")
 		print("TOUCH_DRAG_LOOK_DEVICE_SCOPE=desktop touch simulation; real Android deferred")
@@ -260,6 +279,15 @@ func _simulate_drag(index: int, position: Vector2, relative: Vector2) -> void:
 	event.pressure = 1.0
 	Input.parse_input_event(event)
 	await process_frame
+
+
+func _simulate_mouse_motion(relative: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.device = 0
+	event.relative = relative
+	event.velocity = relative * 60.0
+	Input.parse_input_event(event)
+	await _wait_frames(2)
 
 
 func _assert_action_pressed(action: StringName, minimum_strength: float, context: String) -> void:
