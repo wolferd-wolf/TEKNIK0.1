@@ -37,6 +37,16 @@ jobs:
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
+      - name: Diagnose null mesh remesh path
+        run: |
+          set -o pipefail
+          timeout 120 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/null_mesh_remesh_diagnostic.gd \
+            2>&1 | tee artifacts/null-mesh-remesh-diagnostic.log
+
       - name: Launch actual scene headlessly
         run: |
           set -o pipefail
