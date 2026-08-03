@@ -55,6 +55,10 @@ mine_block={
 "deadzone": 0.2,
 "events": [Object(InputEventMouseButton,"button_index":1)]
 }
+place_block={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"button_index":2)]
+}
 
 [rendering]
 
