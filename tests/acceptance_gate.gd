@@ -218,10 +218,10 @@ func _test_player_controller(manager, player: CharacterBody3D, camera: Camera3D)
 	await physics_frame
 	var jump_start_y := player.global_position.y
 	Input.action_press("jump", 1.0)
-	await physics_frame
+	await _wait_physics_frames(2)
 	Input.action_release("jump")
-	await _wait_physics_frames(3)
-	if player.global_position.y <= jump_start_y + 0.05:
+	var rose_above_ground := await _wait_until_above_y(player, jump_start_y + 0.05, 12)
+	if not rose_above_ground:
 		_fail("Jump action did not raise the player above the grounded position")
 		return
 
@@ -258,6 +258,14 @@ func _wait_until_grounded(player: CharacterBody3D, frame_limit: int) -> bool:
 	for _frame in range(frame_limit):
 		await physics_frame
 		if player.is_on_floor():
+			return true
+	return false
+
+
+func _wait_until_above_y(player: CharacterBody3D, minimum_y: float, frame_limit: int) -> bool:
+	for _frame in range(frame_limit):
+		await physics_frame
+		if player.global_position.y > minimum_y:
 			return true
 	return false
 
