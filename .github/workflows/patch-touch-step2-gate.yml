@@ -26,20 +26,17 @@ jobs:
 
           path = Path('.github/workflows/acceptance-gate.yml')
           text = path.read_text()
-          anchor = '''      - name: Upload acceptance artifacts
-          if: always()
-          uses: actions/upload-artifact@v4
-          '''
-          block = '''      - name: Validate right-side drag-look simulated touch InputMap states
-          run: |
-            set -o pipefail
-            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \\
-              --audio-driver Dummy \\
-              --path . \\
-              --script res://tests/touch_drag_look_step2_gate.gd \\
-              2>&1 | tee artifacts/touch-drag-look-step2.log
-
-          '''
+          anchor = "      - name: Upload acceptance artifacts\n"
+          block = (
+              "      - name: Validate right-side drag-look simulated touch InputMap states\n"
+              "        run: |\n"
+              "          set -o pipefail\n"
+              "          timeout 300 xvfb-run -a -s \"-screen 0 1280x720x24\" /tmp/godot/godot \\\n"
+              "            --audio-driver Dummy \\\n"
+              "            --path . \\\n"
+              "            --script res://tests/touch_drag_look_step2_gate.gd \\\n"
+              "            2>&1 | tee artifacts/touch-drag-look-step2.log\n\n"
+          )
           if 'touch_drag_look_step2_gate.gd' not in text:
               if anchor not in text:
                   raise SystemExit('acceptance workflow insertion anchor missing')
