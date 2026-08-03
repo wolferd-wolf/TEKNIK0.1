@@ -134,3 +134,23 @@ Commit log in order, plus Actions run status for each step. No prose summary in 
 - Step 5 transaction semantics: Crafting duplicates all 24 slots, removes recipe inputs from the staged copy, inserts the output using normal matching-stack-first rules, and commits only when both operations complete. Insufficient ingredients or output capacity returns `false`, emits no inventory change signal, and preserves every slot exactly.
 - Step 5 rejected gate: Actions run `30826752770` was rejected because the new test script had two ambiguous inferred integer types. Production scripts parsed and every inherited gate passed; adding explicit `int` annotations corrected only the gate script and did not change recipe behavior.
 - Step 5 gate: Actions run `30827021640` passed the complete inherited suite plus the actual crafting-action gate. With 3 dirt, pressing `craft_test_recipe` left all 24 slots and rendered hotbar text unchanged. With 4 dirt and a 63-stone stack, the same action consumed dirt `4->0`, canonicalized its slot to air/0, stacked stone `63->64`, left slots 2-23 unchanged, refreshed the rendered hotbar, captured a valid 1280x720 screenshot, and completed without a crash. Artifact `8861353266` has digest `sha256:41019da1eb60107ea58b59012420b62462cf0750704fb2cd749ccb04e6e0025a`.
+
+## Session: Touch Controls and Android Export
+
+### Rules (in addition to all prior session rules)
+1. GDScript only, one step per commit, screenshot/crash gate before marking any step complete.
+2. All existing gameplay (movement, mining, placement, hotbar, crafting) already routes through InputMap actions — do not rewrite that logic. This session adds a touch input source that drives the same InputMap actions, alongside keyboard/mouse, not instead of it. Desktop testing must keep working after this session.
+3. This is the first Android export attempt for this project. Expect and report real friction honestly — do not silently work around export failures.
+
+### Steps
+1. Virtual joystick (left side of screen): touch-drag emits the same move_forward/back/left/right actions as WASD currently does. Test via simulated touch input, not just visual placement.
+2. Drag-look (right side of screen): touch-drag emits the same look input as mouse-look currently does, including the existing pitch clamp. Test via simulated touch input.
+3. Touch buttons: jump, mine, place, craft — each fires the exact same InputMap action as its current keyboard/mouse binding. Hotbar slot selection (0-8) as tappable on-screen buttons, replacing/supplementing number-key input.
+4. Android export setup: Android export template, debug keystore signing, correct ARM64 target, minimum API level appropriate for the "mid-range Android phone" target from the original design doc. Report the exact export settings used.
+5. Export the APK from this session's completed branch (after steps 1-4 are gated and merged). Confirm it installs and launches on a real device if you have any way to verify that, or state plainly if you cannot and this needs manual verification on Akila's end.
+
+### Definition of done
+An APK that installs on Android, shows the touch joystick and buttons on screen, and allows walking, looking, mining, placing, hotbar selection, and crafting entirely via touch, with no keyboard/mouse required.
+
+### Report format
+Commit log in order, plus Actions run status for each step. State plainly which parts (if any) could only be verified via desktop touch-simulation and not on a real device, since that gap matters before Akila installs it.
