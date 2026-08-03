@@ -151,6 +151,15 @@ jobs:
             --script res://tests/inventory_step1_gate.gd \
             2>&1 | tee artifacts/inventory-step1.log
 
+      - name: Validate inventory-backed mining and full-inventory fallback
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/inventory_mining_step2_gate.gd \
+            2>&1 | tee artifacts/inventory-mining-step2.log
+
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
