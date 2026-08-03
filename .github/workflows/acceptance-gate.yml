@@ -37,16 +37,6 @@ jobs:
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
-      - name: Diagnose generic dummy mesh teardown
-        run: |
-          set -o pipefail
-          timeout 120 /tmp/godot/godot \
-            --headless \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/dummy_mesh_teardown_diagnostic.gd \
-            2>&1 | tee artifacts/dummy-mesh-teardown-diagnostic.log
-
       - name: Validate empty remesh runtime window headlessly
         run: |
           set -o pipefail
