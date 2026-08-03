@@ -40,7 +40,6 @@ func configure(coord: Vector3i) -> void:
 	biomes.fill(BIOME_PLAINS)
 	vegetation_density.resize(SIZE.x * SIZE.z)
 	vegetation_density.fill(PLAINS_VEGETATION_DENSITY)
-	_ensure_render_nodes()
 
 
 func generate_terrain(
@@ -68,36 +67,41 @@ func generate_terrain(
 
 
 func rebuild_mesh(world_block_lookup: Callable) -> void:
-	_ensure_render_nodes()
 	var chunk_mesh: ArrayMesh = CHUNK_MESHER_SCRIPT.build_mesh(self, world_block_lookup)
-
-	collision_shape.shape = null
 	if chunk_mesh == null:
-		mesh_instance.visible = false
+		if is_instance_valid(mesh_instance):
+			mesh_instance.visible = false
+		if is_instance_valid(collision_shape):
+			collision_shape.shape = null
 		return
 
+	var chunk_collision := chunk_mesh.create_trimesh_shape()
+	_ensure_render_nodes(chunk_mesh, chunk_collision)
 	mesh_instance.mesh = chunk_mesh
 	mesh_instance.visible = true
-	if mesh_instance.material_override == null:
-		mesh_instance.material_override = CHUNK_MESHER_SCRIPT.create_material()
-
-	if chunk_mesh.get_surface_count() > 0:
-		collision_shape.shape = chunk_mesh.create_trimesh_shape()
+	collision_shape.shape = chunk_collision
 
 
-func _ensure_render_nodes() -> void:
+func _ensure_render_nodes(initial_mesh: ArrayMesh, initial_collision: Shape3D) -> void:
 	if not is_instance_valid(mesh_instance):
 		mesh_instance = MeshInstance3D.new()
 		mesh_instance.name = "ChunkMesh"
-		mesh_instance.visible = false
+		mesh_instance.mesh = initial_mesh
+		mesh_instance.material_override = CHUNK_MESHER_SCRIPT.create_material()
+		mesh_instance.visible = true
 		add_child(mesh_instance)
+	elif mesh_instance.material_override == null:
+		mesh_instance.material_override = CHUNK_MESHER_SCRIPT.create_material()
+
 	if not is_instance_valid(collision_body):
 		collision_body = StaticBody3D.new()
 		collision_body.name = "ChunkCollision"
 		add_child(collision_body)
+
 	if not is_instance_valid(collision_shape):
 		collision_shape = CollisionShape3D.new()
 		collision_shape.name = "CollisionShape3D"
+		collision_shape.shape = initial_collision
 		collision_body.add_child(collision_shape)
 
 
