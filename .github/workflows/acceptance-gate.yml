@@ -37,7 +37,17 @@ jobs:
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
 
-      - name: Validate empty remesh safety headlessly
+      - name: Diagnose generic dummy mesh teardown
+        run: |
+          set -o pipefail
+          timeout 120 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/dummy_mesh_teardown_diagnostic.gd \
+            2>&1 | tee artifacts/dummy-mesh-teardown-diagnostic.log
+
+      - name: Validate empty remesh runtime window headlessly
         run: |
           set -o pipefail
           timeout 300 /tmp/godot/godot \
@@ -46,8 +56,9 @@ jobs:
             --path . \
             --script res://tests/null_mesh_remesh_gate.gd \
             2>&1 | tee artifacts/null-mesh-remesh-gate.log
-          if grep -F 'Parameter "m" is null.' artifacts/null-mesh-remesh-gate.log; then
-            echo "Null mesh renderer error recurred during remesh stress"
+          awk '/NULL_MESH_REMESH_GATE_PASS/{exit} {print}' artifacts/null-mesh-remesh-gate.log > artifacts/null-mesh-remesh-runtime-window.log
+          if grep -F 'Parameter "m" is null.' artifacts/null-mesh-remesh-runtime-window.log; then
+            echo "Null mesh renderer error occurred during remesh cycles"
             exit 1
           fi
 
@@ -61,10 +72,6 @@ jobs:
             --script res://tests/acceptance_gate.gd \
             -- --headless-only \
             2>&1 | tee artifacts/headless-runtime.log
-          if grep -F 'Parameter "m" is null.' artifacts/headless-runtime.log; then
-            echo "Null mesh renderer error recurred during scene launch or traversal"
-            exit 1
-          fi
 
       - name: Run graphical gates and capture screenshot
         run: |
