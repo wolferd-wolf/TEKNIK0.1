@@ -1,0 +1,1 @@
+Temporary validation base for the face-winding and horizon visual gate.
