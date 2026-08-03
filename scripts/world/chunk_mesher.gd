@@ -40,6 +40,7 @@ const FACE_VERTICES := [
 static func build_mesh(chunk, world_block_lookup: Callable) -> ArrayMesh:
 	var surface_tool := SurfaceTool.new()
 	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var visible_face_count := 0
 
 	for local_y in range(CHUNK_SIZE.y):
 		for local_z in range(CHUNK_SIZE.z):
@@ -49,8 +50,16 @@ static func build_mesh(chunk, world_block_lookup: Callable) -> ArrayMesh:
 				if block_id == BLOCK_AIR:
 					continue
 
-				_append_visible_faces(surface_tool, chunk, local_coord, block_id, world_block_lookup)
+				visible_face_count += _append_visible_faces(
+					surface_tool,
+					chunk,
+					local_coord,
+					block_id,
+					world_block_lookup
+				)
 
+	if visible_face_count == 0:
+		return null
 	return surface_tool.commit()
 
 
@@ -60,9 +69,10 @@ static func _append_visible_faces(
 	local_coord: Vector3i,
 	block_id: int,
 	world_block_lookup: Callable
-) -> void:
+) -> int:
 	var origin := Vector3(local_coord)
 	var color := _color_for_block(block_id)
+	var emitted_faces := 0
 
 	for face_index in range(FACE_VERTICES.size()):
 		var neighbor_local: Vector3i = local_coord + FACE_DIRECTIONS[face_index]
@@ -76,12 +86,15 @@ static func _append_visible_faces(
 		if neighbor_block != BLOCK_AIR:
 			continue
 
+		emitted_faces += 1
 		var face_vertices: Array = FACE_VERTICES[face_index]
 		var normal: Vector3 = FACE_NORMALS[face_index]
 		for vertex_index in TRIANGLE_INDICES:
 			surface_tool.set_normal(normal)
 			surface_tool.set_color(color)
 			surface_tool.add_vertex(origin + face_vertices[vertex_index])
+
+	return emitted_faces
 
 
 static func create_material() -> StandardMaterial3D:
