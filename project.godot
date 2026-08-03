@@ -111,6 +111,7 @@ craft_test_recipe={
 [input_devices]
 
 ; Touch controls emit explicit InputMap actions; physical mouse input remains independent.
+; Disabling emulation prevents joystick/look touches from entering the mouse-look path.
 pointing/emulate_mouse_from_touch=false
 
 [rendering]
