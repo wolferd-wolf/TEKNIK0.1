@@ -51,6 +51,10 @@ func _run_gate() -> void:
 	if not failures.is_empty():
 		_finish()
 		return
+	if not player.has_method("get_inventory") or not player.has_method("select_inventory_slot"):
+		_fail("Inventory placement API is missing from edge-case player")
+		_finish()
+		return
 
 	player.set_physics_process(false)
 	player.set_process(true)
@@ -133,17 +137,22 @@ func _validate_boundary_mining_and_placement(manager, player) -> void:
 	_assert_collision_ray(player, neighbor, true, "boundary neighbor after mine")
 
 	player.global_position = Vector3(8.5, 20.0, 4.5)
-	if not player.select_placement_slot(4):
-		_fail("Failed to select sand for boundary placement")
-	if player.active_placement_block_id != BLOCK_SAND:
-		_fail("Boundary placement palette did not select sand ID 4")
+	var inventory = player.get_inventory()
+	if not inventory.add_item(BLOCK_SAND, 1):
+		_fail("Failed to seed sand for boundary inventory placement")
+		return
+	var sand_slot: int = inventory.find_first_slot(BLOCK_SAND)
+	if sand_slot < 0 or not player.select_inventory_slot(sand_slot):
+		_fail("Failed to select seeded sand inventory slot")
+		return
 	if not player.place_block_at(target):
-		_fail("Boundary placement returned false at %s" % target)
+		_fail("Boundary inventory placement returned false at %s" % target)
 		return
 	await _wait_frames(6)
 
 	if manager.get_block_world(target) != BLOCK_SAND:
 		_fail("Boundary placement wrote ID %d instead of sand ID 4" % manager.get_block_world(target))
+	_assert_slot(inventory.get_slot(sand_slot), BLOCK_AIR, 0, "boundary sand slot after placement")
 	if not target_chunk.mesh_instance.visible:
 		_fail("Boundary target chunk remained hidden after placement")
 	var target_mesh_after_place: ArrayMesh = target_chunk.mesh_instance.mesh as ArrayMesh
@@ -170,7 +179,7 @@ func _validate_boundary_mining_and_placement(manager, player) -> void:
 
 	_assert_collision_ray(player, target, true, "placed boundary target")
 	_assert_collision_ray(player, neighbor, true, "boundary neighbor after placement")
-	boundary_summary = "%s<->%s mine 30->air/36, place sand 30/30" % [target, neighbor]
+	boundary_summary = "%s<->%s mine 30->air/36, inventory-place sand 30/30" % [target, neighbor]
 
 
 func _validate_player_overlap_rejection(manager, player) -> void:
@@ -180,13 +189,24 @@ func _validate_player_overlap_rejection(manager, player) -> void:
 	if manager.get_block_world(overlap_coord) != BLOCK_AIR:
 		_fail("Player-overlap coordinate could not be cleared: %s" % overlap_coord)
 		return
+	var inventory = player.get_inventory()
+	if not inventory.add_item(BLOCK_SAND, 1):
+		_fail("Failed to seed sand for overlap rejection")
+		return
+	var sand_slot: int = inventory.find_first_slot(BLOCK_SAND)
+	if sand_slot < 0 or not player.select_inventory_slot(sand_slot):
+		_fail("Failed to select sand for overlap rejection")
+		return
+	var inventory_before: Array[Dictionary] = inventory.get_slots()
 	if player.can_place_block_at(overlap_coord):
 		_fail("Capsule-overlapping coordinate was reported placeable: %s" % overlap_coord)
 	if player.place_block_at(overlap_coord):
 		_fail("Capsule-overlapping placement returned true: %s" % overlap_coord)
 	if manager.get_block_world(overlap_coord) != BLOCK_AIR:
 		_fail("Capsule-overlap rejection still modified the world")
-	overlap_summary = "%s rejected and remained air" % overlap_coord
+	if inventory.get_slots() != inventory_before:
+		_fail("Capsule-overlap rejection consumed inventory")
+	overlap_summary = "%s rejected, remained air, and retained sand" % overlap_coord
 
 
 func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> void:
@@ -269,6 +289,14 @@ func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> v
 		EDGE_STRESS_CYCLES,
 		outside_chunk_coord,
 	]
+
+
+func _assert_slot(slot: Dictionary, expected_block_id: int, expected_count: int, context: String) -> void:
+	if slot.is_empty():
+		_fail("%s returned an empty slot dictionary" % context)
+		return
+	if int(slot.get("block_id", -1)) != expected_block_id or int(slot.get("count", -1)) != expected_count:
+		_fail("%s expected %d/%d, got %s" % [context, expected_block_id, expected_count, slot])
 
 
 func _chunk_has_render_and_collision(chunk, context: String) -> bool:
