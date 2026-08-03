@@ -51,7 +51,10 @@ static func build_mesh(chunk, world_block_lookup: Callable) -> ArrayMesh:
 
 				_append_visible_faces(surface_tool, chunk, local_coord, block_id, world_block_lookup)
 
-	return surface_tool.commit()
+	var committed_mesh := surface_tool.commit()
+	if committed_mesh == null:
+		return ArrayMesh.new()
+	return committed_mesh
 
 
 static func _append_visible_faces(
