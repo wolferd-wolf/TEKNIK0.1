@@ -35,18 +35,21 @@ func _biome_at(manager, point: Vector2i) -> int:
 
 func _find_nearest_desert_edge(manager) -> Array[Vector2i]:
 	var best_pair: Array[Vector2i] = []
-	var best_distance_squared := 9223372036854775807
-	var coarse_step := 32
-	var directions := [Vector2i(coarse_step, 0), Vector2i(0, coarse_step)]
+	var best_distance_squared: int = 9223372036854775807
+	var coarse_step: int = 32
+	var directions: Array[Vector2i] = [
+		Vector2i(coarse_step, 0),
+		Vector2i(0, coarse_step),
+	]
 
 	for sample_x in range(-2048, 2049, coarse_step):
 		for sample_z in range(-2048, 2049, coarse_step):
-			var start := Vector2i(sample_x, sample_z)
-			var start_biome := _biome_at(manager, start)
-			for direction in directions:
-				var finish := start + direction
-				var finish_biome := _biome_at(manager, finish)
-				var crosses_desert := (
+			var start: Vector2i = Vector2i(sample_x, sample_z)
+			var start_biome: int = _biome_at(manager, start)
+			for direction: Vector2i in directions:
+				var finish: Vector2i = start + direction
+				var finish_biome: int = _biome_at(manager, finish)
+				var crosses_desert: bool = (
 					start_biome == BIOME_DESERT and finish_biome != BIOME_DESERT
 				) or (
 					start_biome != BIOME_DESERT and finish_biome == BIOME_DESERT
@@ -54,18 +57,18 @@ func _find_nearest_desert_edge(manager) -> Array[Vector2i]:
 				if not crosses_desert:
 					continue
 
-				var previous := start
-				var previous_biome := start_biome
-				var unit_direction := Vector2i(signi(direction.x), signi(direction.y))
+				var previous: Vector2i = start
+				var previous_biome: int = start_biome
+				var unit_direction: Vector2i = Vector2i(signi(direction.x), signi(direction.y))
 				for offset in range(1, coarse_step + 1):
-					var current := start + unit_direction * offset
-					var current_biome := _biome_at(manager, current)
+					var current: Vector2i = start + unit_direction * offset
+					var current_biome: int = _biome_at(manager, current)
 					if current_biome != previous_biome:
-						var midpoint := Vector2(
+						var edge_midpoint: Vector2 = Vector2(
 							(previous.x + current.x) * 0.5,
 							(previous.y + current.y) * 0.5
 						)
-						var distance_squared := int(midpoint.length_squared())
+						var distance_squared: int = int(edge_midpoint.length_squared())
 						if distance_squared < best_distance_squared:
 							best_distance_squared = distance_squared
 							best_pair = [previous, current]
@@ -85,19 +88,19 @@ func _surface_block(manager, point: Vector2i) -> int:
 
 
 func _run() -> void:
-	var packed_scene := load(MAIN_SCENE) as PackedScene
+	var packed_scene: PackedScene = load(MAIN_SCENE) as PackedScene
 	if packed_scene == null:
 		_fail("Main scene failed to load")
 		_finish()
 		return
 
-	var main := packed_scene.instantiate()
+	var main: Node = packed_scene.instantiate()
 	root.add_child(main)
 	await _wait_frames(20)
 
-	var manager := main.get_node_or_null("ChunkManager")
-	var player := main.get_node_or_null("Player") as CharacterBody3D
-	var camera := main.get_node_or_null("Player/Camera3D") as Camera3D
+	var manager: Node = main.get_node_or_null("ChunkManager")
+	var player: CharacterBody3D = main.get_node_or_null("Player") as CharacterBody3D
+	var camera: Camera3D = main.get_node_or_null("Player/Camera3D") as Camera3D
 	if manager == null or player == null or camera == null:
 		_fail("Required scene nodes are missing")
 		_finish()
@@ -106,7 +109,7 @@ func _run() -> void:
 	player.set_physics_process(false)
 	player.set_process(false)
 
-	var edge := _find_nearest_desert_edge(manager)
+	var edge: Array[Vector2i] = _find_nearest_desert_edge(manager)
 	if edge.size() != 2:
 		_fail("No desert/non-desert transition found in diagnostic search area")
 		_finish()
@@ -114,7 +117,7 @@ func _run() -> void:
 
 	var point_a: Vector2i = edge[0]
 	var point_b: Vector2i = edge[1]
-	var midpoint := Vector2i(
+	var midpoint: Vector2i = Vector2i(
 		floori((point_a.x + point_b.x) * 0.5),
 		floori((point_a.y + point_b.y) * 0.5)
 	)
@@ -123,19 +126,19 @@ func _run() -> void:
 	manager.refresh_streaming(player.global_position)
 	await _wait_frames(20)
 
-	var biome_a := _biome_at(manager, point_a)
-	var biome_b := _biome_at(manager, point_b)
-	var block_a := _surface_block(manager, point_a)
-	var block_b := _surface_block(manager, point_b)
+	var biome_a: int = _biome_at(manager, point_a)
+	var biome_b: int = _biome_at(manager, point_b)
+	var block_a: int = _surface_block(manager, point_a)
+	var block_b: int = _surface_block(manager, point_b)
 
-	var counts := {
+	var counts: Dictionary = {
 		BIOME_PLAINS: 0,
 		BIOME_FOREST: 0,
 		BIOME_DESERT: 0,
 	}
 	for offset_x in range(-32, 33):
 		for offset_z in range(-32, 33):
-			var biome_id := _biome_at(manager, midpoint + Vector2i(offset_x, offset_z))
+			var biome_id: int = _biome_at(manager, midpoint + Vector2i(offset_x, offset_z))
 			counts[biome_id] = int(counts[biome_id]) + 1
 
 	print("TRANSITION_A=%s BIOME=%d SURFACE_BLOCK=%d" % [point_a, biome_a, block_a])
@@ -151,11 +154,11 @@ func _run() -> void:
 	await _wait_frames(30)
 	await RenderingServer.frame_post_draw
 
-	var image := root.get_texture().get_image()
+	var image: Image = root.get_texture().get_image()
 	if image == null or image.is_empty():
 		_fail("Biome transition screenshot was empty")
 	else:
-		var save_error := image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
+		var save_error: Error = image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
 		if save_error != OK:
 			_fail("Biome transition screenshot failed with error %d" % save_error)
 		else:
