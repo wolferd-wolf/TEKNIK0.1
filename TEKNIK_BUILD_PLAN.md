@@ -50,3 +50,25 @@ When done, list the commits (hash + message) in order. Do not summarize in prose
 - Hour 9: Choose static lighting plus a fixed procedural sky instead of a day/night cycle. A single `DirectionalLight3D` and `WorldEnvironment` avoid per-frame sun rotation, time-state logic, dynamic atmosphere transitions, and additional mobile validation risk while still making terrain readable on the Android-focused GL Compatibility baseline.
 - Hour 9: Keep the sky procedural but static, use low sky radiance resolution, modest ambient energy, and a bounded directional-shadow distance. These settings reduce unnecessary atmosphere and shadow cost while preserving depth cues across the current chunk radius.
 - Hour 9 blocker: Step 5 is statically implemented, but no verified Godot runtime render, screenshot artifact, lighting inspection, or crash-check evidence exists. No `[TEKNIK] step 5` completion commit is created until that gate passes.
+
+## Session: Mining and Placement
+
+### Rules (in addition to all prior session rules — GDScript only, one step per commit, no scope creep, screenshot/crash gate before marking any step complete, no Android export)
+
+1. No inventory or crafting system this session. Mined blocks are removed from the world only — they do not go into any inventory yet.
+2. Placement uses a hardcoded test palette: number keys 1-4 (via InputMap actions, not raw key checks) select stone/dirt/grass/sand as the block to place. This is a placeholder, not the real item system.
+3. Do not build tool types, mining speed variation, or hardness values this session — mining is instant (single action removes the block) for now.
+
+### Steps
+
+1. Raycast targeting: cast a ray from the camera each frame (or on demand) into the voxel world, find the first solid block hit, return its coordinate and the hit face. Render a visible outline/highlight on the targeted block.
+2. Mining: on mine-action input (InputMap action, not raw key), remove the targeted block (set to air), trigger a remesh of the affected chunk (and neighbor chunk if the removed block was on a boundary).
+3. Placement: on place-action input, compute the adjacent position from the hit face, validate it's not inside the player's collision shape and not already solid, place the currently-selected palette block there, trigger remesh.
+4. Palette selection: number keys 1-4 bound via InputMap select the active placement block type. Show the current selection somewhere visible (even placeholder on-screen text is fine — no real HUD system yet).
+5. Edge cases: mining/placing at chunk boundaries must correctly update both affected chunks' meshes and collision. Placing must not allow blocks inside the player. Mining at the edge of render radius must not crash.
+
+### Definition of done
+Player can walk up to terrain, see a block highlight, mine a block (it disappears, hole remains, no crash), and place a block from the 4-block palette (appears, collides correctly, no clipping into player).
+
+### Report format
+Commit log in order, plus Actions run status. No prose summary in place of the commit log.
