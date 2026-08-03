@@ -160,6 +160,8 @@ func _run_gate() -> void:
 	if int(touch_controls.get_active_look_touch_index()) != 22:
 		_fail("Drag-look touch stopped being tracked after its action pulse")
 
+	var yaw_before_down_left: float = player.rotation.y
+	var pitch_before_down_left: float = camera.rotation.x
 	var down_left_relative := Vector2(-64.0, 64.0)
 	await _simulate_drag(22, look_start, down_left_relative)
 	_assert_action_pressed(LOOK_LEFT_ACTION, 0.69, "down-left drag left")
@@ -167,9 +169,9 @@ func _run_gate() -> void:
 	_assert_action_released(LOOK_RIGHT_ACTION, "down-left drag right")
 	_assert_action_released(LOOK_UP_ACTION, "down-left drag up")
 	await process_frame
-	if player.rotation.y <= yaw_after_up_right + 0.01:
+	if player.rotation.y <= yaw_before_down_left + 0.01:
 		_fail("Leftward touch drag did not reverse yaw direction")
-	if camera.rotation.x >= pitch_after_up_right - 0.01:
+	if camera.rotation.x >= pitch_before_down_left - 0.01:
 		_fail("Downward touch drag did not reverse pitch direction")
 	await _wait_frames(2)
 	_assert_all_actions_released(LOOK_ACTIONS, "down-left look pulse completion")
