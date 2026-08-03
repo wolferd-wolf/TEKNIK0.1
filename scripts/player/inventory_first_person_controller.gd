@@ -25,6 +25,7 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_pitch_radians = camera.rotation.x
 	_configure_target_highlight()
+	_inventory.changed.connect(_refresh_hotbar)
 	call_deferred("_configure_hotbar")
 
 
@@ -43,7 +44,6 @@ func _process(delta: float) -> void:
 		mine_targeted_block()
 	if Input.is_action_just_pressed("place_block"):
 		place_targeted_block()
-	_refresh_hotbar()
 
 
 func get_inventory() -> BlockInventory:
@@ -91,7 +91,6 @@ func mine_targeted_block() -> bool:
 		return false
 
 	_clear_block_target()
-	_refresh_hotbar()
 	return true
 
 
@@ -114,7 +113,6 @@ func place_block_at(world_block_coord: Vector3i) -> bool:
 		if not rolled_back:
 			push_error("Inventory placement rollback failed at %s" % world_block_coord)
 		return false
-	_refresh_hotbar()
 	return true
 
 
