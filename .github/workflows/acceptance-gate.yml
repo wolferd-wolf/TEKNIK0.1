@@ -52,6 +52,21 @@ jobs:
             exit 1
           fi
 
+      - name: Validate boundary remesh spread headlessly
+        run: |
+          set -o pipefail
+          timeout 300 /tmp/godot/godot \
+            --headless \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/boundary_remesh_spread_gate.gd \
+            2>&1 | tee artifacts/boundary-remesh-spread.log
+          awk '/BOUNDARY_REMESH_SPREAD_GATE_PASS/{exit} {print}' artifacts/boundary-remesh-spread.log > artifacts/boundary-remesh-spread-runtime-window.log
+          if grep -F 'Parameter "m" is null.' artifacts/boundary-remesh-spread-runtime-window.log; then
+            echo "Null mesh renderer error occurred during boundary remesh spread"
+            exit 1
+          fi
+
       - name: Launch actual scene headlessly
         run: |
           set -o pipefail
