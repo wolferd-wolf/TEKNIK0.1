@@ -150,6 +150,7 @@ func _run_gate() -> void:
 		])
 		print("TOUCH_JOYSTICK_SIMULATION=InputEventScreenTouch+InputEventScreenDrag through Input.parse_input_event")
 		print("TOUCH_JOYSTICK_RELEASE=all four movement InputMap actions released")
+		print("TOUCH_JOYSTICK_DEVICE_SCOPE=desktop touch simulation; real Android deferred")
 	_finish()
 
 
