@@ -90,8 +90,8 @@ func _run_gate() -> void:
 	_assert_rendered_slot(hotbar, 1, "2\nSTONE x63")
 
 	var success_snapshot: Array[Dictionary] = inventory.get_slots()
-	var dirt_before := inventory.get_item_count(BLOCK_DIRT)
-	var stone_before := inventory.get_item_count(BLOCK_STONE)
+	var dirt_before: int = inventory.get_item_count(BLOCK_DIRT)
+	var stone_before: int = inventory.get_item_count(BLOCK_STONE)
 	await _press_craft_action()
 
 	if inventory.get_item_count(BLOCK_DIRT) != dirt_before - 4:
