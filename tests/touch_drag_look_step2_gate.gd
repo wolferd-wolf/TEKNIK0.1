@@ -99,26 +99,30 @@ func _run_gate() -> void:
 	var baseline_pitch: float = camera.rotation.x
 	var joystick_center: Vector2 = touch_controls.get_joystick_center()
 
-	_inject_touch(11, joystick_center, true)
+	await _simulate_touch(11, joystick_center, true)
 	if int(touch_controls.get_active_touch_index()) != 11:
 		_fail("Left-side joystick touch was not captured")
 	if int(touch_controls.get_active_look_touch_index()) != -1:
 		_fail("Left-side touch bled into drag-look capture")
-	_inject_drag(11, joystick_center + Vector2(60.0, -60.0), Vector2(60.0, -60.0))
+
+	await _simulate_drag(11, joystick_center + Vector2(60.0, -60.0), Vector2(60.0, -60.0))
 	_assert_all_actions_released(LOOK_ACTIONS, "left-side joystick drag look boundary")
 	if not (touch_controls.get_look_vector() as Vector2).is_zero_approx():
 		_fail("Left-side joystick drag changed the look vector")
-	await _wait_frames(3)
 	if absf(player.rotation.y - baseline_yaw) > 0.001:
 		_fail("Left-side joystick drag changed yaw from %.5f to %.5f" % [baseline_yaw, player.rotation.y])
 	if absf(camera.rotation.x - baseline_pitch) > 0.001:
 		_fail("Left-side joystick drag changed pitch from %.5f to %.5f" % [baseline_pitch, camera.rotation.x])
-	_inject_touch(11, joystick_center + Vector2(60.0, -60.0), false)
 	await _wait_frames(2)
+	if absf(player.rotation.y - baseline_yaw) > 0.001:
+		_fail("Left-side joystick drag later changed yaw from %.5f to %.5f" % [baseline_yaw, player.rotation.y])
+	if absf(camera.rotation.x - baseline_pitch) > 0.001:
+		_fail("Left-side joystick drag later changed pitch from %.5f to %.5f" % [baseline_pitch, camera.rotation.x])
+	await _simulate_touch(11, joystick_center + Vector2(60.0, -60.0), false)
 	_assert_all_actions_released(MOVEMENT_ACTIONS, "left joystick release")
 
 	var look_start := Vector2(960.0, 300.0)
-	_inject_touch(22, look_start, true)
+	await _simulate_touch(22, look_start, true)
 	if int(touch_controls.get_active_look_touch_index()) != 22:
 		_fail("Right-side touch was not captured for drag-look")
 	if int(touch_controls.get_active_touch_index()) != -1:
@@ -126,7 +130,7 @@ func _run_gate() -> void:
 	_assert_hint_border(look_hint, 4, "active look hint")
 
 	var up_right_relative := Vector2(64.0, -64.0)
-	_inject_drag(22, look_start + up_right_relative, up_right_relative)
+	await _simulate_drag(22, look_start + up_right_relative, up_right_relative)
 	_assert_action_pressed(LOOK_RIGHT_ACTION, 0.69, "up-right drag right")
 	_assert_action_pressed(LOOK_UP_ACTION, 0.69, "up-right drag up")
 	_assert_action_released(LOOK_LEFT_ACTION, "up-right drag left")
@@ -138,8 +142,6 @@ func _run_gate() -> void:
 	if active_look_vector.x < 0.69 or active_look_vector.y > -0.69:
 		_fail("Touch look vector did not reflect up-right drag: %s" % active_look_vector)
 
-	await _wait_frames(3)
-	_assert_all_actions_released(LOOK_ACTIONS, "up-right look pulse completion")
 	var yaw_after_up_right: float = player.rotation.y
 	var pitch_after_up_right: float = camera.rotation.x
 	if yaw_after_up_right >= baseline_yaw - 0.01:
@@ -147,24 +149,28 @@ func _run_gate() -> void:
 	if pitch_after_up_right <= baseline_pitch + 0.01:
 		_fail("Upward touch drag did not increase camera pitch through existing look logic: %.5f -> %.5f" % [baseline_pitch, pitch_after_up_right])
 	if int(touch_controls.get_active_look_touch_index()) != 22:
-		_fail("Drag-look touch stopped being tracked after its action pulse")
+		_fail("Drag-look touch stopped being tracked during its action pulse")
 
 	await _capture_screenshot()
+	await _wait_frames(2)
+	_assert_all_actions_released(LOOK_ACTIONS, "up-right look pulse completion")
+	if int(touch_controls.get_active_look_touch_index()) != 22:
+		_fail("Drag-look touch stopped being tracked after its action pulse")
 
 	var down_left_relative := Vector2(-64.0, 64.0)
-	_inject_drag(22, look_start, down_left_relative)
+	await _simulate_drag(22, look_start, down_left_relative)
 	_assert_action_pressed(LOOK_LEFT_ACTION, 0.69, "down-left drag left")
 	_assert_action_pressed(LOOK_DOWN_ACTION, 0.69, "down-left drag down")
 	_assert_action_released(LOOK_RIGHT_ACTION, "down-left drag right")
 	_assert_action_released(LOOK_UP_ACTION, "down-left drag up")
-	await _wait_frames(3)
 	if player.rotation.y <= yaw_after_up_right + 0.01:
 		_fail("Leftward touch drag did not reverse yaw direction")
 	if camera.rotation.x >= pitch_after_up_right - 0.01:
 		_fail("Downward touch drag did not reverse pitch direction")
-
-	_inject_touch(22, look_start, false)
 	await _wait_frames(2)
+	_assert_all_actions_released(LOOK_ACTIONS, "down-left look pulse completion")
+
+	await _simulate_touch(22, look_start, false)
 	if int(touch_controls.get_active_look_touch_index()) != -1:
 		_fail("Released right-side touch remained captured")
 	_assert_all_actions_released(LOOK_ACTIONS, "right-side touch release")
@@ -173,11 +179,15 @@ func _run_gate() -> void:
 	var pitch_limit_degrees: float = float(player.get("pitch_limit_degrees"))
 	var pitch_limit_radians: float = deg_to_rad(pitch_limit_degrees)
 	var clamp_touch := Vector2(1000.0, 260.0)
-	_inject_touch(33, clamp_touch, true)
+	await _simulate_touch(33, clamp_touch, true)
+	if int(touch_controls.get_active_look_touch_index()) != 33:
+		_fail("Upper/lower clamp touch was not captured for drag-look")
+
 	for _drag_index in range(45):
-		_inject_drag(33, clamp_touch, Vector2(0.0, -96.0))
+		await _simulate_drag(33, clamp_touch, Vector2(0.0, -96.0))
 		_assert_action_pressed(LOOK_UP_ACTION, 0.99, "upper pitch clamp drag")
-		await _wait_frames(3)
+		_assert_action_released(LOOK_DOWN_ACTION, "upper pitch clamp opposite")
+		await _wait_frames(2)
 	var upper_clamped_pitch: float = camera.rotation.x
 	if upper_clamped_pitch > pitch_limit_radians + 0.001:
 		_fail("Upper pitch exceeded clamp: %.5f > %.5f" % [upper_clamped_pitch, pitch_limit_radians])
@@ -185,20 +195,21 @@ func _run_gate() -> void:
 		_fail("Repeated upward touch drag did not reach upper pitch clamp: %.5f" % upper_clamped_pitch)
 
 	for _drag_index in range(55):
-		_inject_drag(33, clamp_touch, Vector2(0.0, 96.0))
+		await _simulate_drag(33, clamp_touch, Vector2(0.0, 96.0))
 		_assert_action_pressed(LOOK_DOWN_ACTION, 0.99, "lower pitch clamp drag")
-		await _wait_frames(3)
+		_assert_action_released(LOOK_UP_ACTION, "lower pitch clamp opposite")
+		await _wait_frames(2)
 	var lower_clamped_pitch: float = camera.rotation.x
 	if lower_clamped_pitch < -pitch_limit_radians - 0.001:
 		_fail("Lower pitch exceeded clamp: %.5f < %.5f" % [lower_clamped_pitch, -pitch_limit_radians])
 	if lower_clamped_pitch > -pitch_limit_radians + 0.03:
 		_fail("Repeated downward touch drag did not reach lower pitch clamp: %.5f" % lower_clamped_pitch)
-	_inject_touch(33, clamp_touch, false)
-	await _wait_frames(2)
+	await _simulate_touch(33, clamp_touch, false)
 	_assert_all_actions_released(LOOK_ACTIONS, "pitch clamp touch release")
 
 	if failures.is_empty():
 		print("TOUCH_DRAG_LOOK_STEP_2_GATE_PASS")
+		print("TOUCH_DRAG_LOOK_HINT_RECT=%s" % hint_rect)
 		print("TOUCH_DRAG_LOOK_INPUTMAP=look_right %.3f + look_up %.3f during simulated up-right drag" % [
 			up_right_right_strength,
 			up_right_up_strength,
@@ -216,7 +227,9 @@ func _run_gate() -> void:
 			lower_clamped_pitch,
 		])
 		print("TOUCH_DRAG_LOOK_BOUNDARY=left joystick drag left look actions and camera unchanged; right look drag left movement actions unchanged")
+		print("TOUCH_DRAG_LOOK_RELEASE=look action pulse released while touch ownership remained until touch-up")
 		print("TOUCH_DRAG_LOOK_SIMULATION=InputEventScreenTouch+InputEventScreenDrag through Input.parse_input_event")
+		print("TOUCH_DRAG_LOOK_DEVICE_SCOPE=desktop touch simulation; real Android deferred")
 	_finish()
 
 
@@ -229,15 +242,16 @@ func _validate_input_actions() -> void:
 			_fail("Movement InputMap action is missing: %s" % action)
 
 
-func _inject_touch(index: int, position: Vector2, pressed: bool) -> void:
+func _simulate_touch(index: int, position: Vector2, pressed: bool) -> void:
 	var event := InputEventScreenTouch.new()
 	event.index = index
 	event.position = position
 	event.pressed = pressed
 	Input.parse_input_event(event)
+	await _wait_frames(2)
 
 
-func _inject_drag(index: int, position: Vector2, relative: Vector2) -> void:
+func _simulate_drag(index: int, position: Vector2, relative: Vector2) -> void:
 	var event := InputEventScreenDrag.new()
 	event.index = index
 	event.position = position
@@ -245,6 +259,7 @@ func _inject_drag(index: int, position: Vector2, relative: Vector2) -> void:
 	event.velocity = relative * 60.0
 	event.pressure = 1.0
 	Input.parse_input_event(event)
+	await process_frame
 
 
 func _assert_action_pressed(action: StringName, minimum_strength: float, context: String) -> void:
