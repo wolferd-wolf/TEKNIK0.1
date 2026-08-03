@@ -14,9 +14,9 @@ class_name FirstPersonController
 
 @onready var camera: Camera3D = $Camera3D
 @onready var _chunk_manager: ChunkManager = get_node_or_null(chunk_manager_path) as ChunkManager
+@onready var _target_highlight: MeshInstance3D = get_node_or_null("../TargetHighlight") as MeshInstance3D
 
 var _pitch_radians: float = 0.0
-var _target_highlight: MeshInstance3D
 var _has_block_target: bool = false
 var _targeted_block_coord: Vector3i = Vector3i.ZERO
 var _targeted_hit_face: Vector3i = Vector3i.ZERO
@@ -25,7 +25,7 @@ var _targeted_hit_face: Vector3i = Vector3i.ZERO
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_pitch_radians = camera.rotation.x
-	_create_target_highlight()
+	_configure_target_highlight()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -68,11 +68,11 @@ func get_target_highlight() -> MeshInstance3D:
 	return _target_highlight
 
 
-func _create_target_highlight() -> void:
-	_target_highlight = MeshInstance3D.new()
-	_target_highlight.name = "TargetHighlight"
-	_target_highlight.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+func _configure_target_highlight() -> void:
+	if _target_highlight == null:
+		return
 
+	_target_highlight.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var box_mesh := BoxMesh.new()
 	box_mesh.size = Vector3.ONE * 1.015
 	var material := StandardMaterial3D.new()
@@ -83,10 +83,6 @@ func _create_target_highlight() -> void:
 	box_mesh.material = material
 	_target_highlight.mesh = box_mesh
 	_target_highlight.visible = false
-
-	var highlight_parent := get_parent()
-	if highlight_parent != null:
-		highlight_parent.add_child(_target_highlight)
 
 
 func _update_block_target() -> void:
@@ -122,12 +118,13 @@ func _update_block_target() -> void:
 	_has_block_target = true
 	_targeted_block_coord = block_coord
 	_targeted_hit_face = hit_face
-	_target_highlight.global_position = Vector3(
-		block_coord.x + 0.5,
-		block_coord.y + 0.5,
-		block_coord.z + 0.5
-	)
-	_target_highlight.visible = true
+	if is_instance_valid(_target_highlight):
+		_target_highlight.global_position = Vector3(
+			block_coord.x + 0.5,
+			block_coord.y + 0.5,
+			block_coord.z + 0.5
+		)
+		_target_highlight.visible = true
 
 
 func _clear_block_target() -> void:
