@@ -111,3 +111,9 @@ Player mines a block, sees it appear in the hotbar with correct count, places it
 
 ### Report format
 Commit log in order, plus Actions run status for each step. No prose summary in place of the commit log.
+
+### Decisions and gate evidence
+- Step 1 inventory: Use 24 fixed slots with a maximum stack size of 64. Empty slots are represented canonically as block ID 0 with count 0, and all slot/snapshot queries return detached copies so callers cannot mutate inventory state indirectly.
+- Step 1 mutation semantics: Additions fill existing matching stacks before opening empty slots. Add and remove operations are transactional: insufficient capacity or quantity returns `false` and leaves every slot unchanged; reaching count 0 resets the slot to the canonical empty representation.
+- Step 1 full-capacity scope: The inventory data structure rejects an item that cannot fit and performs no partial write. The player-facing mining fallback is intentionally not chosen or wired here because that belongs to Step 2, where mining and inventory become one transaction.
+- Step 1 gate: Actions run `30810984833` passed the complete inherited parse, remesh, headless, graphical, mining, placement, palette, and edge-case suite plus direct inventory assertions for add/remove/query, stack spillover, snapshot isolation, atomic failure, zero-count clearing, and the full-inventory case. The 1280x720 inventory screenshot was captured and reviewed with no graphical crash. Artifact `8854805411` has digest `sha256:645647655ec11d8db810985b4b856815d740b76dfb63fbba9127c833979e9366`.
