@@ -61,8 +61,8 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_pitch_radians = camera.rotation.x
 	_configure_target_highlight()
-	_configure_palette_indicator()
-	_update_palette_indicator()
+	call_deferred("_configure_palette_indicator")
+	call_deferred("_update_palette_indicator")
 
 
 func _unhandled_input(event: InputEvent) -> void:
