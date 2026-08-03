@@ -1,0 +1,76 @@
+name: TEKNIK Step 3 Touch Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  touch-actions-step3-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/step3-headless-parse.log
+
+      - name: Validate Step 3 simulated touch, InputMap, hotbar selection, screenshot, and clean exit
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/touch_actions_step3_gate.gd \
+            2>&1 | tee artifacts/touch-actions-step3.log
+          grep -F 'TOUCH_ACTIONS_STEP_3_GATE_PASS' artifacts/touch-actions-step3.log
+          test -s artifacts/touch-actions-step3.png
+
+      - name: Upload Step 3 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-step3-touch-gate
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Publish Step 3 commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state="failure"
+          description="Step 3 touch gate failed"
+          if [ "$JOB_STATUS" = "success" ]; then
+            state="success"
+            description="Step 3 touch gate passed"
+          fi
+          curl --fail-with-body \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            --data "{\"state\":\"${state}\",\"context\":\"TEKNIK Step 3 Touch Gate\",\"description\":\"${description}\"}"
