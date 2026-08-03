@@ -1,6 +1,9 @@
 extends CharacterBody3D
 class_name FirstPersonController
 
+const BLOCK_AIR := 0
+const BLOCK_STONE := 3
+
 @export var walk_speed: float = 6.0
 @export var ground_acceleration: float = 28.0
 @export var air_acceleration: float = 8.0
@@ -10,9 +13,11 @@ class_name FirstPersonController
 @export var action_look_speed: float = 2.2
 @export var pitch_limit_degrees: float = 89.0
 @export var target_distance: float = 6.0
+@export_range(1, 4, 1) var active_placement_block_id: int = BLOCK_STONE
 @export var chunk_manager_path: NodePath = NodePath("../ChunkManager")
 
 @onready var camera: Camera3D = $Camera3D
+@onready var _player_collision: CollisionShape3D = $CollisionShape3D
 @onready var _chunk_manager: ChunkManager = get_node_or_null(chunk_manager_path) as ChunkManager
 @onready var _target_highlight: MeshInstance3D = get_node_or_null("../TargetHighlight") as MeshInstance3D
 
@@ -45,6 +50,8 @@ func _process(delta: float) -> void:
 	_update_block_target()
 	if Input.is_action_just_pressed("mine_block"):
 		mine_targeted_block()
+	if Input.is_action_just_pressed("place_block"):
+		place_targeted_block()
 
 
 func apply_look_delta(look_delta: Vector2) -> void:
@@ -80,6 +87,84 @@ func mine_targeted_block() -> bool:
 
 	_clear_block_target()
 	return true
+
+
+func place_targeted_block() -> bool:
+	if not _has_block_target:
+		return false
+
+	var placement_coord := _targeted_block_coord + _targeted_hit_face
+	if not place_block_at(placement_coord):
+		return false
+
+	_clear_block_target()
+	return true
+
+
+func place_block_at(world_block_coord: Vector3i) -> bool:
+	if not can_place_block_at(world_block_coord):
+		return false
+	return _chunk_manager.place_block_world(world_block_coord, active_placement_block_id)
+
+
+func can_place_block_at(world_block_coord: Vector3i) -> bool:
+	if _chunk_manager == null:
+		return false
+	if _chunk_manager.get_block_world(world_block_coord) != BLOCK_AIR:
+		return false
+	return not _block_overlaps_player(world_block_coord)
+
+
+func _block_overlaps_player(world_block_coord: Vector3i) -> bool:
+	if not is_instance_valid(_player_collision):
+		return true
+
+	var capsule := _player_collision.shape as CapsuleShape3D
+	if capsule == null:
+		return true
+
+	var collision_scale := _player_collision.global_transform.basis.get_scale().abs()
+	var capsule_radius := capsule.radius * maxf(collision_scale.x, collision_scale.z)
+	var segment_half_height := maxf(capsule.height * 0.5 - capsule.radius, 0.0) * collision_scale.y
+	var capsule_center := _player_collision.global_position
+	var block_min := Vector3(world_block_coord)
+	var block_max := block_min + Vector3.ONE
+
+	var distance_x := _point_interval_distance(capsule_center.x, block_min.x, block_max.x)
+	var distance_z := _point_interval_distance(capsule_center.z, block_min.z, block_max.z)
+	var distance_y := _interval_distance(
+		capsule_center.y - segment_half_height,
+		capsule_center.y + segment_half_height,
+		block_min.y,
+		block_max.y
+	)
+	var distance_squared := (
+		distance_x * distance_x
+		+ distance_y * distance_y
+		+ distance_z * distance_z
+	)
+	return distance_squared < capsule_radius * capsule_radius - 0.000001
+
+
+static func _point_interval_distance(value: float, interval_min: float, interval_max: float) -> float:
+	if value < interval_min:
+		return interval_min - value
+	if value > interval_max:
+		return value - interval_max
+	return 0.0
+
+
+static func _interval_distance(
+	first_min: float,
+	first_max: float,
+	second_min: float,
+	second_max: float
+) -> float:
+	if first_max < second_min:
+		return second_min - first_max
+	if second_max < first_min:
+		return first_min - second_max
+	return 0.0
 
 
 func _configure_target_highlight() -> void:
@@ -125,7 +210,7 @@ func _update_block_target() -> void:
 		floori(inside_sample.y),
 		floori(inside_sample.z)
 	)
-	if _chunk_manager.get_block_world(block_coord) == 0:
+	if _chunk_manager.get_block_world(block_coord) == BLOCK_AIR:
 		_clear_block_target()
 		return
 
