@@ -1,0 +1,89 @@
+name: TEKNIK Polish Minecraft Shadows Gate
+
+on:
+  push:
+    branches:
+      - session/polish-world-fixes
+    paths:
+      - scenes/main.tscn
+      - tests/polish_minecraft_shadows_gate.gd
+      - .github/workflows/polish-minecraft-shadows-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  minecraft-shadows-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget unzip libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libxrender1 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project
+        run: |
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --editor --quit 2>&1 | tee parse.log
+          ! grep -E 'SCRIPT ERROR|Parse Error' parse.log
+
+      - name: Run Minecraft shadow configuration gate
+        run: |
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --script res://tests/polish_minecraft_shadows_gate.gd 2>&1 | tee shadow-gate.log
+          grep -Fq 'POLISH_MINECRAFT_SHADOWS_GATE_PASS' shadow-gate.log
+
+      - name: Verify shadow step file scope
+        run: |
+          git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | tee changed-files.txt
+          forbidden=$(grep -Ev '^(scenes/main\.tscn|tests/polish_minecraft_shadows_gate\.gd|\.github/workflows/polish-minecraft-shadows-gate\.yml)$' changed-files.txt || true)
+          if [[ -n "$forbidden" ]]; then
+            echo "Unexpected files in shadow step:" >&2
+            printf '%s\n' "$forbidden" >&2
+            exit 1
+          fi
+
+      - name: Upload shadow gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-polish-minecraft-shadows-gate
+          path: |
+            parse.log
+            shadow-gate.log
+            changed-files.txt
+          if-no-files-found: error
+
+      - name: Publish shadow gate commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=success
+          description='Minecraft shadow gate passed'
+          if [[ '${{ job.status }}' != 'success' ]]; then
+            state=failure
+            description='Minecraft shadow gate failed'
+          fi
+          gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context='TEKNIK Polish Minecraft Shadows Gate' \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
