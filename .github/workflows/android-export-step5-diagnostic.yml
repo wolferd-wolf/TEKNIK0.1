@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout exact diagnostic head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Assert diagnostic-only scope
         run: |
@@ -56,8 +58,8 @@ jobs:
           const ETC2_ASTC_SETTING := "rendering/textures/vram_compression/import_etc2_astc"
 
           func _initialize() -> void:
-              var has_setting := ProjectSettings.has_setting(ETC2_ASTC_SETTING)
-              var value := ProjectSettings.get_setting(ETC2_ASTC_SETTING, false)
+              var has_setting: bool = ProjectSettings.has_setting(ETC2_ASTC_SETTING)
+              var value: bool = bool(ProjectSettings.get_setting(ETC2_ASTC_SETTING, false))
               print("STEP5_DIAGNOSTIC_OS=", OS.get_name())
               print("STEP5_DIAGNOSTIC_ETC2_ASTC_SETTING_PRESENT=", has_setting)
               print("STEP5_DIAGNOSTIC_ETC2_ASTC_VALUE=", value)
