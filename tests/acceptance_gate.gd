@@ -2,6 +2,7 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SCREENSHOT_PATH := "res://artifacts/acceptance-gate.png"
+const REMESH_IDLE_FRAME_LIMIT := 360
 
 var failures: Array[String] = []
 var headless_only := false
@@ -25,6 +26,17 @@ func _wait_frames(count: int) -> void:
 func _wait_physics_frames(count: int) -> void:
 	for _frame in range(count):
 		await physics_frame
+
+
+func _wait_for_remesh_idle(manager, context: String) -> bool:
+	if not manager.has_method("is_remesh_idle"):
+		return true
+	for _frame in range(REMESH_IDLE_FRAME_LIMIT):
+		await process_frame
+		if manager.is_remesh_idle():
+			return true
+	_fail("Remesh queue did not become idle during %s" % context)
+	return false
 
 
 func _run_gate() -> void:
@@ -185,7 +197,8 @@ func _test_mesh_and_collision(manager, player: CharacterBody3D) -> void:
 	var origin_position := Vector3(0.5, 20.0, 0.5)
 	player.global_position = origin_position
 	manager.refresh_streaming(origin_position)
-	await _wait_frames(8)
+	if not await _wait_for_remesh_idle(manager, "mesh and collision validation"):
+		return
 	var terrain_chunk = manager.get_chunk(Vector3i(0, 0, 0))
 	if terrain_chunk == null:
 		_fail("Terrain chunk (0, 0, 0) was unavailable for mesh validation")
@@ -206,6 +219,8 @@ func _test_player_controller(manager, player: CharacterBody3D, camera: Camera3D)
 	player.rotation = Vector3.ZERO
 	camera.rotation = Vector3.ZERO
 	manager.refresh_streaming(player.global_position)
+	if not await _wait_for_remesh_idle(manager, "player controller collision readiness"):
+		return
 	player.set_physics_process(true)
 	player.set_process(true)
 
@@ -310,7 +325,8 @@ func _capture_screenshot(manager, player: CharacterBody3D, camera: Camera3D) -> 
 	player.rotation = Vector3.ZERO
 	camera.rotation_degrees.x = -22.0
 	manager.refresh_streaming(player.global_position)
-	await _wait_frames(20)
+	if not await _wait_for_remesh_idle(manager, "screenshot terrain readiness"):
+		return
 	await RenderingServer.frame_post_draw
 
 	var image := root.get_texture().get_image()

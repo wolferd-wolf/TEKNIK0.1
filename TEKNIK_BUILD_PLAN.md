@@ -166,3 +166,27 @@ Commit log in order, plus Actions run status for each step. State plainly which 
 - Step 2 validation friction: Helper run `30834429791` failed before changing the gate because YAML indentation stripped its insertion anchor, and run `30834588921` reached the correct workflow patch but the bot token lacked permission to modify workflow files; the authenticated repository connector applied that CI-only change. Run `30834701738` was rejected because the new gate asserted before queued screen events were dispatched. Run `30835234042` then exposed the real touch-to-mouse bleed. Runs `30835728675` and `30836210834` confirmed that production isolation, physical mouse-look, and both clamps worked, but rejected test-only observation ordering and reverse-baseline assertions respectively. No rejected run was accepted as Step 2 evidence.
 - Step 2 gate: Actions run `30836677278` passed the complete inherited suite, the Step 1 joystick regression, and simulated right-side drag-look through `InputEventScreenTouch` and `InputEventScreenDrag` injected by `Input.parse_input_event`. An up-right drag produced actual InputMap strengths `look_right=0.707` and `look_up=0.707`, rotating yaw `0.00000 -> -0.10371` and pitch `0.00000 -> 0.10371`. Repeated touch drags reached and did not exceed the existing +89-degree (`1.55334` rad) and -89-degree (`-1.55334` rad) clamps. Physical mouse motion remained functional, moving yaw `-0.02661 -> -0.12661` and pitch `0.02661 -> 0.08661`. The reviewed 1280x720 screenshot shows the active right-side hint at `[P: (1036, 24), S: (220, 54)]`, the left joystick, and the nine-slot hotbar without clipping or graphical crash. Artifact `8865206065` has digest `sha256:f4bcfbad11981c85bf407b71c0c9aa6681ddf9817174894293c54c53f667ad8f`.
 - Step 2 device scope: Drag-look and its cross-boundary behavior are verified through desktop touch simulation only. No APK or real Android device was involved; real-device verification remains required after the Android export steps.
+
+## Session: Threaded Remeshing
+
+### Context
+Gameplay testing revealed a freeze-then-jump stutter pattern: the game appears to block for ~0.5s stretches (visible during mine/place/craft actions and general movement), then catch up in a sudden jump. Root cause hypothesis: remeshing (triggered on every mine/place, and on chunk load/unload) runs synchronously on the main thread, blocking rendering and input processing during that work. This session tests and fixes that hypothesis using GDScript threading only — no native Rust/C++ core, that remains a future, larger session.
+
+### Rules (in addition to all prior session rules)
+1. GDScript only, using Godot's built-in `Thread`/`WorkerThreadPool` — no native extension work.
+2. One step per commit, screenshot/crash gate before marking any step complete.
+3. Do not change gameplay logic (mining, placement, crafting, inventory) — only change *where* remeshing executes, not what it produces. Remesh output must be identical to the current synchronous version.
+4. Preserve correctness under concurrency: no race conditions on chunk data being read by a background thread while the main thread mutates it (e.g. a second mine action on the same chunk while a remesh is in flight). Define and test the queuing/locking strategy explicitly.
+
+### Steps
+1. Instrumentation first: add actual timing measurement around the current synchronous remesh call (already requested last session, confirm it's done or do it now if not). Get real numbers — how long does one remesh take — before changing the architecture. Report these numbers before proceeding.
+2. Move remesh work (the mesh-building computation, not the scene-tree mutation) onto a background thread or WorkerThreadPool task. Main thread queues remesh requests; background thread computes the mesh data; main thread applies the completed mesh to the scene tree (Godot's rule: scene tree mutation must happen on the main thread, only the computation can be backgrounded).
+3. Handle the concurrency case explicitly: what happens if a chunk is mined/placed again while its previous remesh is still in flight? Define the behavior (e.g. cancel-and-requeue, or queue-and-coalesce) and test it directly, not just the happy path.
+4. Verify remesh output is byte-identical (or assertion-equivalent) between the old synchronous path and the new threaded path, for the same input, before declaring correctness preserved.
+5. Re-run the exact same real-device test scenario from the lag report (mine, place, mine again, several craft attempts, movement, jump) — this time capture frame-time/delta numbers alongside the recording, not just a description.
+
+### Definition of done
+Same gameplay behavior as before (mining, placement, crafting all produce identical results), but remeshing no longer blocks the main thread — confirmed via before/after timing numbers, not just a subjective "feels smoother" claim.
+
+### Report format
+Commit log in order, plus Actions run status for each step. Include actual timing numbers (milliseconds) for remesh duration before and after threading, not prose descriptions of speed.
