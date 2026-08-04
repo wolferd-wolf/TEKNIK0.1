@@ -141,35 +141,46 @@ jobs:
           script: |
             set -eu
             package="com.wolferdwolf.teknik"
-            apk="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-emulator-debug.apk"
+            evidence_dir="$GITHUB_WORKSPACE/artifacts"
+            apk="$evidence_dir/TEKNIK-0.1-emulator-debug.apk"
+            mkdir -p "$evidence_dir"
+            {
+              printf 'cwd=%s\n' "$(pwd)"
+              printf 'workspace=%s\n' "$GITHUB_WORKSPACE"
+              printf 'apk=%s\n' "$apk"
+              test -s "$apk"
+              adb devices -l
+            } > "$evidence_dir/android-script-start.txt" 2>&1
+            cat "$evidence_dir/android-script-start.txt"
             capture_android_evidence() {
-              adb logcat -d -v threadtime > artifacts/android-logcat.txt 2>&1 || true
-              adb shell dumpsys meminfo "$package" > artifacts/android-meminfo.txt 2>&1 || true
-              adb shell dumpsys activity activities > artifacts/android-activities.txt 2>&1 || true
+              mkdir -p "$evidence_dir"
+              adb logcat -d -v threadtime > "$evidence_dir/android-logcat.txt" 2>&1 || true
+              adb shell dumpsys meminfo "$package" > "$evidence_dir/android-meminfo.txt" 2>&1 || true
+              adb shell dumpsys activity activities > "$evidence_dir/android-activities.txt" 2>&1 || true
             }
             trap capture_android_evidence EXIT
-            adb install -r "$apk" > artifacts/adb-install.txt 2>&1
-            cat artifacts/adb-install.txt
+            adb install -r "$apk" > "$evidence_dir/adb-install.txt" 2>&1
+            cat "$evidence_dir/adb-install.txt"
             adb logcat -c
             adb shell am force-stop "$package"
             adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1 \
-              > artifacts/adb-launch.txt 2>&1
-            cat artifacts/adb-launch.txt
+              > "$evidence_dir/adb-launch.txt" 2>&1
+            cat "$evidence_dir/adb-launch.txt"
             sleep 8
             first_pid="$(adb shell pidof "$package" | tr -d '\r')"
-            printf 'first_pid=%s\n' "$first_pid" | tee artifacts/android-runtime-pids.txt
+            printf 'first_pid=%s\n' "$first_pid" | tee "$evidence_dir/android-runtime-pids.txt"
             test -n "$first_pid"
             sleep 22
             second_pid="$(adb shell pidof "$package" | tr -d '\r')"
-            printf 'second_pid=%s\n' "$second_pid" | tee -a artifacts/android-runtime-pids.txt
+            printf 'second_pid=%s\n' "$second_pid" | tee -a "$evidence_dir/android-runtime-pids.txt"
             test -n "$second_pid"
             test "$first_pid" = "$second_pid"
             capture_android_evidence
-            if grep -E 'FATAL EXCEPTION|Fatal signal [0-9]+|Process: com\.wolferdwolf\.teknik.*has died' artifacts/android-logcat.txt; then
+            if grep -E 'FATAL EXCEPTION|Fatal signal [0-9]+|Process: com\.wolferdwolf\.teknik.*has died' "$evidence_dir/android-logcat.txt"; then
               echo 'Android runtime emitted a fatal crash signature.' >&2
               exit 1
             fi
-            echo 'ANDROID_RUNTIME_SMOKE_PASS' | tee artifacts/android-runtime-result.txt
+            echo 'ANDROID_RUNTIME_SMOKE_PASS' | tee "$evidence_dir/android-runtime-result.txt"
 
       - name: Upload verified Android builds and runtime evidence
         if: always()
