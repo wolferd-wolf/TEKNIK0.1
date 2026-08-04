@@ -1,6 +1,6 @@
 [gd_scene load_steps=9 format=3]
 
-[ext_resource type="Script" path="res://scripts/world/chunk_manager.gd" id="1_chunk_manager"]
+[ext_resource type="Script" path="res://scripts/world/mobile_chunk_manager.gd" id="1_chunk_manager"]
 [ext_resource type="Script" path="res://scripts/player/inventory_first_person_controller.gd" id="2_player"]
 [ext_resource type="Script" path="res://scripts/ui/touch_controls.gd" id="3_touch_controls"]
 [ext_resource type="Script" path="res://scripts/ui/touch_action_controls.gd" id="4_touch_action_controls"]
