@@ -1,9 +1,11 @@
 name: TEKNIK Step 5 Android APK Export
 
 on:
-  push:
+  pull_request:
     branches:
-      - step5-export-e71ed7f7
+      - main
+    paths:
+      - .github/step5-pr-trigger.txt
   workflow_dispatch:
 
 permissions:
@@ -18,16 +20,23 @@ jobs:
       GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
     steps:
-      - name: Checkout exact branch head
+      - name: Checkout exact authorized source head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Record source revision
+      - name: Record source revision and trigger context
         run: |
           mkdir -p artifacts
           git rev-parse HEAD | tee artifacts/source-commit.txt
           git status --short | tee artifacts/source-status.txt
+          {
+            printf 'event_name=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'github_sha=%s\n' "$GITHUB_SHA"
+            printf 'github_ref=%s\n' "$GITHUB_REF"
+            printf 'head_ref=%s\n' "$GITHUB_HEAD_REF"
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+          } | tee artifacts/trigger-context.txt
 
       - name: Install host dependencies
         run: |
@@ -88,7 +97,7 @@ jobs:
             2>&1 | tee artifacts/gradle-template.log
           test -x android/build/gradlew
 
-      - name: Run one explicitly dispatched Godot debug APK export
+      - name: Run one explicitly authorized Godot debug APK export
         id: export
         shell: bash
         run: |
@@ -141,7 +150,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      - name: Preserve explicitly dispatched export result
+      - name: Preserve explicitly authorized export result
         if: always()
         run: |
           status_file="artifacts/godot-android-export.exit-code"
@@ -151,7 +160,7 @@ jobs:
           fi
           status="$(cat "$status_file")"
           if [[ "$status" != '0' ]]; then
-            echo "The explicitly dispatched Godot export failed with exit code $status. No retry was attempted." >&2
+            echo "The explicitly authorized Godot export failed with exit code $status. No retry was attempted." >&2
             exit "$status"
           fi
           test -f artifacts/TEKNIK-0.1-debug.apk
