@@ -1,0 +1,79 @@
+name: TEKNIK Polish Water Gate
+
+on:
+  push:
+    branches:
+      - session/polish-world-fixes
+    paths:
+      - scenes/main.tscn
+      - scripts/world/localized_water_bodies.gd
+      - tests/polish_water_gate.gd
+      - .github/workflows/polish-water-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  localized-water:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget unzip libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libxrender1 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project
+        run: /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --editor --quit
+
+      - name: Gate localized water behavior on forced mobile world path
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --script res://tests/polish_water_gate.gd \
+            2>&1 | tee artifacts/polish-water-gate.log
+          grep -Fq POLISH_WATER_GATE_PASS artifacts/polish-water-gate.log
+
+      - name: Record scope and revision
+        if: always()
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null \
+            | tee artifacts/changed-files.txt || true
+
+      - name: Upload water gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-polish-water-gate
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Publish water gate status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=success
+          [[ "$JOB_STATUS" == success ]] || state=failure
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$state" \
+            -f context='teknik/polish-water' \
+            -f description="Localized water gate: $JOB_STATUS"
