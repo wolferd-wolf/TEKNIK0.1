@@ -1,9 +1,6 @@
 name: TEKNIK Step 5 Android APK Export
 
 on:
-  push:
-    branches: [session/touch-controls-android-export]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -21,7 +18,7 @@ jobs:
       - name: Checkout exact branch head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Record source revision
         run: |
@@ -88,7 +85,7 @@ jobs:
             2>&1 | tee artifacts/gradle-template.log
           test -x android/build/gradlew
 
-      - name: Run first actual Godot debug APK export once
+      - name: Run one explicitly dispatched Godot debug APK export
         id: export
         shell: bash
         run: |
@@ -141,7 +138,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      - name: Preserve first export result
+      - name: Preserve explicitly dispatched export result
         if: always()
         run: |
           status_file="artifacts/godot-android-export.exit-code"
@@ -151,7 +148,7 @@ jobs:
           fi
           status="$(cat "$status_file")"
           if [[ "$status" != '0' ]]; then
-            echo "The first actual Godot export failed with exit code $status. No retry was attempted." >&2
+            echo "The explicitly dispatched Godot export failed with exit code $status. No retry was attempted." >&2
             exit "$status"
           fi
           test -f artifacts/TEKNIK-0.1-debug.apk
