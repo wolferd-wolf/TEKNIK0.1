@@ -5,6 +5,7 @@ const CHUNK_SCRIPT := preload("res://scripts/world/chunk.gd")
 const CHUNK_SIZE := 16
 const BLOCK_AIR := 0
 const BLOCK_STONE := 3
+const REMESH_IDLE_FRAME_LIMIT := 240
 
 var failures: Array[String] = []
 
@@ -65,6 +66,8 @@ func _run_gate() -> void:
 		if not manager.mine_block_world(target_world):
 			_fail("Case %d failed to mine boundary target %s" % [case_index, target_world])
 			continue
+		if not await _wait_for_remesh_idle(manager, case_index, "mine"):
+			continue
 		if manager.get_block_world(target_world) != BLOCK_AIR:
 			_fail("Case %d target did not become air" % case_index)
 		if base_chunk.mesh_instance.visible:
@@ -88,6 +91,8 @@ func _run_gate() -> void:
 
 		if not manager.set_block_world(target_world, BLOCK_STONE):
 			_fail("Case %d failed to restore boundary target %s" % [case_index, target_world])
+			continue
+		if not await _wait_for_remesh_idle(manager, case_index, "restore"):
 			continue
 		if manager.get_block_world(target_world) != BLOCK_STONE:
 			_fail("Case %d target did not restore to stone" % case_index)
@@ -118,6 +123,15 @@ func _run_gate() -> void:
 		for failure in failures:
 			print("FAILURE=%s" % failure)
 		quit(1)
+
+
+func _wait_for_remesh_idle(manager, case_index: int, phase: String) -> bool:
+	for _frame in range(REMESH_IDLE_FRAME_LIMIT):
+		await process_frame
+		if manager.is_remesh_idle():
+			return true
+	_fail("Case %d %s remesh did not become idle" % [case_index, phase])
+	return false
 
 
 func _create_registered_chunk(manager, chunk_coord: Vector3i):
