@@ -29,6 +29,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Generate and verify debug keystore
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/teknik-debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          mkdir -p artifacts
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+          grep -Fq 'Alias name: androiddebugkey' artifacts/debug-keystore.log
+          grep -Fq 'Owner: CN=Android Debug, O=Android, C=US' artifacts/debug-keystore.log
+
       - name: Install Android command-line tools
         uses: android-actions/setup-android@v3
 
@@ -57,7 +70,6 @@ jobs:
 
       - name: Verify exact toolchain versions and template inventory
         run: |
-          mkdir -p artifacts
           {
             echo '=== Godot ==='
             /tmp/godot/godot --version
@@ -87,10 +99,10 @@ jobs:
           /tmp/godot/godot --version | grep -q '^4\.3'
           java -version 2>&1 | grep -q 'version "17\.'
 
-      - name: Upload toolchain evidence
+      - name: Upload toolchain and signing evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-step4-android-toolchain
+          name: teknik-step4-android-setup
           path: artifacts/
           if-no-files-found: error
