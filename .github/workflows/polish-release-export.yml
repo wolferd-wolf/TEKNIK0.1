@@ -8,6 +8,13 @@ on:
       - export_presets.cfg
       - scripts/android/setup_release_keystore.sh
       - .github/workflows/polish-release-export.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - export_presets.cfg
+      - scripts/android/setup_release_keystore.sh
+      - .github/workflows/polish-release-export.yml
   workflow_dispatch:
 
 permissions:
