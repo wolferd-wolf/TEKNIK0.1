@@ -17,8 +17,11 @@ func _ready() -> void:
 	_enabled = force_enabled_for_tests or DisplayServer.is_touchscreen_available()
 	if not _enabled or _player == null:
 		return
-	if "action_look_speed" in _player:
-		_player.action_look_speed = 0.0
+	if not _player.has_method("apply_look_delta"):
+		push_error("MobileCameraSensitivity player does not implement apply_look_delta().")
+		_enabled = false
+		return
+	_player.set("action_look_speed", 0.0)
 	set_process_input(true)
 
 
@@ -41,8 +44,6 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 
 func _handle_drag(event: InputEventScreenDrag) -> void:
 	if event.index != _active_look_touch_index:
-		return
-	if not _player.has_method("apply_look_delta"):
 		return
 	_player.call("apply_look_delta", event.relative * radians_per_drag_pixel)
 
