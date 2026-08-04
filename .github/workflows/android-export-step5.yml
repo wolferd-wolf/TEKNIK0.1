@@ -77,14 +77,6 @@ jobs:
           java -version 2>&1 | tee artifacts/java-version.txt
           printf 'ANDROID_HOME=%s\nJAVA_HOME=%s\n' "$ANDROID_HOME" "$JAVA_HOME" | tee artifacts/android-environment.txt
 
-      - name: Install project-local Android Gradle template
-        run: |
-          bash scripts/android/install_gradle_build_template.sh \
-            "$HOME/.local/share/godot/export_templates/4.3.stable" \
-            "$GITHUB_WORKSPACE" \
-            2>&1 | tee artifacts/gradle-template.log
-          test -x android/build/gradlew
-
       - name: Run one explicitly dispatched Godot debug APK export
         id: export
         shell: bash
@@ -97,6 +89,7 @@ jobs:
             --headless
             --verbose
             --path "$GITHUB_WORKSPACE"
+            --install-android-build-template
             --export-debug "Android Debug"
             "$output_path"
           )
@@ -112,13 +105,23 @@ jobs:
           export_status=${PIPESTATUS[0]}
           printf '%s\n' "$export_status" | tee artifacts/godot-android-export.exit-code
           echo "status=$export_status" >> "$GITHUB_OUTPUT"
+
+          if [[ -f android/.build_version ]]; then
+            cp android/.build_version artifacts/android-build-version.txt
+          fi
+          if [[ -d android/build ]]; then
+            find android/build -maxdepth 2 -mindepth 1 -printf '%P\n' \
+              | sort \
+              | sed -n '1,200p' \
+              > artifacts/android-build-template-inventory.txt
+          fi
           exit 0
 
       - name: Inspect resulting APK when export succeeds
         if: steps.export.outputs.status == '0'
         run: |
           apk="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-debug.apk"
-          test -f "$apk"
+          test -s "$apk"
           {
             printf 'path=%s\n' "$apk"
             stat --printf='size_bytes=%s\n' "$apk"
@@ -151,4 +154,4 @@ jobs:
             echo "The explicitly dispatched Godot export failed with exit code $status. No retry was attempted." >&2
             exit "$status"
           fi
-          test -f artifacts/TEKNIK-0.1-debug.apk
+          test -s artifacts/TEKNIK-0.1-debug.apk
