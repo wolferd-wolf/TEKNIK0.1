@@ -1,10 +1,11 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/playable_world_port.gd" id="1_chunk_manager"]
 [ext_resource type="Script" path="res://scripts/player/inventory_first_person_controller.gd" id="2_player"]
 [ext_resource type="Script" path="res://scripts/ui/touch_controls.gd" id="3_touch_controls"]
 [ext_resource type="Script" path="res://scripts/ui/touch_action_controls.gd" id="4_touch_action_controls"]
 [ext_resource type="Script" path="res://scripts/world/localized_water_bodies.gd" id="5_localized_water"]
+[ext_resource type="Script" path="res://scripts/player/mobile_camera_sensitivity.gd" id="6_mobile_camera"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -66,6 +67,9 @@ streaming_target_path = NodePath("../Player")
 
 [node name="LocalizedWaterBodies" type="Node3D" parent="ChunkManager"]
 script = ExtResource("5_localized_water")
+
+[node name="MobileCameraSensitivity" type="Node" parent="."]
+script = ExtResource("6_mobile_camera")
 
 [node name="TouchControls" type="CanvasLayer" parent="."]
 script = ExtResource("3_touch_controls")
