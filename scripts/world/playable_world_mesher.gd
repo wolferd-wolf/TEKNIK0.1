@@ -30,6 +30,15 @@ const FACE_VERTICES: Array = [
 	[Vector3(0, 0, 1), Vector3(1, 0, 1), Vector3(1, 1, 1), Vector3(0, 1, 1)],
 	[Vector3(0, 0, 0), Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(1, 0, 0)],
 ]
+const FACE_TANGENT_AXES: Array = [
+	[Vector3i.RIGHT, Vector3i(0, 0, 1)],
+	[Vector3i.RIGHT, Vector3i(0, 0, 1)],
+	[Vector3i.UP, Vector3i(0, 0, 1)],
+	[Vector3i.UP, Vector3i(0, 0, 1)],
+	[Vector3i.RIGHT, Vector3i.UP],
+	[Vector3i.RIGHT, Vector3i.UP],
+]
+const AO_FACTORS: Array[float] = [0.62, 0.76, 0.88, 1.0]
 
 
 static func build(
@@ -60,21 +69,45 @@ static func build(
 					if _get_block(neighbor, origin, heights, overrides, cache_width, world_height, sea_level) != BLOCK_AIR:
 						continue
 					var base_index := vertices.size()
-					var color := _block_color(block, cell, _face_shade(face_index))
+					var face_color := _block_color(block, cell, _face_shade(face_index))
 					var local_cell := Vector3(local_x, y, local_z)
 					var face_vertices: Array = FACE_VERTICES[face_index]
+					var face_ao := PackedInt32Array()
 					for vertex_value: Variant in face_vertices:
-						vertices.append(local_cell + Vector3(vertex_value))
+						var face_vertex := Vector3(vertex_value)
+						var ao_level := _vertex_ao(
+							cell,
+							face_index,
+							face_vertex,
+							origin,
+							heights,
+							overrides,
+							cache_width,
+							world_height,
+							sea_level
+						)
+						vertices.append(local_cell + face_vertex)
 						normals.append(FACE_NORMALS[face_index])
-						colors.append(color)
-					indices.append_array(PackedInt32Array([
-						base_index,
-						base_index + 1,
-						base_index + 2,
-						base_index,
-						base_index + 2,
-						base_index + 3,
-					]))
+						colors.append(_multiply_color(face_color, AO_FACTORS[ao_level]))
+						face_ao.append(ao_level)
+					if face_ao[0] + face_ao[2] > face_ao[1] + face_ao[3]:
+						indices.append_array(PackedInt32Array([
+							base_index,
+							base_index + 1,
+							base_index + 3,
+							base_index + 1,
+							base_index + 2,
+							base_index + 3,
+						]))
+					else:
+						indices.append_array(PackedInt32Array([
+							base_index,
+							base_index + 1,
+							base_index + 2,
+							base_index,
+							base_index + 2,
+							base_index + 3,
+						]))
 					face_count += 1
 
 	return {
@@ -84,6 +117,84 @@ static func build(
 		"indices": indices,
 		"face_count": face_count,
 	}
+
+
+static func _vertex_ao(
+	cell: Vector3i,
+	face_index: int,
+	face_vertex: Vector3,
+	origin: Vector3i,
+	heights: PackedInt32Array,
+	overrides: Dictionary,
+	cache_width: int,
+	world_height: int,
+	sea_level: int
+) -> int:
+	var normal := FACE_DIRECTIONS[face_index]
+	var tangent_axes: Array = FACE_TANGENT_AXES[face_index]
+	var first_axis := Vector3i(tangent_axes[0])
+	var second_axis := Vector3i(tangent_axes[1])
+	var first_direction := first_axis * _vertex_axis_sign(face_vertex, first_axis)
+	var second_direction := second_axis * _vertex_axis_sign(face_vertex, second_axis)
+	var outside := cell + normal
+	var side_first := _is_solid(
+		outside + first_direction,
+		origin,
+		heights,
+		overrides,
+		cache_width,
+		world_height,
+		sea_level
+	)
+	var side_second := _is_solid(
+		outside + second_direction,
+		origin,
+		heights,
+		overrides,
+		cache_width,
+		world_height,
+		sea_level
+	)
+	var corner := _is_solid(
+		outside + first_direction + second_direction,
+		origin,
+		heights,
+		overrides,
+		cache_width,
+		world_height,
+		sea_level
+	)
+	if side_first and side_second:
+		return 0
+	return 3 - int(side_first) - int(side_second) - int(corner)
+
+
+static func _vertex_axis_sign(face_vertex: Vector3, axis: Vector3i) -> int:
+	if axis.x != 0:
+		return -1 if face_vertex.x < 0.5 else 1
+	if axis.y != 0:
+		return -1 if face_vertex.y < 0.5 else 1
+	return -1 if face_vertex.z < 0.5 else 1
+
+
+static func _is_solid(
+	cell: Vector3i,
+	origin: Vector3i,
+	heights: PackedInt32Array,
+	overrides: Dictionary,
+	cache_width: int,
+	world_height: int,
+	sea_level: int
+) -> bool:
+	return _get_block(
+		cell,
+		origin,
+		heights,
+		overrides,
+		cache_width,
+		world_height,
+		sea_level
+	) != BLOCK_AIR
 
 
 static func _get_block(
@@ -141,6 +252,15 @@ static func _block_color(block: int, cell: Vector3i, shade: float) -> Color:
 		clampf(base_color.g * factor, 0.0, 1.0),
 		clampf(base_color.b * factor, 0.0, 1.0),
 		1.0
+	)
+
+
+static func _multiply_color(color: Color, factor: float) -> Color:
+	return Color(
+		clampf(color.r * factor, 0.0, 1.0),
+		clampf(color.g * factor, 0.0, 1.0),
+		clampf(color.b * factor, 0.0, 1.0),
+		color.a
 	)
 
 
