@@ -69,7 +69,7 @@ jobs:
           /tmp/godot/godot --headless --path . --script /tmp/step5_export_config_diagnostic.gd \
             2>&1 | tee artifacts/runtime-project-settings.log
           grep -Fq 'STEP5_DIAGNOSTIC_OS=Linux' artifacts/runtime-project-settings.log
-          grep -Fq 'STEP5_DIAGNOSTIC_ETC2_ASTC_SETTING_PRESENT=false' artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_ETC2_ASTC_SETTING_PRESENT=true' artifacts/runtime-project-settings.log
           grep -Fq 'STEP5_DIAGNOSTIC_ETC2_ASTC_VALUE=false' artifacts/runtime-project-settings.log
 
       - name: Inspect preset and debug-keystore resolution
