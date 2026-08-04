@@ -1,3 +1,0 @@
-Authorized exactly one Android APK export from this PR head.
-Rendering fix commit: e71ed7f7ee2849df50d52a54fecb8c81ec260e89
-One-shot PR trigger workflow commit: a2b0fc13962d11241def85e64eb3fe235e71951e
