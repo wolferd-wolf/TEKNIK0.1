@@ -18,7 +18,7 @@ func _fail(message: String) -> void:
 func _wait_for_collision_ring(manager) -> bool:
 	for _frame in range(FRAME_LIMIT):
 		await process_frame
-		if manager._legacy_spawn_ring_ready():
+		if manager.is_playable_world_collision_ring_ready():
 			return true
 	_fail("Imported 3x3 collision-first startup ring did not become ready")
 	return false
@@ -66,11 +66,11 @@ func _run_gate() -> void:
 
 	var height_samples: Dictionary = {}
 	for sample in [Vector2i(2, 2), Vector2i(28, 7), Vector2i(-19, 31), Vector2i(47, -23)]:
-		height_samples[manager._legacy_terrain_height(sample.x, sample.y)] = true
+		height_samples[manager.get_playable_world_height(sample.x, sample.y)] = true
 	if height_samples.size() < 2:
 		_fail("Imported deterministic terrain did not produce varied heights")
 
-	var surface_y: int = manager._legacy_terrain_height(2, 2)
+	var surface_y: int = manager.get_playable_world_height(2, 2)
 	var mine_coord := Vector3i(2, surface_y, 2)
 	var original_block: int = manager.get_block_world(mine_coord)
 	if original_block == 0:
@@ -78,8 +78,8 @@ func _run_gate() -> void:
 		_finish()
 		return
 
-	var legacy_coord := Vector2i(0, 0)
-	var old_entry: Dictionary = manager._legacy_loaded_chunks.get(legacy_coord, {})
+	var chunk_coord := Vector2i(0, 0)
+	var old_entry: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
 	var old_root := old_entry.get("root") as Node3D
 	if not is_instance_valid(old_root):
 		_fail("Imported origin chunk root was missing before mining")
@@ -102,7 +102,7 @@ func _run_gate() -> void:
 		_finish()
 		return
 
-	var new_entry: Dictionary = manager._legacy_loaded_chunks.get(legacy_coord, {})
+	var new_entry: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
 	var new_root := new_entry.get("root") as Node3D
 	if not is_instance_valid(new_root):
 		_fail("Imported origin chunk root was missing after mining")
