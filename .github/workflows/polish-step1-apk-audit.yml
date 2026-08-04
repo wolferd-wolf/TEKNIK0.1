@@ -36,7 +36,7 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends unzip wget binutils file jq
+          sudo apt-get install -y --no-install-recommends unzip wget binutils file
 
       - name: Install OpenJDK 17
         uses: actions/setup-java@v4
@@ -87,7 +87,7 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          apk="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-step1-audit-debug.apk"
+          apk="/tmp/TEKNIK-0.1-step1-audit-debug.apk"
           command=(
             /tmp/godot/godot
             --headless
@@ -114,117 +114,284 @@ jobs:
           echo "Diagnostic APK export failed; no size conclusions are valid." >&2
           exit 1
 
-      - name: Inventory APK entries and extract project/native payloads
+      - name: Inventory APK, assets, duplicates, and port contribution
         if: steps.export.outputs.status == '0'
         run: |
+          port_merge="$(git log --all --grep='Merge pull request #27' --format='%H' -1 || true)"
+          : > artifacts/port-files.txt
+          if [[ -n "$port_merge" ]]; then
+            git diff --name-only --diff-filter=AMR "${port_merge}^1" "$port_merge" | sort -u > artifacts/port-files.txt
+          fi
+          git rev-list --objects --all | awk '$2 ~ /\.apk$/ {print}' > artifacts/apk-history-objects.txt || true
+
           python3 - <<'PY'
-          import csv, json, os, sys, zipfile
+          import csv
+          import hashlib
+          import json
+          import os
+          import zipfile
           from collections import defaultdict
 
-          apk = 'artifacts/TEKNIK-0.1-step1-audit-debug.apk'
-          out = 'artifacts'
-          extract_dir = os.path.join(out, 'extracted')
-          os.makedirs(extract_dir, exist_ok=True)
+          APK = '/tmp/TEKNIK-0.1-step1-audit-debug.apk'
+          OUT = 'artifacts'
+          EXTRACT = os.path.join(OUT, 'extracted')
+          os.makedirs(EXTRACT, exist_ok=True)
 
-          def category(path: str) -> str:
+          with open(os.path.join(OUT, 'port-files.txt')) as f:
+              port_source_paths = {line.strip() for line in f if line.strip()}
+
+          def overall_category(path):
               low = path.lower()
               if low.startswith('lib/') and low.endswith('/libgodot_android.so'):
                   return 'Godot engine/runtime (native)'
               if low.startswith('lib/') and low.endswith('.so'):
                   return 'Other native libraries'
-              if low.startswith('assets/') and low.endswith('.pck'):
-                  return 'Project data pack (PCK)'
               if low.startswith('classes') and low.endswith('.dex'):
                   return 'Android bytecode (DEX)'
+              if low.startswith('assets/'):
+                  return 'Godot project assets'
               if low == 'androidmanifest.xml' or low == 'resources.arsc' or low.startswith('res/'):
                   return 'Android resources/manifest'
               if low.startswith('meta-inf/'):
                   return 'Signing metadata'
-              if low.startswith('assets/'):
-                  return 'Other packaged assets'
               return 'Other APK packaging'
 
-          rows = []
-          totals = defaultdict(lambda: {'compressed': 0, 'uncompressed': 0, 'count': 0})
-          pcks = []
-          native = []
-          with zipfile.ZipFile(apk) as z:
+          def asset_category(path):
+              low = path.lower()
+              ext = os.path.splitext(low)[1]
+              if low.startswith('assets/tests/'):
+                  return 'Tests/diagnostic code'
+              if ext in {'.ctex', '.stex'}:
+                  return 'Imported texture data'
+              if ext in {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tga', '.svg'}:
+                  return 'Raw image sources'
+              if ext in {'.ogg', '.wav', '.mp3'}:
+                  return 'Audio'
+              if ext in {'.ttf', '.otf', '.woff', '.woff2'}:
+                  return 'Fonts'
+              if ext in {'.gdc', '.gd'}:
+                  return 'Runtime scripts'
+              if ext in {'.scn', '.tscn', '.tres', '.res'}:
+                  return 'Scenes/resources'
+              if ext in {'.gdshader', '.shader', '.glsl'}:
+                  return 'Shaders'
+              if ext in {'.remap', '.import'}:
+                  return 'Import/remap metadata'
+              if low.endswith('project.binary') or '/.godot/' in low:
+                  return 'Project configuration/cache'
+              return 'Other project data'
+
+          def asset_to_source_candidates(asset_path):
+              rel = asset_path.removeprefix('assets/')
+              candidates = {rel}
+              if rel.endswith('.gdc'):
+                  candidates.add(rel[:-4] + '.gd')
+              if rel.endswith('.gd.remap'):
+                  candidates.add(rel[:-6])
+              if rel.endswith('.scn'):
+                  candidates.add(rel[:-4] + '.tscn')
+              if rel.endswith('.tscn.remap'):
+                  candidates.add(rel[:-6])
+              return candidates
+
+          def is_port_asset(asset_path):
+              candidates = asset_to_source_candidates(asset_path)
+              if candidates & port_source_paths:
+                  return True
+              return 'playable_world_' in asset_path.lower()
+
+          overall_rows = []
+          asset_rows = []
+          overall_totals = defaultdict(lambda: {'compressed': 0, 'uncompressed': 0, 'count': 0})
+          asset_totals = defaultdict(lambda: {'compressed': 0, 'uncompressed': 0, 'count': 0})
+          asset_hashes = defaultdict(list)
+          native_entries = []
+          template_entries = []
+
+          with zipfile.ZipFile(APK) as z:
               for info in z.infolist():
                   if info.is_dir():
                       continue
-                  cat = category(info.filename)
-                  row = {
+                  cat = overall_category(info.filename)
+                  overall_rows.append({
                       'category': cat,
                       'path': info.filename,
                       'compressed_bytes': info.compress_size,
                       'uncompressed_bytes': info.file_size,
                       'compression_method': info.compress_type,
-                  }
-                  rows.append(row)
-                  totals[cat]['compressed'] += info.compress_size
-                  totals[cat]['uncompressed'] += info.file_size
-                  totals[cat]['count'] += 1
+                  })
+                  overall_totals[cat]['compressed'] += info.compress_size
+                  overall_totals[cat]['uncompressed'] += info.file_size
+                  overall_totals[cat]['count'] += 1
+
                   low = info.filename.lower()
-                  if low.startswith('assets/') and low.endswith('.pck'):
-                      pcks.append(info.filename)
-                      z.extract(info, extract_dir)
                   if low.startswith('lib/') and low.endswith('.so'):
-                      native.append(info.filename)
-                      z.extract(info, extract_dir)
+                      native_entries.append(info.filename)
+                      z.extract(info, EXTRACT)
+                  if low.startswith('lib/') and low.endswith('/libgodot_android.so'):
+                      template_entries.append(info.filename)
 
-          rows.sort(key=lambda r: r['compressed_bytes'], reverse=True)
-          with open(os.path.join(out, 'apk-entries.csv'), 'w', newline='') as f:
-              w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-              w.writeheader(); w.writerows(rows)
+                  if low.startswith('assets/'):
+                      data = z.read(info)
+                      digest = hashlib.sha256(data).hexdigest()
+                      acat = asset_category(info.filename)
+                      port_related = is_port_asset(info.filename)
+                      row = {
+                          'category': acat,
+                          'path': info.filename,
+                          'compressed_bytes': info.compress_size,
+                          'uncompressed_bytes': info.file_size,
+                          'sha256': digest,
+                          'port_related': port_related,
+                      }
+                      asset_rows.append(row)
+                      asset_totals[acat]['compressed'] += info.compress_size
+                      asset_totals[acat]['uncompressed'] += info.file_size
+                      asset_totals[acat]['count'] += 1
+                      asset_hashes[(digest, info.file_size)].append(row)
 
-          apk_size = os.path.getsize(apk)
-          sum_compressed = sum(r['compressed_bytes'] for r in rows)
-          overhead = max(0, apk_size - sum_compressed)
-          totals['ZIP alignment/central-directory overhead'] = {
+          apk_size = os.path.getsize(APK)
+          compressed_entry_sum = sum(r['compressed_bytes'] for r in overall_rows)
+          overhead = max(0, apk_size - compressed_entry_sum)
+          overall_totals['ZIP alignment/central-directory overhead'] = {
               'compressed': overhead,
               'uncompressed': overhead,
               'count': 1,
           }
-          summary_rows = []
-          for cat, values in totals.items():
-              summary_rows.append({
-                  'category': cat,
+
+          overall_summary = []
+          for category, values in overall_totals.items():
+              overall_summary.append({
+                  'category': category,
                   'compressed_bytes': values['compressed'],
-                  'compressed_mib': round(values['compressed'] / 1048576, 3),
-                  'compressed_percent_of_apk': round(values['compressed'] * 100 / apk_size, 3),
+                  'compressed_mib': round(values['compressed'] / 1048576, 6),
+                  'percent_of_apk': round(values['compressed'] * 100 / apk_size, 6),
                   'uncompressed_bytes': values['uncompressed'],
-                  'uncompressed_mib': round(values['uncompressed'] / 1048576, 3),
+                  'uncompressed_mib': round(values['uncompressed'] / 1048576, 6),
                   'entry_count': values['count'],
               })
-          summary_rows.sort(key=lambda r: r['compressed_bytes'], reverse=True)
-          with open(os.path.join(out, 'apk-category-breakdown.csv'), 'w', newline='') as f:
-              w = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()))
-              w.writeheader(); w.writerows(summary_rows)
-          with open(os.path.join(out, 'apk-category-breakdown.json'), 'w') as f:
-              json.dump(summary_rows, f, indent=2)
+          overall_summary.sort(key=lambda x: x['compressed_bytes'], reverse=True)
 
-          with open(os.path.join(out, 'top-apk-entries.txt'), 'w') as f:
-              for r in rows[:100]:
-                  f.write(f"{r['compressed_bytes']:>12}\t{r['uncompressed_bytes']:>12}\t{r['category']}\t{r['path']}\n")
-          with open(os.path.join(out, 'pck-entry-paths.txt'), 'w') as f:
-              f.write('\n'.join(pcks) + ('\n' if pcks else ''))
-          with open(os.path.join(out, 'native-library-entries.txt'), 'w') as f:
-              f.write('\n'.join(native) + ('\n' if native else ''))
-          with open(os.path.join(out, 'apk-size.txt'), 'w') as f:
-              f.write(f"size_bytes={apk_size}\nsize_mib={apk_size/1048576:.3f}\n")
-          print(f'APK size: {apk_size} bytes ({apk_size/1048576:.3f} MiB)')
-          print(f'PCK entries: {pcks}')
-          print(f'Native entries: {native}')
+          total_asset_compressed = sum(r['compressed_bytes'] for r in asset_rows)
+          total_asset_uncompressed = sum(r['uncompressed_bytes'] for r in asset_rows)
+          asset_summary = []
+          for category, values in asset_totals.items():
+              asset_summary.append({
+                  'category': category,
+                  'compressed_bytes': values['compressed'],
+                  'compressed_kib': round(values['compressed'] / 1024, 3),
+                  'percent_of_asset_compressed': round(values['compressed'] * 100 / total_asset_compressed, 6) if total_asset_compressed else 0,
+                  'uncompressed_bytes': values['uncompressed'],
+                  'uncompressed_kib': round(values['uncompressed'] / 1024, 3),
+                  'file_count': values['count'],
+              })
+          asset_summary.sort(key=lambda x: x['compressed_bytes'], reverse=True)
+
+          duplicates = []
+          duplicate_waste_compressed = 0
+          duplicate_waste_uncompressed = 0
+          port_duplicate_waste_compressed = 0
+          for (_, size), group in asset_hashes.items():
+              if size <= 0 or len(group) < 2:
+                  continue
+              group_sorted = sorted(group, key=lambda r: r['compressed_bytes'], reverse=True)
+              compressed_waste = sum(r['compressed_bytes'] for r in group_sorted[1:])
+              uncompressed_waste = size * (len(group_sorted) - 1)
+              port_related = any(r['port_related'] for r in group_sorted)
+              duplicate_waste_compressed += compressed_waste
+              duplicate_waste_uncompressed += uncompressed_waste
+              if port_related:
+                  port_duplicate_waste_compressed += compressed_waste
+              duplicates.append({
+                  'sha256': group_sorted[0]['sha256'],
+                  'uncompressed_bytes_each': size,
+                  'copies': len(group_sorted),
+                  'compressed_waste_bytes': compressed_waste,
+                  'uncompressed_waste_bytes': uncompressed_waste,
+                  'port_related': port_related,
+                  'paths': [r['path'] for r in group_sorted],
+              })
+          duplicates.sort(key=lambda x: x['compressed_waste_bytes'], reverse=True)
+
+          port_rows = [r for r in asset_rows if r['port_related']]
+          port_compressed = sum(r['compressed_bytes'] for r in port_rows)
+          port_uncompressed = sum(r['uncompressed_bytes'] for r in port_rows)
+
+          def write_csv(path, rows, fields=None):
+              with open(path, 'w', newline='') as f:
+                  if not rows:
+                      f.write('')
+                      return
+                  fields = fields or list(rows[0].keys())
+                  writer = csv.DictWriter(f, fieldnames=fields)
+                  writer.writeheader()
+                  writer.writerows(rows)
+
+          overall_rows.sort(key=lambda x: x['compressed_bytes'], reverse=True)
+          asset_rows.sort(key=lambda x: x['compressed_bytes'], reverse=True)
+          port_rows.sort(key=lambda x: x['compressed_bytes'], reverse=True)
+          write_csv(os.path.join(OUT, 'apk-category-breakdown.csv'), overall_summary)
+          write_csv(os.path.join(OUT, 'apk-entries.csv'), overall_rows)
+          write_csv(os.path.join(OUT, 'asset-category-breakdown.csv'), asset_summary)
+          write_csv(os.path.join(OUT, 'asset-entries.csv'), asset_rows)
+          write_csv(os.path.join(OUT, 'port-packaged-entries.csv'), port_rows)
+          with open(os.path.join(OUT, 'asset-duplicate-groups.json'), 'w') as f:
+              json.dump(duplicates, f, indent=2)
+          with open(os.path.join(OUT, 'native-library-entries.txt'), 'w') as f:
+              f.write('\n'.join(native_entries) + ('\n' if native_entries else ''))
+          with open(os.path.join(OUT, 'native-template-entries.txt'), 'w') as f:
+              f.write('\n'.join(template_entries) + ('\n' if template_entries else ''))
+          with open(os.path.join(OUT, 'apk-size.txt'), 'w') as f:
+              f.write(f'size_bytes={apk_size}\n')
+              f.write(f'size_mib={apk_size/1048576:.6f}\n')
+              f.write(f'size_decimal_mb={apk_size/1000000:.6f}\n')
+          with open(os.path.join(OUT, 'asset-summary.txt'), 'w') as f:
+              f.write(f'asset_compressed_bytes={total_asset_compressed}\n')
+              f.write(f'asset_compressed_mib={total_asset_compressed/1048576:.6f}\n')
+              f.write(f'asset_uncompressed_bytes={total_asset_uncompressed}\n')
+              f.write(f'asset_uncompressed_mib={total_asset_uncompressed/1048576:.6f}\n')
+              f.write(f'asset_file_count={len(asset_rows)}\n')
+              f.write(f'exact_duplicate_group_count={len(duplicates)}\n')
+              f.write(f'exact_duplicate_compressed_waste_bytes={duplicate_waste_compressed}\n')
+              f.write(f'exact_duplicate_compressed_waste_kib={duplicate_waste_compressed/1024:.6f}\n')
+              f.write(f'exact_duplicate_uncompressed_waste_bytes={duplicate_waste_uncompressed}\n')
+              f.write(f'port_related_duplicate_compressed_waste_bytes={port_duplicate_waste_compressed}\n')
+              f.write(f'port_related_duplicate_compressed_waste_kib={port_duplicate_waste_compressed/1024:.6f}\n')
+              f.write(f'port_packaged_compressed_bytes={port_compressed}\n')
+              f.write(f'port_packaged_compressed_kib={port_compressed/1024:.6f}\n')
+              f.write(f'port_packaged_uncompressed_bytes={port_uncompressed}\n')
+              f.write(f'port_packaged_uncompressed_kib={port_uncompressed/1024:.6f}\n')
+              f.write(f'port_packaged_entry_count={len(port_rows)}\n')
+              f.write(f'native_library_entry_count={len(native_entries)}\n')
+              f.write(f'native_template_entry_count={len(template_entries)}\n')
+
+          with open(os.path.join(OUT, 'top-apk-entries.txt'), 'w') as f:
+              for row in overall_rows[:100]:
+                  f.write(f"{row['compressed_bytes']:>12}\t{row['uncompressed_bytes']:>12}\t{row['category']}\t{row['path']}\n")
+          with open(os.path.join(OUT, 'top-asset-entries.txt'), 'w') as f:
+              for row in asset_rows[:100]:
+                  f.write(f"{row['compressed_bytes']:>10}\t{row['uncompressed_bytes']:>10}\t{row['category']}\tport={row['port_related']}\t{row['path']}\n")
+
+          print('=== APK CATEGORY BREAKDOWN ===')
+          for row in overall_summary:
+              print(json.dumps(row, sort_keys=True))
+          print('=== ASSET CATEGORY BREAKDOWN ===')
+          for row in asset_summary:
+              print(json.dumps(row, sort_keys=True))
+          print('=== ASSET SUMMARY ===')
+          print(open(os.path.join(OUT, 'asset-summary.txt')).read())
+          print('=== PORT PACKAGED ENTRIES ===')
+          for row in port_rows:
+              print(json.dumps(row, sort_keys=True))
+          print('=== EXACT DUPLICATE GROUPS ===')
+          print(json.dumps(duplicates, indent=2))
           PY
 
-          cat artifacts/apk-size.txt
-          cat artifacts/apk-category-breakdown.csv
-
-      - name: Confirm debug mode, ABI count, and native symbol sections
+      - name: Confirm build mode, ABI count, native templates, and symbol sections
         if: steps.export.outputs.status == '0'
         shell: bash
         run: |
-          apk="artifacts/TEKNIK-0.1-step1-audit-debug.apk"
+          apk="/tmp/TEKNIK-0.1-step1-audit-debug.apk"
           {
             echo 'Export evidence:'
             cat artifacts/export-mode.txt
@@ -232,13 +399,16 @@ jobs:
             echo 'Preset evidence:'
             sed -n '1,120p' export_presets.cfg
             echo
-            echo 'Manifest/build evidence:'
+            echo 'Manifest and ABI evidence:'
             "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | grep -E 'package:|application-debuggable|native-code' || true
             echo
             echo 'Signature evidence:'
             "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk" || true
             echo
-            echo 'Native libraries and ELF inspection:'
+            echo 'Godot native template entries:'
+            cat artifacts/native-template-entries.txt
+            echo
+            echo 'All native libraries and ELF symbol inspection:'
             while IFS= read -r entry; do
               [[ -n "$entry" ]] || continue
               extracted="artifacts/extracted/$entry"
@@ -248,231 +418,27 @@ jobs:
             done < artifacts/native-library-entries.txt
           } 2>&1 | tee artifacts/build-mode-and-native-inspection.txt
 
-      - name: Mount and inventory the exported Godot PCK
-        if: steps.export.outputs.status == '0'
-        shell: bash
-        run: |
-          pck_entry="$(head -n 1 artifacts/pck-entry-paths.txt || true)"
-          if [[ -z "$pck_entry" ]]; then
-            echo 'No PCK entry found in APK.' | tee artifacts/pck-audit-error.txt
-            exit 1
-          fi
-          pck="artifacts/extracted/$pck_entry"
-          mkdir -p /tmp/pck-audit-host
-          cat > /tmp/pck-audit-host/project.godot <<'EOF'
-          [application]
-          config/name="PCK Audit Host"
-          [rendering]
-          renderer/rendering_method="gl_compatibility"
-          EOF
-          cat > /tmp/audit_pck.gd <<'EOF'
-          extends SceneTree
-
-          func _initialize() -> void:
-              var args := OS.get_cmdline_user_args()
-              if args.is_empty():
-                  push_error("Missing PCK path")
-                  quit(2)
-                  return
-              var pck_path: String = args[0]
-              if not ProjectSettings.load_resource_pack(pck_path, true):
-                  push_error("Could not mount PCK: " + pck_path)
-                  quit(3)
-                  return
-              _walk("res://")
-              quit(0)
-
-          func _walk(path: String) -> void:
-              var directory := DirAccess.open(path)
-              if directory == null:
-                  return
-              directory.list_dir_begin()
-              var name := directory.get_next()
-              while name != "":
-                  if name != "." and name != "..":
-                      var full := path.path_join(name)
-                      if directory.current_is_dir():
-                          _walk(full)
-                      else:
-                          var file := FileAccess.open(full, FileAccess.READ)
-                          if file != null:
-                              var length: int = file.get_length()
-                              var digest: String = FileAccess.get_sha256(full)
-                              print("PCKFILE\t%d\t%s\t%s" % [length, digest, full])
-                  name = directory.get_next()
-              directory.list_dir_end()
-          EOF
-          /tmp/godot/godot --headless --path /tmp/pck-audit-host --script /tmp/audit_pck.gd -- "$pck" \
-            2>&1 | tee artifacts/pck-mount-raw.log
-          grep '^PCKFILE' artifacts/pck-mount-raw.log | cut -f2- > artifacts/pck-files.tsv
-          test -s artifacts/pck-files.tsv
-
-      - name: Classify PCK contents and exact duplicates
-        if: steps.export.outputs.status == '0'
-        run: |
-          port_merge="$(git log --all --grep='Merge pull request #27' --format='%H' -1 || true)"
-          : > artifacts/port-files.txt
-          if [[ -n "$port_merge" ]]; then
-            git diff --name-only --diff-filter=AMR "${port_merge}^1" "$port_merge" | sort -u > artifacts/port-files.txt
-          fi
-
-          python3 - <<'PY'
-          import csv, hashlib, json, os
-          from collections import defaultdict
-
-          out = 'artifacts'
-          port_paths = set()
-          if os.path.exists(os.path.join(out, 'port-files.txt')):
-              with open(os.path.join(out, 'port-files.txt')) as f:
-                  port_paths = {line.strip() for line in f if line.strip()}
-
-          def pck_category(path: str) -> str:
-              low = path.lower()
-              ext = os.path.splitext(low)[1]
-              if ext in {'.ctex', '.stex'}:
-                  return 'Imported texture data'
-              if ext in {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tga', '.svg'}:
-                  return 'Raw image sources'
-              if ext in {'.ogg', '.wav', '.mp3'}:
-                  return 'Audio'
-              if ext in {'.ttf', '.otf', '.woff', '.woff2'}:
-                  return 'Fonts'
-              if ext in {'.gd', '.gdc'}:
-                  return 'Scripts'
-              if ext in {'.tscn', '.scn', '.tres', '.res'}:
-                  return 'Scenes/resources'
-              if ext in {'.gdshader', '.shader', '.glsl'}:
-                  return 'Shaders'
-              if low.endswith('project.godot'):
-                  return 'Project configuration'
-              return 'Other project data'
-
-          rows = []
-          by_hash = defaultdict(list)
-          by_cat = defaultdict(lambda: {'bytes': 0, 'count': 0})
-          by_top = defaultdict(lambda: {'bytes': 0, 'count': 0})
-          with open(os.path.join(out, 'pck-files.tsv')) as f:
-              for line in f:
-                  size_s, digest, path = line.rstrip('\n').split('\t', 2)
-                  size = int(size_s)
-                  cat = pck_category(path)
-                  rel = path.removeprefix('res://')
-                  port_related = rel in port_paths
-                  top = rel.split('/', 1)[0] if '/' in rel else '(root)'
-                  row = {
-                      'category': cat,
-                      'path': path,
-                      'bytes': size,
-                      'mib': round(size / 1048576, 6),
-                      'sha256': digest,
-                      'port_pr27_path': port_related,
-                  }
-                  rows.append(row)
-                  by_hash[(digest, size)].append(path)
-                  by_cat[cat]['bytes'] += size
-                  by_cat[cat]['count'] += 1
-                  by_top[top]['bytes'] += size
-                  by_top[top]['count'] += 1
-
-          rows.sort(key=lambda r: r['bytes'], reverse=True)
-          with open(os.path.join(out, 'pck-files.csv'), 'w', newline='') as f:
-              w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-              w.writeheader(); w.writerows(rows)
-
-          total = sum(r['bytes'] for r in rows)
-          cat_rows = []
-          for cat, v in by_cat.items():
-              cat_rows.append({
-                  'category': cat,
-                  'bytes': v['bytes'],
-                  'mib': round(v['bytes'] / 1048576, 3),
-                  'percent_of_listed_pck_bytes': round(v['bytes'] * 100 / total, 3) if total else 0,
-                  'file_count': v['count'],
-              })
-          cat_rows.sort(key=lambda r: r['bytes'], reverse=True)
-          with open(os.path.join(out, 'pck-category-breakdown.csv'), 'w', newline='') as f:
-              w = csv.DictWriter(f, fieldnames=list(cat_rows[0].keys()))
-              w.writeheader(); w.writerows(cat_rows)
-          with open(os.path.join(out, 'pck-category-breakdown.json'), 'w') as f:
-              json.dump(cat_rows, f, indent=2)
-
-          top_rows = [
-              {'top_level': k, 'bytes': v['bytes'], 'mib': round(v['bytes']/1048576, 3), 'file_count': v['count']}
-              for k, v in by_top.items()
-          ]
-          top_rows.sort(key=lambda r: r['bytes'], reverse=True)
-          with open(os.path.join(out, 'pck-top-level-breakdown.csv'), 'w', newline='') as f:
-              w = csv.DictWriter(f, fieldnames=list(top_rows[0].keys()))
-              w.writeheader(); w.writerows(top_rows)
-
-          duplicate_groups = []
-          duplicate_waste = 0
-          port_duplicate_waste = 0
-          for (digest, size), paths in by_hash.items():
-              if size <= 0 or len(paths) < 2:
-                  continue
-              waste = size * (len(paths) - 1)
-              duplicate_waste += waste
-              rels = [p.removeprefix('res://') for p in paths]
-              port_related = any(p in port_paths for p in rels)
-              if port_related:
-                  port_duplicate_waste += waste
-              duplicate_groups.append({
-                  'sha256': digest,
-                  'bytes_each': size,
-                  'copies': len(paths),
-                  'wasted_bytes': waste,
-                  'port_related': port_related,
-                  'paths': paths,
-              })
-          duplicate_groups.sort(key=lambda r: r['wasted_bytes'], reverse=True)
-          with open(os.path.join(out, 'pck-duplicate-groups.json'), 'w') as f:
-              json.dump(duplicate_groups, f, indent=2)
-          with open(os.path.join(out, 'pck-duplicate-summary.txt'), 'w') as f:
-              f.write(f'duplicate_group_count={len(duplicate_groups)}\n')
-              f.write(f'duplicate_wasted_bytes={duplicate_waste}\n')
-              f.write(f'duplicate_wasted_mib={duplicate_waste/1048576:.6f}\n')
-              f.write(f'port_related_duplicate_wasted_bytes={port_duplicate_waste}\n')
-              f.write(f'port_related_duplicate_wasted_mib={port_duplicate_waste/1048576:.6f}\n')
-
-          with open(os.path.join(out, 'top-pck-files.txt'), 'w') as f:
-              for r in rows[:100]:
-                  f.write(f"{r['bytes']:>12}\t{r['category']}\t{r['path']}\n")
-          with open(os.path.join(out, 'raw-image-sources.txt'), 'w') as f:
-              for r in rows:
-                  if r['category'] == 'Raw image sources':
-                      f.write(f"{r['bytes']}\t{r['path']}\n")
-          print('PCK categories:')
-          for r in cat_rows:
-              print(r)
-          print(f'Exact duplicate waste: {duplicate_waste} bytes')
-          print(f'Port-related exact duplicate waste: {port_duplicate_waste} bytes')
-          PY
-
-          cat artifacts/pck-category-breakdown.csv
-          cat artifacts/pck-duplicate-summary.txt
-
-      - name: Audit source-tree duplicates and port contribution
+      - name: Audit current source-tree exact duplicates
         if: steps.export.outputs.status == '0'
         run: |
           python3 - <<'PY'
-          import hashlib, json, os
+          import hashlib
+          import json
+          import os
           from collections import defaultdict
 
-          excluded_prefixes = ('.git/', '.godot/', 'android/build/', 'artifacts/')
           port_paths = set()
-          if os.path.exists('artifacts/port-files.txt'):
-              with open('artifacts/port-files.txt') as f:
-                  port_paths = {line.strip() for line in f if line.strip()}
+          with open('artifacts/port-files.txt') as f:
+              port_paths = {line.strip() for line in f if line.strip()}
 
-          rows = []
+          excluded = {'.git', '.godot', 'artifacts'}
           groups = defaultdict(list)
+          rows = []
           for root, dirs, files in os.walk('.'):
-              rel_root = os.path.relpath(root, '.')
-              dirs[:] = [d for d in dirs if not any(((rel_root + '/' + d).lstrip('./') + '/').startswith(p) for p in excluded_prefixes)]
+              dirs[:] = [d for d in dirs if d not in excluded and not (root == '.' and d == 'android')]
               for name in files:
-                  path = os.path.normpath(os.path.join(rel_root, name)).lstrip('./')
-                  if any(path.startswith(p) for p in excluded_prefixes):
+                  path = os.path.normpath(os.path.join(root, name)).lstrip('./')
+                  if path.startswith('android/build/'):
                       continue
                   try:
                       size = os.path.getsize(path)
@@ -480,114 +446,117 @@ jobs:
                       with open(path, 'rb') as f:
                           for chunk in iter(lambda: f.read(1024 * 1024), b''):
                               h.update(chunk)
-                      digest = h.hexdigest()
                   except OSError:
                       continue
-                  rows.append({'path': path, 'bytes': size, 'sha256': digest, 'port_pr27_path': path in port_paths})
-                  groups[(digest, size)].append(path)
+                  row = {'path': path, 'bytes': size, 'sha256': h.hexdigest(), 'port_related': path in port_paths}
+                  rows.append(row)
+                  groups[(row['sha256'], size)].append(row)
 
           duplicates = []
-          total_waste = 0
+          waste = 0
           port_waste = 0
-          for (digest, size), paths in groups.items():
-              if size <= 0 or len(paths) < 2:
+          for (_, size), group in groups.items():
+              if size <= 0 or len(group) < 2:
                   continue
-              waste = size * (len(paths) - 1)
-              port_related = any(p in port_paths for p in paths)
-              total_waste += waste
-              if port_related:
-                  port_waste += waste
+              group_waste = size * (len(group) - 1)
+              related = any(r['port_related'] for r in group)
+              waste += group_waste
+              if related:
+                  port_waste += group_waste
               duplicates.append({
-                  'sha256': digest,
                   'bytes_each': size,
-                  'copies': len(paths),
-                  'wasted_bytes': waste,
-                  'port_related': port_related,
-                  'paths': paths,
+                  'copies': len(group),
+                  'wasted_bytes': group_waste,
+                  'port_related': related,
+                  'paths': [r['path'] for r in group],
               })
-          duplicates.sort(key=lambda r: r['wasted_bytes'], reverse=True)
+          duplicates.sort(key=lambda x: x['wasted_bytes'], reverse=True)
+          port_existing = [r for r in rows if r['path'] in port_paths]
+
           with open('artifacts/source-duplicate-groups.json', 'w') as f:
               json.dump(duplicates, f, indent=2)
-
-          port_existing = [r for r in rows if r['path'] in port_paths]
-          with open('artifacts/port-source-files.txt', 'w') as f:
-              for r in sorted(port_existing, key=lambda x: x['bytes'], reverse=True):
-                  f.write(f"{r['bytes']}\t{r['path']}\n")
           with open('artifacts/source-duplicate-summary.txt', 'w') as f:
               f.write(f'source_duplicate_group_count={len(duplicates)}\n')
-              f.write(f'source_duplicate_wasted_bytes={total_waste}\n')
-              f.write(f'source_duplicate_wasted_mib={total_waste/1048576:.6f}\n')
+              f.write(f'source_duplicate_wasted_bytes={waste}\n')
+              f.write(f'source_duplicate_wasted_kib={waste/1024:.6f}\n')
               f.write(f'port_related_source_duplicate_wasted_bytes={port_waste}\n')
-              f.write(f'port_related_source_duplicate_wasted_mib={port_waste/1048576:.6f}\n')
+              f.write(f'port_related_source_duplicate_wasted_kib={port_waste/1024:.6f}\n')
               f.write(f'port_current_file_count={len(port_existing)}\n')
               f.write(f'port_current_total_bytes={sum(r["bytes"] for r in port_existing)}\n')
-              f.write(f'port_current_total_mib={sum(r["bytes"] for r in port_existing)/1048576:.6f}\n')
-
-          tracked_apks = []
-          for r in rows:
-              if r['path'].lower().endswith('.apk'):
-                  tracked_apks.append(r)
-          with open('artifacts/old-build-comparison-availability.txt', 'w') as f:
-              if tracked_apks:
-                  for r in tracked_apks:
-                      f.write(f"tracked_apk\t{r['bytes']}\t{r['path']}\n")
-              else:
-                  f.write('No prior APK is present in the checked-out repository, so the claimed old 28 MB build cannot be decomposed or compared entry-for-entry from repository data alone.\n')
-
+              f.write(f'port_current_total_kib={sum(r["bytes"] for r in port_existing)/1024:.6f}\n')
           print(open('artifacts/source-duplicate-summary.txt').read())
+          print(json.dumps(duplicates, indent=2))
           PY
 
-      - name: Build concise audit report
+      - name: Build and print concise audit report
         if: steps.export.outputs.status == '0'
         run: |
           python3 - <<'PY'
-          import csv, json, os
+          import csv
+          import os
 
-          def read_kv(path):
+          def kv(path):
               result = {}
-              if os.path.exists(path):
-                  with open(path) as f:
-                      for line in f:
-                          if '=' in line:
-                              k, v = line.rstrip().split('=', 1)
-                              result[k] = v
+              with open(path) as f:
+                  for line in f:
+                      if '=' in line:
+                          key, value = line.rstrip().split('=', 1)
+                          result[key] = value
               return result
 
           with open('artifacts/apk-category-breakdown.csv') as f:
               apk_rows = list(csv.DictReader(f))
-          with open('artifacts/pck-category-breakdown.csv') as f:
-              pck_rows = list(csv.DictReader(f))
-          apk_size = read_kv('artifacts/apk-size.txt')
-          pck_dup = read_kv('artifacts/pck-duplicate-summary.txt')
-          source_dup = read_kv('artifacts/source-duplicate-summary.txt')
-          native_entries = [x.strip() for x in open('artifacts/native-library-entries.txt') if x.strip()]
-          raw_images = [x.strip() for x in open('artifacts/raw-image-sources.txt') if x.strip()]
+          with open('artifacts/asset-category-breakdown.csv') as f:
+              asset_rows = list(csv.DictReader(f))
+          apk = kv('artifacts/apk-size.txt')
+          assets = kv('artifacts/asset-summary.txt')
+          source = kv('artifacts/source-duplicate-summary.txt')
+          history = open('artifacts/apk-history-objects.txt').read().strip()
+          native_template_entries = [line.strip() for line in open('artifacts/native-template-entries.txt') if line.strip()]
 
           with open('artifacts/audit-report.md', 'w') as f:
               f.write('# TEKNIK Step 1 APK Size Audit\n\n')
               f.write(f"- Source commit: `{open('artifacts/source-commit.txt').read().strip()}`\n")
-              f.write(f"- APK size: **{apk_size.get('size_mib', '?')} MiB** ({apk_size.get('size_bytes', '?')} bytes)\n")
-              f.write('- Build mode: **Debug**, proven by the `--export-debug "Android Debug"` command and the Android Debug preset.\n')
-              f.write(f"- Native library entries: **{len(native_entries)}**\n")
-              f.write(f"- Raw image entries inside exported PCK: **{len(raw_images)}**\n\n")
-              f.write('## APK compressed-size breakdown\n\n')
-              f.write('| Category | MiB | % of APK | Entries |\n|---|---:|---:|---:|\n')
-              for r in apk_rows:
-                  f.write(f"| {r['category']} | {r['compressed_mib']} | {r['compressed_percent_of_apk']}% | {r['entry_count']} |\n")
-              f.write('\n## Project PCK file-content breakdown\n\n')
-              f.write('| Category | MiB | % of listed PCK bytes | Files |\n|---|---:|---:|---:|\n')
-              for r in pck_rows:
-                  f.write(f"| {r['category']} | {r['mib']} | {r['percent_of_listed_pck_bytes']}% | {r['file_count']} |\n")
-              f.write('\n## Exact-duplicate findings\n\n')
-              f.write(f"- PCK exact duplicate waste: {pck_dup.get('duplicate_wasted_mib', '?')} MiB.\n")
-              f.write(f"- PCK exact duplicate waste involving a PR #27 port path: {pck_dup.get('port_related_duplicate_wasted_mib', '?')} MiB.\n")
-              f.write(f"- Source-tree exact duplicate waste: {source_dup.get('source_duplicate_wasted_mib', '?')} MiB.\n")
-              f.write(f"- Source-tree exact duplicate waste involving a PR #27 port path: {source_dup.get('port_related_source_duplicate_wasted_mib', '?')} MiB.\n")
-              f.write(f"- Current files touched by the old-world port merge: {source_dup.get('port_current_file_count', '?')} files / {source_dup.get('port_current_total_mib', '?')} MiB in the checkout.\n\n")
-              f.write('## Old 28 MB build comparison\n\n')
-              f.write(open('artifacts/old-build-comparison-availability.txt').read())
+              f.write(f"- APK: **{apk['size_decimal_mb']} MB decimal / {apk['size_mib']} MiB** ({apk['size_bytes']} bytes).\n")
+              f.write('- Build type: **Debug** (`--export-debug`, `Android Debug` preset, debuggable manifest, Android Debug certificate).\n')
+              f.write('- Architecture: **ARM64 only** (`arm64-v8a`).\n')
+              f.write(f"- Packaged Godot native templates: **{len(native_template_entries)}** ({', '.join(native_template_entries)}).\n")
+              f.write('- Native ELF inspection: detailed in `build-mode-and-native-inspection.txt`; audit requires explicit symbol-section evidence.\n\n')
+
+              f.write('## Compressed APK breakdown\n\n')
+              f.write('| Category | Compressed MiB | APK share | Uncompressed MiB | Entries |\n|---|---:|---:|---:|---:|\n')
+              for row in apk_rows:
+                  f.write(f"| {row['category']} | {row['compressed_mib']} | {row['percent_of_apk']}% | {row['uncompressed_mib']} | {row['entry_count']} |\n")
+
+              f.write('\n## Packaged Godot asset breakdown\n\n')
+              f.write('| Asset category | Compressed KiB | Asset share | Uncompressed KiB | Files |\n|---|---:|---:|---:|---:|\n')
+              for row in asset_rows:
+                  f.write(f"| {row['category']} | {row['compressed_kib']} | {row['percent_of_asset_compressed']}% | {row['uncompressed_kib']} | {row['file_count']} |\n")
+
+              f.write('\n## Duplication and old-port accounting\n\n')
+              f.write(f"- Exact duplicate packaged-asset waste: **{assets['exact_duplicate_compressed_waste_kib']} KiB compressed** across {assets['exact_duplicate_group_count']} groups.\n")
+              f.write(f"- Exact duplicate packaged-asset waste involving the PR #27 old-world port: **{assets['port_related_duplicate_compressed_waste_kib']} KiB compressed**.\n")
+              f.write(f"- Total packaged entries attributed to the PR #27 old-world port: **{assets['port_packaged_compressed_kib']} KiB compressed / {assets['port_packaged_uncompressed_kib']} KiB uncompressed**, {assets['port_packaged_entry_count']} entries.\n")
+              f.write(f"- Current source-tree exact duplicate waste: **{source['source_duplicate_wasted_kib']} KiB**.\n")
+              f.write(f"- Source duplicate waste involving a PR #27 path: **{source['port_related_source_duplicate_wasted_kib']} KiB**.\n")
+
+              f.write('\n## Old 28 MB build availability\n\n')
+              if history:
+                  f.write('APK objects were found in repository history; see `apk-history-objects.txt` for identifiers.\n')
+              else:
+                  f.write('No prior APK object exists in the checked Git history, so the claimed old 28 MB build cannot be decomposed entry-for-entry from repository data.\n')
           PY
+
           cat artifacts/audit-report.md
+          echo
+          echo '=== Native/symbol evidence ==='
+          cat artifacts/build-mode-and-native-inspection.txt
+          echo
+          echo '=== Largest APK entries ==='
+          sed -n '1,30p' artifacts/top-apk-entries.txt
+          echo
+          echo '=== Largest packaged assets ==='
+          sed -n '1,80p' artifacts/top-asset-entries.txt
 
       - name: Upload Step 1 APK audit evidence
         if: always()
@@ -607,13 +576,14 @@ jobs:
         run: |
           state=failure
           description='APK audit failed; inspect the workflow logs and artifact.'
-          if [[ "$JOB_STATUS" == 'success' && -f artifacts/apk-size.txt ]]; then
+          if [[ "$JOB_STATUS" == 'success' && -f artifacts/apk-size.txt && -f artifacts/audit-report.md ]]; then
             state=success
             mib="$(awk -F= '$1=="size_mib" {print $2}' artifacts/apk-size.txt)"
             description="APK audit complete: ${mib} MiB; detailed artifact uploaded."
           fi
           python3 - "$state" "$description" "$RUN_URL" > /tmp/status.json <<'PY'
-          import json, sys
+          import json
+          import sys
           print(json.dumps({
               'state': sys.argv[1],
               'description': sys.argv[2][:140],
