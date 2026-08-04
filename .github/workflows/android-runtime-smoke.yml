@@ -1,0 +1,145 @@
+name: TEKNIK Android Runtime Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-runtime-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-runtime-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare evidence directory
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget
+
+      - name: Install OpenJDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK and emulator image
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "emulator" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "system-images;android-34;google_apis;x86_64" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+      - name: Install Godot 4.3 and matching export templates
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+
+      - name: Generate debug keystore
+        run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+
+      - name: Configure x86_64 emulator-only export
+        run: |
+          sed -i 's/architectures\/arm64-v8a=true/architectures\/arm64-v8a=false/' export_presets.cfg
+          sed -i 's/architectures\/x86_64=false/architectures\/x86_64=true/' export_presets.cfg
+          grep '^architectures/' export_presets.cfg | tee artifacts/emulator-architectures.txt
+
+      - name: Export emulator debug APK
+        run: |
+          set -o pipefail
+          /tmp/godot/godot \
+            --headless \
+            --verbose \
+            --path "$GITHUB_WORKSPACE" \
+            --install-android-build-template \
+            --export-debug "Android Debug" \
+            "$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-emulator-debug.apk" \
+            2>&1 | tee artifacts/android-emulator-export.log
+          test -s artifacts/TEKNIK-0.1-emulator-debug.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose \
+            artifacts/TEKNIK-0.1-emulator-debug.apk \
+            2>&1 | tee artifacts/apk-signature.txt
+
+      - name: Boot Android emulator and verify app remains alive
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            set -euo pipefail
+            package="com.wolferdwolf.teknik"
+            apk="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-emulator-debug.apk"
+            adb install -r "$apk" | tee artifacts/adb-install.txt
+            adb logcat -c
+            adb shell am force-stop "$package"
+            adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1 \
+              | tee artifacts/adb-launch.txt
+            sleep 8
+            first_pid="$(adb shell pidof "$package" | tr -d '\r')"
+            printf 'first_pid=%s\n' "$first_pid" | tee artifacts/android-runtime-pids.txt
+            test -n "$first_pid"
+            sleep 22
+            second_pid="$(adb shell pidof "$package" | tr -d '\r')"
+            printf 'second_pid=%s\n' "$second_pid" | tee -a artifacts/android-runtime-pids.txt
+            adb logcat -d -v threadtime > artifacts/android-logcat.txt
+            adb shell dumpsys meminfo "$package" > artifacts/android-meminfo.txt || true
+            adb shell dumpsys activity activities > artifacts/android-activities.txt
+            test -n "$second_pid"
+            test "$first_pid" = "$second_pid"
+            if grep -E 'FATAL EXCEPTION|Fatal signal [0-9]+|Process: com\.wolferdwolf\.teknik.*has died' artifacts/android-logcat.txt; then
+              echo 'Android runtime emitted a fatal crash signature.' >&2
+              exit 1
+            fi
+            echo 'ANDROID_RUNTIME_SMOKE_PASS' | tee artifacts/android-runtime-result.txt
+
+      - name: Upload Android runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-android-runtime-smoke
+          path: artifacts/
+          if-no-files-found: error
+          compression-level: 0
