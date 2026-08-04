@@ -1,0 +1,3 @@
+Authorized one-shot Android APK export trigger.
+Source project fix commit: e71ed7f7ee2849df50d52a54fecb8c81ec260e89
+Temporary workflow trigger commit: e593a7c103d217ff66c7d35797cd4952e042ed45
