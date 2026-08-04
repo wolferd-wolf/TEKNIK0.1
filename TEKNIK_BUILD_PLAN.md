@@ -134,3 +134,27 @@ Commit log in order, plus Actions run status for each step. No prose summary in 
 - Step 5 transaction semantics: Crafting duplicates all 24 slots, removes recipe inputs from the staged copy, inserts the output using normal matching-stack-first rules, and commits only when both operations complete. Insufficient ingredients or output capacity returns `false`, emits no inventory change signal, and preserves every slot exactly.
 - Step 5 rejected gate: Actions run `30826752770` was rejected because the new test script had two ambiguous inferred integer types. Production scripts parsed and every inherited gate passed; adding explicit `int` annotations corrected only the gate script and did not change recipe behavior.
 - Step 5 gate: Actions run `30827021640` passed the complete inherited suite plus the actual crafting-action gate. With 3 dirt, pressing `craft_test_recipe` left all 24 slots and rendered hotbar text unchanged. With 4 dirt and a 63-stone stack, the same action consumed dirt `4->0`, canonicalized its slot to air/0, stacked stone `63->64`, left slots 2-23 unchanged, refreshed the rendered hotbar, captured a valid 1280x720 screenshot, and completed without a crash. Artifact `8861353266` has digest `sha256:41019da1eb60107ea58b59012420b62462cf0750704fb2cd749ccb04e6e0025a`.
+
+## Session: Threaded Remeshing
+
+### Context
+Gameplay testing revealed a freeze-then-jump stutter pattern: the game appears to block for ~0.5s stretches (visible during mine/place/craft actions and general movement), then catch up in a sudden jump. Root cause hypothesis: remeshing (triggered on every mine/place, and on chunk load/unload) runs synchronously on the main thread, blocking rendering and input processing during that work. This session tests and fixes that hypothesis using GDScript threading only — no native Rust/C++ core, that remains a future, larger session.
+
+### Rules (in addition to all prior session rules)
+1. GDScript only, using Godot's built-in `Thread`/`WorkerThreadPool` — no native extension work.
+2. One step per commit, screenshot/crash gate before marking any step complete.
+3. Do not change gameplay logic (mining, placement, crafting, inventory) — only change *where* remeshing executes, not what it produces. Remesh output must be identical to the current synchronous version.
+4. Preserve correctness under concurrency: no race conditions on chunk data being read by a background thread while the main thread mutates it (e.g. a second mine action on the same chunk while a remesh is in flight). Define and test the queuing/locking strategy explicitly.
+
+### Steps
+1. Instrumentation first: add actual timing measurement around the current synchronous remesh call (already requested last session, confirm it's done or do it now if not). Get real numbers — how long does one remesh take — before changing the architecture. Report these numbers before proceeding.
+2. Move remesh work (the mesh-building computation, not the scene-tree mutation) onto a background thread or WorkerThreadPool task. Main thread queues remesh requests; background thread computes the mesh data; main thread applies the completed mesh to the scene tree (Godot's rule: scene tree mutation must happen on the main thread, only the computation can be backgrounded).
+3. Handle the concurrency case explicitly: what happens if a chunk is mined/placed again while its previous remesh is still in flight? Define the behavior (e.g. cancel-and-requeue, or queue-and-coalesce) and test it directly, not just the happy path.
+4. Verify remesh output is byte-identical (or assertion-equivalent) between the old synchronous path and the new threaded path, for the same input, before declaring correctness preserved.
+5. Re-run the exact same real-device test scenario from the lag report (mine, place, mine again, several craft attempts, movement, jump) — this time capture frame-time/delta numbers alongside the recording, not just a description.
+
+### Definition of done
+Same gameplay behavior as before (mining, placement, crafting all produce identical results), but remeshing no longer blocks the main thread — confirmed via before/after timing numbers, not just a subjective "feels smoother" claim.
+
+### Report format
+Commit log in order, plus Actions run status for each step. Include actual timing numbers (milliseconds) for remesh duration before and after threading, not prose descriptions of speed.
