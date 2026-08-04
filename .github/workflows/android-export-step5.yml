@@ -1,0 +1,157 @@
+name: TEKNIK Step 5 Android APK Export
+
+on:
+  push:
+    branches: [session/touch-controls-android-export]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-debug-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Record source revision
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          git status --short | tee artifacts/source-status.txt
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget
+
+      - name: Install OpenJDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Generate and verify debug keystore
+        run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+          grep -Fq 'Alias name: androiddebugkey' artifacts/debug-keystore.log
+          grep -Fq 'Owner: CN=Android Debug, O=Android, C=US' artifacts/debug-keystore.log
+
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK requirements
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+      - name: Install Godot 4.3 and matching export templates
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+
+          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+          java -version 2>&1 | tee artifacts/java-version.txt
+          printf 'ANDROID_HOME=%s\nJAVA_HOME=%s\n' "$ANDROID_HOME" "$JAVA_HOME" | tee artifacts/android-environment.txt
+
+      - name: Install project-local Android Gradle template
+        run: |
+          bash scripts/android/install_gradle_build_template.sh \
+            "$HOME/.local/share/godot/export_templates/4.3.stable" \
+            "$GITHUB_WORKSPACE" \
+            2>&1 | tee artifacts/gradle-template.log
+          test -x android/build/gradlew
+
+      - name: Run first actual Godot debug APK export once
+        id: export
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          output_path="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-debug.apk"
+          command=(
+            /tmp/godot/godot
+            --headless
+            --verbose
+            --path "$GITHUB_WORKSPACE"
+            --export-debug "Android Debug"
+            "$output_path"
+          )
+
+          {
+            printf 'Exact command:'
+            printf ' %q' "${command[@]}"
+            printf '\n'
+            printf 'Output path: %s\n' "$output_path"
+          } | tee artifacts/export-command.txt
+
+          "${command[@]}" 2>&1 | tee artifacts/godot-android-export.log
+          export_status=${PIPESTATUS[0]}
+          printf '%s\n' "$export_status" | tee artifacts/godot-android-export.exit-code
+          echo "status=$export_status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Inspect resulting APK when export succeeds
+        if: steps.export.outputs.status == '0'
+        run: |
+          apk="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-debug.apk"
+          test -f "$apk"
+          {
+            printf 'path=%s\n' "$apk"
+            stat --printf='size_bytes=%s\n' "$apk"
+            du -h "$apk"
+            sha256sum "$apk"
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk"
+            echo 'Native library entries:'
+            unzip -Z1 "$apk" | grep '^lib/' || true
+          } 2>&1 | tee artifacts/apk-metadata.txt
+
+      - name: Upload Step 5 export result and full output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-step5-first-apk-export
+          path: artifacts/
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Preserve first export result
+        if: always()
+        run: |
+          status_file="artifacts/godot-android-export.exit-code"
+          if [[ ! -f "$status_file" ]]; then
+            echo 'The actual Godot export command was never reached.' >&2
+            exit 1
+          fi
+          status="$(cat "$status_file")"
+          if [[ "$status" != '0' ]]; then
+            echo "The first actual Godot export failed with exit code $status. No retry was attempted." >&2
+            exit "$status"
+          fi
+          test -f artifacts/TEKNIK-0.1-debug.apk
