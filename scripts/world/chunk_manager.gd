@@ -12,6 +12,7 @@ const TERRAIN_SEED := 1701
 const BIOME_SEED := 2718
 const TERRAIN_BASE_HEIGHT := 8
 const TERRAIN_HEIGHT_AMPLITUDE := 6
+const MAX_REMESH_TIMING_SAMPLES := 512
 const NEIGHBOR_DIRECTIONS := [
 	Vector3i.LEFT,
 	Vector3i.RIGHT,
@@ -29,6 +30,7 @@ var last_center_chunk: Vector3i = Vector3i(2147483647, 2147483647, 2147483647)
 var _streaming_target: Node3D
 var _elevation_noise := FastNoiseLite.new()
 var _biome_noise := FastNoiseLite.new()
+var _remesh_timing_samples: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -115,12 +117,25 @@ func set_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
 		return false
 
 	var local_coord := world_to_local_coord(world_block_coord)
-	if chunk.get_block(local_coord) == block_id:
+	var previous_block_id: int = chunk.get_block(local_coord)
+	if previous_block_id == block_id:
 		return false
 
 	chunk.set_block(local_coord, block_id)
-	_rebuild_chunk(chunk_coord)
-	_rebuild_boundary_neighbors(chunk_coord, local_coord)
+	var operation_started_usec := Time.get_ticks_usec()
+	var primary_duration_usec := _rebuild_chunk(chunk_coord)
+	var boundary_result := _rebuild_boundary_neighbors(chunk_coord, local_coord)
+	var total_duration_usec := Time.get_ticks_usec() - operation_started_usec
+	_record_remesh_timing(
+		world_block_coord,
+		local_coord,
+		previous_block_id,
+		block_id,
+		primary_duration_usec,
+		int(boundary_result["duration_usec"]),
+		int(boundary_result["chunk_count"]),
+		total_duration_usec
+	)
 	return true
 
 
@@ -138,21 +153,90 @@ func place_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
 	return set_block_world(world_block_coord, block_id)
 
 
-func _rebuild_boundary_neighbors(chunk_coord: Vector3i, local_coord: Vector3i) -> void:
+func _rebuild_boundary_neighbors(chunk_coord: Vector3i, local_coord: Vector3i) -> Dictionary:
+	var boundary_directions: Array[Vector3i] = []
 	if local_coord.x == 0:
-		_rebuild_chunk(chunk_coord + Vector3i.LEFT)
+		boundary_directions.append(Vector3i.LEFT)
 	elif local_coord.x == CHUNK_SIZE - 1:
-		_rebuild_chunk(chunk_coord + Vector3i.RIGHT)
+		boundary_directions.append(Vector3i.RIGHT)
 
 	if local_coord.y == 0:
-		_rebuild_chunk(chunk_coord + Vector3i.DOWN)
+		boundary_directions.append(Vector3i.DOWN)
 	elif local_coord.y == CHUNK_SIZE - 1:
-		_rebuild_chunk(chunk_coord + Vector3i.UP)
+		boundary_directions.append(Vector3i.UP)
 
 	if local_coord.z == 0:
-		_rebuild_chunk(chunk_coord + Vector3i.FORWARD)
+		boundary_directions.append(Vector3i.FORWARD)
 	elif local_coord.z == CHUNK_SIZE - 1:
-		_rebuild_chunk(chunk_coord + Vector3i.BACK)
+		boundary_directions.append(Vector3i.BACK)
+
+	var rebuilt_chunk_count := 0
+	var total_duration_usec := 0
+	for direction in boundary_directions:
+		var duration_usec := _rebuild_chunk(chunk_coord + direction)
+		if duration_usec < 0:
+			continue
+		rebuilt_chunk_count += 1
+		total_duration_usec += duration_usec
+	return {
+		"chunk_count": rebuilt_chunk_count,
+		"duration_usec": total_duration_usec,
+	}
+
+
+func _record_remesh_timing(
+	world_block_coord: Vector3i,
+	local_coord: Vector3i,
+	previous_block_id: int,
+	new_block_id: int,
+	primary_duration_usec: int,
+	neighbor_duration_usec: int,
+	neighbor_chunk_count: int,
+	total_duration_usec: int
+) -> void:
+	var mutation := "replace"
+	if new_block_id == BLOCK_AIR:
+		mutation = "mine"
+	elif previous_block_id == BLOCK_AIR:
+		mutation = "place"
+
+	var primary_chunk_count := 1 if primary_duration_usec >= 0 else 0
+	var rebuilt_chunk_count := primary_chunk_count + neighbor_chunk_count
+	var sample := {
+		"mutation": mutation,
+		"world_block_coord": world_block_coord,
+		"local_coord": local_coord,
+		"rebuilt_chunk_count": rebuilt_chunk_count,
+		"primary_ms": max(primary_duration_usec, 0) / 1000.0,
+		"neighbor_ms": neighbor_duration_usec / 1000.0,
+		"total_ms": total_duration_usec / 1000.0,
+	}
+	if _remesh_timing_samples.size() >= MAX_REMESH_TIMING_SAMPLES:
+		_remesh_timing_samples.pop_front()
+	_remesh_timing_samples.append(sample)
+	print(
+		"REMESH_TIMING mutation=%s chunks=%d primary_ms=%.3f neighbor_ms=%.3f total_ms=%.3f world=%s local=%s"
+		% [
+			mutation,
+			rebuilt_chunk_count,
+			float(sample["primary_ms"]),
+			float(sample["neighbor_ms"]),
+			float(sample["total_ms"]),
+			world_block_coord,
+			local_coord,
+		]
+	)
+
+
+func get_remesh_timing_samples() -> Array[Dictionary]:
+	var snapshot: Array[Dictionary] = []
+	for sample in _remesh_timing_samples:
+		snapshot.append(sample.duplicate(true))
+	return snapshot
+
+
+func clear_remesh_timing_samples() -> void:
+	_remesh_timing_samples.clear()
 
 
 func refresh_streaming(world_position: Vector3) -> void:
@@ -248,10 +332,13 @@ func _rebuild_chunk_and_neighbors(chunk_coord: Vector3i) -> void:
 		_rebuild_chunk(chunk_coord + direction)
 
 
-func _rebuild_chunk(chunk_coord: Vector3i) -> void:
+func _rebuild_chunk(chunk_coord: Vector3i) -> int:
 	var chunk := get_chunk(chunk_coord)
-	if is_instance_valid(chunk):
-		chunk.rebuild_mesh(Callable(self, "get_block_world"))
+	if not is_instance_valid(chunk):
+		return -1
+	var started_usec := Time.get_ticks_usec()
+	chunk.rebuild_mesh(Callable(self, "get_block_world"))
+	return Time.get_ticks_usec() - started_usec
 
 
 func clear_chunks() -> void:
