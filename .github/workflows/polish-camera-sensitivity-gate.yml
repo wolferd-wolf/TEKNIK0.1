@@ -9,6 +9,14 @@ on:
       - scripts/player/mobile_camera_sensitivity.gd
       - tests/polish_camera_sensitivity_gate.gd
       - .github/workflows/polish-camera-sensitivity-gate.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scenes/main.tscn
+      - scripts/player/mobile_camera_sensitivity.gd
+      - tests/polish_camera_sensitivity_gate.gd
+      - .github/workflows/polish-camera-sensitivity-gate.yml
   workflow_dispatch:
 
 permissions:
