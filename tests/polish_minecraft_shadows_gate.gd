@@ -1,5 +1,6 @@
 extends SceneTree
 
+# Locks the mobile-friendly hard-edged directional shadow contract used by the main scene.
 const MAIN_SCENE := preload("res://scenes/main.tscn")
 
 func _initialize() -> void:
