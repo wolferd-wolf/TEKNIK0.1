@@ -3,6 +3,7 @@ name: TEKNIK Step 4 Android Export Setup Gate
 on:
   push:
     branches: [session/touch-controls-android-export]
+  pull_request:
   workflow_dispatch:
 
 permissions:
