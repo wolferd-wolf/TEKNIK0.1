@@ -1,0 +1,129 @@
+name: TEKNIK Step 5 Export Configuration Diagnostic
+
+on:
+  push:
+    branches: [session/touch-controls-android-export]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-export-configuration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@v4
+
+      - name: Assert diagnostic-only scope
+        run: |
+          if grep -En -- '--export-(debug|release)|assemble(Debug|Release)|bundle(Debug|Release)' .github/workflows/android-export-step5-diagnostic.yml; then
+            echo 'Diagnostic workflow contains an export or package-build command.' >&2
+            exit 1
+          fi
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+
+      - name: Install Godot 4.3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+
+      - name: Generate the same ephemeral debug keystore
+        run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+
+      - name: Read project texture-import setting through Godot
+        run: |
+          cat > /tmp/step5_export_config_diagnostic.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const ETC2_ASTC_SETTING := "rendering/textures/vram_compression/import_etc2_astc"
+
+          func _initialize() -> void:
+              var has_setting := ProjectSettings.has_setting(ETC2_ASTC_SETTING)
+              var value := ProjectSettings.get_setting(ETC2_ASTC_SETTING, false)
+              print("STEP5_DIAGNOSTIC_OS=", OS.get_name())
+              print("STEP5_DIAGNOSTIC_ETC2_ASTC_SETTING_PRESENT=", has_setting)
+              print("STEP5_DIAGNOSTIC_ETC2_ASTC_VALUE=", value)
+              quit(0)
+          GDSCRIPT
+
+          /tmp/godot/godot --headless --path . --script /tmp/step5_export_config_diagnostic.gd \
+            2>&1 | tee artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_OS=Linux' artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_ETC2_ASTC_SETTING_PRESENT=false' artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_ETC2_ASTC_VALUE=false' artifacts/runtime-project-settings.log
+
+      - name: Inspect preset and debug-keystore resolution
+        run: |
+          {
+            echo '=== Android Debug preset keystore fields ==='
+            grep -E '^keystore/(debug|debug_user|debug_password)=' export_presets.cfg
+            echo '=== Environment-supplied debug keystore ==='
+            printf 'GODOT_ANDROID_KEYSTORE_DEBUG_PATH=%s\n' "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+            printf 'GODOT_ANDROID_KEYSTORE_DEBUG_USER=%s\n' "$GODOT_ANDROID_KEYSTORE_DEBUG_USER"
+            test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+            echo 'DEBUG_KEYSTORE_FILE_EXISTS=true'
+          } | tee artifacts/keystore-resolution.log
+
+          grep -Fq 'keystore/debug=""' export_presets.cfg
+          grep -Fq 'keystore/debug_user=""' export_presets.cfg
+          grep -Fq 'keystore/debug_password=""' export_presets.cfg
+
+      - name: Verify Godot 4.3 validation path and identify the silent failing field
+        run: |
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3/platform/android/export/export_plugin.cpp -O /tmp/android-export-plugin.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3/platform/android/export/export_plugin.h -O /tmp/android-export-plugin.h
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3/editor/import/resource_importer_texture_settings.cpp -O /tmp/texture-settings.cpp
+
+          {
+            echo '=== Keystore environment variable names ==='
+            grep -n 'ENV_ANDROID_KEYSTORE_DEBUG_' /tmp/android-export-plugin.h
+            echo '=== Keystore path resolution ==='
+            grep -n -A8 -B2 '_get_keystore_path' /tmp/android-export-plugin.cpp | head -n 30
+            echo '=== Silent Android project validation branch ==='
+            grep -n -A4 -B2 'should_import_etc2_astc' /tmp/android-export-plugin.cpp
+            echo '=== ETC2/ASTC runtime predicate ==='
+            grep -n -A9 -B2 'should_import_etc2_astc' /tmp/texture-settings.cpp
+          } | tee artifacts/godot-source-validation-path.log
+
+          grep -Fq 'GODOT_ANDROID_KEYSTORE_DEBUG_PATH' /tmp/android-export-plugin.h
+          grep -Fq 'p_preset->get_or_env("keystore/debug", ENV_ANDROID_KEYSTORE_DEBUG_PATH)' /tmp/android-export-plugin.cpp
+          grep -Fq 'if (!ResourceImporterTextureSettings::should_import_etc2_astc())' /tmp/android-export-plugin.cpp
+          grep -Fq 'valid = false;' /tmp/android-export-plugin.cpp
+          grep -Fq 'GLOBAL_GET("rendering/textures/vram_compression/import_etc2_astc")' /tmp/texture-settings.cpp
+
+          cat > artifacts/root-cause.txt <<'EOF'
+          ROOT_CAUSE_FIELD=rendering/textures/vram_compression/import_etc2_astc
+          ROOT_CAUSE_VALUE=false
+          ROOT_CAUSE_EFFECT=Godot 4.3 Android has_valid_project_configuration returns false without appending an error message
+          KEYSTORE_MISMATCH_ROOT_CAUSE=false
+          KEYSTORE_REASON=Empty preset credentials are overridden by GODOT_ANDROID_KEYSTORE_DEBUG_PATH/USER/PASSWORD, and the generated file exists
+          EXPORT_ATTEMPTED=false
+          STEP5_DIAGNOSTIC_ROOT_CAUSE_ETC2_ASTC_DISABLED
+          EOF
+          cat artifacts/root-cause.txt
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-step5-export-config-diagnostic
+          path: artifacts/
+          if-no-files-found: error
