@@ -1,6 +1,9 @@
 name: TEKNIK Step 5 Android APK Export
 
 on:
+  push:
+    branches:
+      - step5-export-e71ed7f7
   workflow_dispatch:
 
 permissions:
