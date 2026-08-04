@@ -101,13 +101,28 @@ jobs:
           /tmp/godot/godot --version | grep -q '^4\.3'
           java -version 2>&1 | grep -q 'version "17\.'
 
-      - name: Install project-local Android Gradle template
+      - name: Install and verify project-local Android Gradle template
         run: |
           bash scripts/android/install_gradle_build_template.sh \
             "$HOME/.local/share/godot/export_templates/4.3.stable" \
             "$GITHUB_WORKSPACE" \
+            "4.3.stable" \
             2>&1 | tee artifacts/gradle-template.log
+
           test -x android/build/gradlew
+          test -f android/build/build.gradle
+          test -f android/build/settings.gradle
+          test -f android/build/.gdignore
+          test -f android/.build_version
+          grep -Fxq '4.3.stable' android/.build_version
+
+          {
+            echo '=== android/.build_version ==='
+            cat android/.build_version
+            echo '=== Android build template root ==='
+            find android/build -maxdepth 2 -mindepth 1 -printf '%P\n' | sort | sed -n '1,160p'
+          } | tee artifacts/gradle-template-structure.log
+
           if find . -type f -name '*.apk' -print -quit | grep -q .; then
             echo 'APK exists before the configuration-only gate.' >&2
             exit 1
