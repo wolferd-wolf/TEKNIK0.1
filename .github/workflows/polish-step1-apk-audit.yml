@@ -1,0 +1,630 @@
+name: TEKNIK Polish Step 1 APK Size Audit
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/polish-step1-apk-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  audit-debug-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Checkout exact revision with history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Record audit source
+        run: |
+          mkdir -p artifacts/extracted
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          git status --short | tee artifacts/source-status.txt
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget binutils file jq
+
+      - name: Install OpenJDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Generate and verify debug keystore
+        run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK requirements
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+      - name: Install Godot 4.3 and matching export templates
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+
+          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+          java -version 2>&1 | tee artifacts/java-version.txt
+
+      - name: Export the current Android debug APK once
+        id: export
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          apk="$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-step1-audit-debug.apk"
+          command=(
+            /tmp/godot/godot
+            --headless
+            --verbose
+            --path "$GITHUB_WORKSPACE"
+            --install-android-build-template
+            --export-debug "Android Debug"
+            "$apk"
+          )
+          {
+            printf 'Exact command:'
+            printf ' %q' "${command[@]}"
+            printf '\nPreset: Android Debug\nMode: --export-debug\nOutput: %s\n' "$apk"
+          } | tee artifacts/export-mode.txt
+          "${command[@]}" 2>&1 | tee artifacts/godot-android-export.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" | tee artifacts/export-exit-code.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Fail if the diagnostic export did not complete
+        if: steps.export.outputs.status != '0'
+        run: |
+          echo "Diagnostic APK export failed; no size conclusions are valid." >&2
+          exit 1
+
+      - name: Inventory APK entries and extract project/native payloads
+        if: steps.export.outputs.status == '0'
+        run: |
+          python3 - <<'PY'
+          import csv, json, os, sys, zipfile
+          from collections import defaultdict
+
+          apk = 'artifacts/TEKNIK-0.1-step1-audit-debug.apk'
+          out = 'artifacts'
+          extract_dir = os.path.join(out, 'extracted')
+          os.makedirs(extract_dir, exist_ok=True)
+
+          def category(path: str) -> str:
+              low = path.lower()
+              if low.startswith('lib/') and low.endswith('/libgodot_android.so'):
+                  return 'Godot engine/runtime (native)'
+              if low.startswith('lib/') and low.endswith('.so'):
+                  return 'Other native libraries'
+              if low.startswith('assets/') and low.endswith('.pck'):
+                  return 'Project data pack (PCK)'
+              if low.startswith('classes') and low.endswith('.dex'):
+                  return 'Android bytecode (DEX)'
+              if low == 'androidmanifest.xml' or low == 'resources.arsc' or low.startswith('res/'):
+                  return 'Android resources/manifest'
+              if low.startswith('meta-inf/'):
+                  return 'Signing metadata'
+              if low.startswith('assets/'):
+                  return 'Other packaged assets'
+              return 'Other APK packaging'
+
+          rows = []
+          totals = defaultdict(lambda: {'compressed': 0, 'uncompressed': 0, 'count': 0})
+          pcks = []
+          native = []
+          with zipfile.ZipFile(apk) as z:
+              for info in z.infolist():
+                  if info.is_dir():
+                      continue
+                  cat = category(info.filename)
+                  row = {
+                      'category': cat,
+                      'path': info.filename,
+                      'compressed_bytes': info.compress_size,
+                      'uncompressed_bytes': info.file_size,
+                      'compression_method': info.compress_type,
+                  }
+                  rows.append(row)
+                  totals[cat]['compressed'] += info.compress_size
+                  totals[cat]['uncompressed'] += info.file_size
+                  totals[cat]['count'] += 1
+                  low = info.filename.lower()
+                  if low.startswith('assets/') and low.endswith('.pck'):
+                      pcks.append(info.filename)
+                      z.extract(info, extract_dir)
+                  if low.startswith('lib/') and low.endswith('.so'):
+                      native.append(info.filename)
+                      z.extract(info, extract_dir)
+
+          rows.sort(key=lambda r: r['compressed_bytes'], reverse=True)
+          with open(os.path.join(out, 'apk-entries.csv'), 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+              w.writeheader(); w.writerows(rows)
+
+          apk_size = os.path.getsize(apk)
+          sum_compressed = sum(r['compressed_bytes'] for r in rows)
+          overhead = max(0, apk_size - sum_compressed)
+          totals['ZIP alignment/central-directory overhead'] = {
+              'compressed': overhead,
+              'uncompressed': overhead,
+              'count': 1,
+          }
+          summary_rows = []
+          for cat, values in totals.items():
+              summary_rows.append({
+                  'category': cat,
+                  'compressed_bytes': values['compressed'],
+                  'compressed_mib': round(values['compressed'] / 1048576, 3),
+                  'compressed_percent_of_apk': round(values['compressed'] * 100 / apk_size, 3),
+                  'uncompressed_bytes': values['uncompressed'],
+                  'uncompressed_mib': round(values['uncompressed'] / 1048576, 3),
+                  'entry_count': values['count'],
+              })
+          summary_rows.sort(key=lambda r: r['compressed_bytes'], reverse=True)
+          with open(os.path.join(out, 'apk-category-breakdown.csv'), 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()))
+              w.writeheader(); w.writerows(summary_rows)
+          with open(os.path.join(out, 'apk-category-breakdown.json'), 'w') as f:
+              json.dump(summary_rows, f, indent=2)
+
+          with open(os.path.join(out, 'top-apk-entries.txt'), 'w') as f:
+              for r in rows[:100]:
+                  f.write(f"{r['compressed_bytes']:>12}\t{r['uncompressed_bytes']:>12}\t{r['category']}\t{r['path']}\n")
+          with open(os.path.join(out, 'pck-entry-paths.txt'), 'w') as f:
+              f.write('\n'.join(pcks) + ('\n' if pcks else ''))
+          with open(os.path.join(out, 'native-library-entries.txt'), 'w') as f:
+              f.write('\n'.join(native) + ('\n' if native else ''))
+          with open(os.path.join(out, 'apk-size.txt'), 'w') as f:
+              f.write(f"size_bytes={apk_size}\nsize_mib={apk_size/1048576:.3f}\n")
+          print(f'APK size: {apk_size} bytes ({apk_size/1048576:.3f} MiB)')
+          print(f'PCK entries: {pcks}')
+          print(f'Native entries: {native}')
+          PY
+
+          cat artifacts/apk-size.txt
+          cat artifacts/apk-category-breakdown.csv
+
+      - name: Confirm debug mode, ABI count, and native symbol sections
+        if: steps.export.outputs.status == '0'
+        shell: bash
+        run: |
+          apk="artifacts/TEKNIK-0.1-step1-audit-debug.apk"
+          {
+            echo 'Export evidence:'
+            cat artifacts/export-mode.txt
+            echo
+            echo 'Preset evidence:'
+            sed -n '1,120p' export_presets.cfg
+            echo
+            echo 'Manifest/build evidence:'
+            "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | grep -E 'package:|application-debuggable|native-code' || true
+            echo
+            echo 'Signature evidence:'
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk" || true
+            echo
+            echo 'Native libraries and ELF inspection:'
+            while IFS= read -r entry; do
+              [[ -n "$entry" ]] || continue
+              extracted="artifacts/extracted/$entry"
+              echo "--- $entry ---"
+              file "$extracted" || true
+              readelf -S "$extracted" | grep -E '\.debug_|\.symtab|\.strtab' || echo 'No .debug_* or .symtab section found'
+            done < artifacts/native-library-entries.txt
+          } 2>&1 | tee artifacts/build-mode-and-native-inspection.txt
+
+      - name: Mount and inventory the exported Godot PCK
+        if: steps.export.outputs.status == '0'
+        shell: bash
+        run: |
+          pck_entry="$(head -n 1 artifacts/pck-entry-paths.txt || true)"
+          if [[ -z "$pck_entry" ]]; then
+            echo 'No PCK entry found in APK.' | tee artifacts/pck-audit-error.txt
+            exit 1
+          fi
+          pck="artifacts/extracted/$pck_entry"
+          mkdir -p /tmp/pck-audit-host
+          cat > /tmp/pck-audit-host/project.godot <<'EOF'
+          [application]
+          config/name="PCK Audit Host"
+          [rendering]
+          renderer/rendering_method="gl_compatibility"
+          EOF
+          cat > /tmp/audit_pck.gd <<'EOF'
+          extends SceneTree
+
+          func _initialize() -> void:
+              var args := OS.get_cmdline_user_args()
+              if args.is_empty():
+                  push_error("Missing PCK path")
+                  quit(2)
+                  return
+              var pck_path: String = args[0]
+              if not ProjectSettings.load_resource_pack(pck_path, true):
+                  push_error("Could not mount PCK: " + pck_path)
+                  quit(3)
+                  return
+              _walk("res://")
+              quit(0)
+
+          func _walk(path: String) -> void:
+              var directory := DirAccess.open(path)
+              if directory == null:
+                  return
+              directory.list_dir_begin()
+              var name := directory.get_next()
+              while name != "":
+                  if name != "." and name != "..":
+                      var full := path.path_join(name)
+                      if directory.current_is_dir():
+                          _walk(full)
+                      else:
+                          var file := FileAccess.open(full, FileAccess.READ)
+                          if file != null:
+                              var length: int = file.get_length()
+                              var digest: String = FileAccess.get_sha256(full)
+                              print("PCKFILE\t%d\t%s\t%s" % [length, digest, full])
+                  name = directory.get_next()
+              directory.list_dir_end()
+          EOF
+          /tmp/godot/godot --headless --path /tmp/pck-audit-host --script /tmp/audit_pck.gd -- "$pck" \
+            2>&1 | tee artifacts/pck-mount-raw.log
+          grep '^PCKFILE' artifacts/pck-mount-raw.log | cut -f2- > artifacts/pck-files.tsv
+          test -s artifacts/pck-files.tsv
+
+      - name: Classify PCK contents and exact duplicates
+        if: steps.export.outputs.status == '0'
+        run: |
+          port_merge="$(git log --all --grep='Merge pull request #27' --format='%H' -1 || true)"
+          : > artifacts/port-files.txt
+          if [[ -n "$port_merge" ]]; then
+            git diff --name-only --diff-filter=AMR "${port_merge}^1" "$port_merge" | sort -u > artifacts/port-files.txt
+          fi
+
+          python3 - <<'PY'
+          import csv, hashlib, json, os
+          from collections import defaultdict
+
+          out = 'artifacts'
+          port_paths = set()
+          if os.path.exists(os.path.join(out, 'port-files.txt')):
+              with open(os.path.join(out, 'port-files.txt')) as f:
+                  port_paths = {line.strip() for line in f if line.strip()}
+
+          def pck_category(path: str) -> str:
+              low = path.lower()
+              ext = os.path.splitext(low)[1]
+              if ext in {'.ctex', '.stex'}:
+                  return 'Imported texture data'
+              if ext in {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tga', '.svg'}:
+                  return 'Raw image sources'
+              if ext in {'.ogg', '.wav', '.mp3'}:
+                  return 'Audio'
+              if ext in {'.ttf', '.otf', '.woff', '.woff2'}:
+                  return 'Fonts'
+              if ext in {'.gd', '.gdc'}:
+                  return 'Scripts'
+              if ext in {'.tscn', '.scn', '.tres', '.res'}:
+                  return 'Scenes/resources'
+              if ext in {'.gdshader', '.shader', '.glsl'}:
+                  return 'Shaders'
+              if low.endswith('project.godot'):
+                  return 'Project configuration'
+              return 'Other project data'
+
+          rows = []
+          by_hash = defaultdict(list)
+          by_cat = defaultdict(lambda: {'bytes': 0, 'count': 0})
+          by_top = defaultdict(lambda: {'bytes': 0, 'count': 0})
+          with open(os.path.join(out, 'pck-files.tsv')) as f:
+              for line in f:
+                  size_s, digest, path = line.rstrip('\n').split('\t', 2)
+                  size = int(size_s)
+                  cat = pck_category(path)
+                  rel = path.removeprefix('res://')
+                  port_related = rel in port_paths
+                  top = rel.split('/', 1)[0] if '/' in rel else '(root)'
+                  row = {
+                      'category': cat,
+                      'path': path,
+                      'bytes': size,
+                      'mib': round(size / 1048576, 6),
+                      'sha256': digest,
+                      'port_pr27_path': port_related,
+                  }
+                  rows.append(row)
+                  by_hash[(digest, size)].append(path)
+                  by_cat[cat]['bytes'] += size
+                  by_cat[cat]['count'] += 1
+                  by_top[top]['bytes'] += size
+                  by_top[top]['count'] += 1
+
+          rows.sort(key=lambda r: r['bytes'], reverse=True)
+          with open(os.path.join(out, 'pck-files.csv'), 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+              w.writeheader(); w.writerows(rows)
+
+          total = sum(r['bytes'] for r in rows)
+          cat_rows = []
+          for cat, v in by_cat.items():
+              cat_rows.append({
+                  'category': cat,
+                  'bytes': v['bytes'],
+                  'mib': round(v['bytes'] / 1048576, 3),
+                  'percent_of_listed_pck_bytes': round(v['bytes'] * 100 / total, 3) if total else 0,
+                  'file_count': v['count'],
+              })
+          cat_rows.sort(key=lambda r: r['bytes'], reverse=True)
+          with open(os.path.join(out, 'pck-category-breakdown.csv'), 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=list(cat_rows[0].keys()))
+              w.writeheader(); w.writerows(cat_rows)
+          with open(os.path.join(out, 'pck-category-breakdown.json'), 'w') as f:
+              json.dump(cat_rows, f, indent=2)
+
+          top_rows = [
+              {'top_level': k, 'bytes': v['bytes'], 'mib': round(v['bytes']/1048576, 3), 'file_count': v['count']}
+              for k, v in by_top.items()
+          ]
+          top_rows.sort(key=lambda r: r['bytes'], reverse=True)
+          with open(os.path.join(out, 'pck-top-level-breakdown.csv'), 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=list(top_rows[0].keys()))
+              w.writeheader(); w.writerows(top_rows)
+
+          duplicate_groups = []
+          duplicate_waste = 0
+          port_duplicate_waste = 0
+          for (digest, size), paths in by_hash.items():
+              if size <= 0 or len(paths) < 2:
+                  continue
+              waste = size * (len(paths) - 1)
+              duplicate_waste += waste
+              rels = [p.removeprefix('res://') for p in paths]
+              port_related = any(p in port_paths for p in rels)
+              if port_related:
+                  port_duplicate_waste += waste
+              duplicate_groups.append({
+                  'sha256': digest,
+                  'bytes_each': size,
+                  'copies': len(paths),
+                  'wasted_bytes': waste,
+                  'port_related': port_related,
+                  'paths': paths,
+              })
+          duplicate_groups.sort(key=lambda r: r['wasted_bytes'], reverse=True)
+          with open(os.path.join(out, 'pck-duplicate-groups.json'), 'w') as f:
+              json.dump(duplicate_groups, f, indent=2)
+          with open(os.path.join(out, 'pck-duplicate-summary.txt'), 'w') as f:
+              f.write(f'duplicate_group_count={len(duplicate_groups)}\n')
+              f.write(f'duplicate_wasted_bytes={duplicate_waste}\n')
+              f.write(f'duplicate_wasted_mib={duplicate_waste/1048576:.6f}\n')
+              f.write(f'port_related_duplicate_wasted_bytes={port_duplicate_waste}\n')
+              f.write(f'port_related_duplicate_wasted_mib={port_duplicate_waste/1048576:.6f}\n')
+
+          with open(os.path.join(out, 'top-pck-files.txt'), 'w') as f:
+              for r in rows[:100]:
+                  f.write(f"{r['bytes']:>12}\t{r['category']}\t{r['path']}\n")
+          with open(os.path.join(out, 'raw-image-sources.txt'), 'w') as f:
+              for r in rows:
+                  if r['category'] == 'Raw image sources':
+                      f.write(f"{r['bytes']}\t{r['path']}\n")
+          print('PCK categories:')
+          for r in cat_rows:
+              print(r)
+          print(f'Exact duplicate waste: {duplicate_waste} bytes')
+          print(f'Port-related exact duplicate waste: {port_duplicate_waste} bytes')
+          PY
+
+          cat artifacts/pck-category-breakdown.csv
+          cat artifacts/pck-duplicate-summary.txt
+
+      - name: Audit source-tree duplicates and port contribution
+        if: steps.export.outputs.status == '0'
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from collections import defaultdict
+
+          excluded_prefixes = ('.git/', '.godot/', 'android/build/', 'artifacts/')
+          port_paths = set()
+          if os.path.exists('artifacts/port-files.txt'):
+              with open('artifacts/port-files.txt') as f:
+                  port_paths = {line.strip() for line in f if line.strip()}
+
+          rows = []
+          groups = defaultdict(list)
+          for root, dirs, files in os.walk('.'):
+              rel_root = os.path.relpath(root, '.')
+              dirs[:] = [d for d in dirs if not any(((rel_root + '/' + d).lstrip('./') + '/').startswith(p) for p in excluded_prefixes)]
+              for name in files:
+                  path = os.path.normpath(os.path.join(rel_root, name)).lstrip('./')
+                  if any(path.startswith(p) for p in excluded_prefixes):
+                      continue
+                  try:
+                      size = os.path.getsize(path)
+                      h = hashlib.sha256()
+                      with open(path, 'rb') as f:
+                          for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                              h.update(chunk)
+                      digest = h.hexdigest()
+                  except OSError:
+                      continue
+                  rows.append({'path': path, 'bytes': size, 'sha256': digest, 'port_pr27_path': path in port_paths})
+                  groups[(digest, size)].append(path)
+
+          duplicates = []
+          total_waste = 0
+          port_waste = 0
+          for (digest, size), paths in groups.items():
+              if size <= 0 or len(paths) < 2:
+                  continue
+              waste = size * (len(paths) - 1)
+              port_related = any(p in port_paths for p in paths)
+              total_waste += waste
+              if port_related:
+                  port_waste += waste
+              duplicates.append({
+                  'sha256': digest,
+                  'bytes_each': size,
+                  'copies': len(paths),
+                  'wasted_bytes': waste,
+                  'port_related': port_related,
+                  'paths': paths,
+              })
+          duplicates.sort(key=lambda r: r['wasted_bytes'], reverse=True)
+          with open('artifacts/source-duplicate-groups.json', 'w') as f:
+              json.dump(duplicates, f, indent=2)
+
+          port_existing = [r for r in rows if r['path'] in port_paths]
+          with open('artifacts/port-source-files.txt', 'w') as f:
+              for r in sorted(port_existing, key=lambda x: x['bytes'], reverse=True):
+                  f.write(f"{r['bytes']}\t{r['path']}\n")
+          with open('artifacts/source-duplicate-summary.txt', 'w') as f:
+              f.write(f'source_duplicate_group_count={len(duplicates)}\n')
+              f.write(f'source_duplicate_wasted_bytes={total_waste}\n')
+              f.write(f'source_duplicate_wasted_mib={total_waste/1048576:.6f}\n')
+              f.write(f'port_related_source_duplicate_wasted_bytes={port_waste}\n')
+              f.write(f'port_related_source_duplicate_wasted_mib={port_waste/1048576:.6f}\n')
+              f.write(f'port_current_file_count={len(port_existing)}\n')
+              f.write(f'port_current_total_bytes={sum(r["bytes"] for r in port_existing)}\n')
+              f.write(f'port_current_total_mib={sum(r["bytes"] for r in port_existing)/1048576:.6f}\n')
+
+          tracked_apks = []
+          for r in rows:
+              if r['path'].lower().endswith('.apk'):
+                  tracked_apks.append(r)
+          with open('artifacts/old-build-comparison-availability.txt', 'w') as f:
+              if tracked_apks:
+                  for r in tracked_apks:
+                      f.write(f"tracked_apk\t{r['bytes']}\t{r['path']}\n")
+              else:
+                  f.write('No prior APK is present in the checked-out repository, so the claimed old 28 MB build cannot be decomposed or compared entry-for-entry from repository data alone.\n')
+
+          print(open('artifacts/source-duplicate-summary.txt').read())
+          PY
+
+      - name: Build concise audit report
+        if: steps.export.outputs.status == '0'
+        run: |
+          python3 - <<'PY'
+          import csv, json, os
+
+          def read_kv(path):
+              result = {}
+              if os.path.exists(path):
+                  with open(path) as f:
+                      for line in f:
+                          if '=' in line:
+                              k, v = line.rstrip().split('=', 1)
+                              result[k] = v
+              return result
+
+          with open('artifacts/apk-category-breakdown.csv') as f:
+              apk_rows = list(csv.DictReader(f))
+          with open('artifacts/pck-category-breakdown.csv') as f:
+              pck_rows = list(csv.DictReader(f))
+          apk_size = read_kv('artifacts/apk-size.txt')
+          pck_dup = read_kv('artifacts/pck-duplicate-summary.txt')
+          source_dup = read_kv('artifacts/source-duplicate-summary.txt')
+          native_entries = [x.strip() for x in open('artifacts/native-library-entries.txt') if x.strip()]
+          raw_images = [x.strip() for x in open('artifacts/raw-image-sources.txt') if x.strip()]
+
+          with open('artifacts/audit-report.md', 'w') as f:
+              f.write('# TEKNIK Step 1 APK Size Audit\n\n')
+              f.write(f"- Source commit: `{open('artifacts/source-commit.txt').read().strip()}`\n")
+              f.write(f"- APK size: **{apk_size.get('size_mib', '?')} MiB** ({apk_size.get('size_bytes', '?')} bytes)\n")
+              f.write('- Build mode: **Debug**, proven by the `--export-debug "Android Debug"` command and the Android Debug preset.\n')
+              f.write(f"- Native library entries: **{len(native_entries)}**\n")
+              f.write(f"- Raw image entries inside exported PCK: **{len(raw_images)}**\n\n")
+              f.write('## APK compressed-size breakdown\n\n')
+              f.write('| Category | MiB | % of APK | Entries |\n|---|---:|---:|---:|\n')
+              for r in apk_rows:
+                  f.write(f"| {r['category']} | {r['compressed_mib']} | {r['compressed_percent_of_apk']}% | {r['entry_count']} |\n")
+              f.write('\n## Project PCK file-content breakdown\n\n')
+              f.write('| Category | MiB | % of listed PCK bytes | Files |\n|---|---:|---:|---:|\n')
+              for r in pck_rows:
+                  f.write(f"| {r['category']} | {r['mib']} | {r['percent_of_listed_pck_bytes']}% | {r['file_count']} |\n")
+              f.write('\n## Exact-duplicate findings\n\n')
+              f.write(f"- PCK exact duplicate waste: {pck_dup.get('duplicate_wasted_mib', '?')} MiB.\n")
+              f.write(f"- PCK exact duplicate waste involving a PR #27 port path: {pck_dup.get('port_related_duplicate_wasted_mib', '?')} MiB.\n")
+              f.write(f"- Source-tree exact duplicate waste: {source_dup.get('source_duplicate_wasted_mib', '?')} MiB.\n")
+              f.write(f"- Source-tree exact duplicate waste involving a PR #27 port path: {source_dup.get('port_related_source_duplicate_wasted_mib', '?')} MiB.\n")
+              f.write(f"- Current files touched by the old-world port merge: {source_dup.get('port_current_file_count', '?')} files / {source_dup.get('port_current_total_mib', '?')} MiB in the checkout.\n\n")
+              f.write('## Old 28 MB build comparison\n\n')
+              f.write(open('artifacts/old-build-comparison-availability.txt').read())
+          PY
+          cat artifacts/audit-report.md
+
+      - name: Upload Step 1 APK audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-polish-step1-apk-size-audit
+          path: artifacts/
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish Step 1 audit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          state=failure
+          description='APK audit failed; inspect the workflow logs and artifact.'
+          if [[ "$JOB_STATUS" == 'success' && -f artifacts/apk-size.txt ]]; then
+            state=success
+            mib="$(awk -F= '$1=="size_mib" {print $2}' artifacts/apk-size.txt)"
+            description="APK audit complete: ${mib} MiB; detailed artifact uploaded."
+          fi
+          python3 - "$state" "$description" "$RUN_URL" > /tmp/status.json <<'PY'
+          import json, sys
+          print(json.dumps({
+              'state': sys.argv[1],
+              'description': sys.argv[2][:140],
+              'context': 'TEKNIK Step 1 APK Audit',
+              'target_url': sys.argv[3],
+          }))
+          PY
+          curl --fail-with-body -L \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d @/tmp/status.json
