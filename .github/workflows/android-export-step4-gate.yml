@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/teknik-debug.keystore
       GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
       GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
@@ -36,6 +35,8 @@ jobs:
 
       - name: Generate and verify debug keystore
         run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
           mkdir -p artifacts
           bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
             2>&1 | tee artifacts/debug-keystore.log
