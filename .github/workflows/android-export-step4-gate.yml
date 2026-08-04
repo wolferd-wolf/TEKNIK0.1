@@ -13,6 +13,10 @@ jobs:
   android-toolchain:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/teknik-debug.keystore
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
     steps:
       - name: Checkout
@@ -30,10 +34,6 @@ jobs:
           java-version: '17'
 
       - name: Generate and verify debug keystore
-        env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/teknik-debug.keystore
-          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
           mkdir -p artifacts
           bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
@@ -99,7 +99,44 @@ jobs:
           /tmp/godot/godot --version | grep -q '^4\.3'
           java -version 2>&1 | grep -q 'version "17\.'
 
-      - name: Upload toolchain and signing evidence
+      - name: Install project-local Android Gradle template
+        run: |
+          bash scripts/android/install_gradle_build_template.sh \
+            "$HOME/.local/share/godot/export_templates/4.3.stable" \
+            "$GITHUB_WORKSPACE" \
+            2>&1 | tee artifacts/gradle-template.log
+          test -x android/build/gradlew
+          if find . -type f -name '*.apk' -print -quit | grep -q .; then
+            echo 'APK exists before the configuration-only gate.' >&2
+            exit 1
+          fi
+
+      - name: Parse project and validate Android preset with Godot
+        run: |
+          /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/godot-editor-parse.log
+          /tmp/godot/godot --headless --path . --script res://tests/android_export_setup_step4_gate.gd --check-only \
+            2>&1 | tee artifacts/android-preset-check-only.log
+          /tmp/godot/godot --headless --path . --script res://tests/android_export_setup_step4_gate.gd \
+            2>&1 | tee artifacts/android-preset-validation.log
+          grep -Fq 'ANDROID_EXPORT_SETUP_STEP4_PRESET_PASS' artifacts/android-preset-validation.log
+
+      - name: Configure Gradle project without assembling an APK
+        run: |
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android/build/local.properties
+          (
+            cd android/build
+            ./gradlew --no-daemon --console=plain help
+          ) 2>&1 | tee artifacts/gradle-configuration-check.log
+          grep -Fq 'BUILD SUCCESSFUL' artifacts/gradle-configuration-check.log
+
+          if find . -type f -name '*.apk' -print -quit | grep -q .; then
+            echo 'Configuration gate produced an APK; refusing to accept Step 4.' >&2
+            exit 1
+          fi
+          echo 'ANDROID_EXPORT_SETUP_STEP4_NO_APK_PASS' | tee artifacts/no-apk-check.log
+
+      - name: Upload Step 4 setup evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
