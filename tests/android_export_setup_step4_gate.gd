@@ -3,12 +3,16 @@ extends SceneTree
 const PRESET_PATH := "res://export_presets.cfg"
 const PRESET_SECTION := "preset.0"
 const OPTIONS_SECTION := "preset.0.options"
+const PROJECT_ICON_PATH := "res://assets/icon.svg"
 
 
 func _initialize() -> void:
 	var config := ConfigFile.new()
 	var load_error := config.load(PRESET_PATH)
 	_expect(load_error == OK, "export_presets.cfg must load")
+
+	_expect(ProjectSettings.get_setting("application/config/icon", "") == PROJECT_ICON_PATH, "placeholder project icon configured")
+	_expect(FileAccess.file_exists(PROJECT_ICON_PATH), "placeholder project icon exists")
 
 	_expect(config.get_value(PRESET_SECTION, "name", "") == "Android Debug", "preset name")
 	_expect(config.get_value(PRESET_SECTION, "platform", "") == "Android", "Android platform")
