@@ -33,11 +33,14 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse project
+      - name: Parse project strictly
         run: |
           mkdir -p artifacts
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/playable-world-port-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/playable-world-port-parse.log; then
+            exit 1
+          fi
 
       - name: Validate imported world and mining pipeline
         run: |
