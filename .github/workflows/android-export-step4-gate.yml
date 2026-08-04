@@ -1,0 +1,162 @@
+name: TEKNIK Step 4 Android Export Setup Gate
+
+on:
+  push:
+    branches: [session/touch-controls-android-export]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  android-toolchain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget
+
+      - name: Install OpenJDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Generate and verify debug keystore
+        run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
+          mkdir -p artifacts
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+          grep -Fq 'Alias name: androiddebugkey' artifacts/debug-keystore.log
+          grep -Fq 'Owner: CN=Android Debug, O=Android, C=US' artifacts/debug-keystore.log
+
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Godot 4.3 Android SDK requirements
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+      - name: Install Godot 4.3 editor and matching export templates
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+
+      - name: Verify exact toolchain versions and template inventory
+        run: |
+          {
+            echo '=== Godot ==='
+            /tmp/godot/godot --version
+            echo '=== Java ==='
+            java -version
+            echo '=== Android SDK ==='
+            echo "ANDROID_HOME=${ANDROID_HOME}"
+            adb --version
+            sdkmanager --version
+            echo '=== Required package directories ==='
+            test -d "${ANDROID_HOME}/build-tools/34.0.0"
+            test -d "${ANDROID_HOME}/platforms/android-34"
+            test -d "${ANDROID_HOME}/cmake/3.10.2.4988404"
+            test -d "${ANDROID_HOME}/ndk/23.2.8568313"
+            printf '%s\n' \
+              "${ANDROID_HOME}/build-tools/34.0.0" \
+              "${ANDROID_HOME}/platforms/android-34" \
+              "${ANDROID_HOME}/cmake/3.10.2.4988404" \
+              "${ANDROID_HOME}/ndk/23.2.8568313"
+            echo '=== Godot 4.3 templates ==='
+            test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
+            test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_release.apk"
+            test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_source.zip"
+            ls -lh "$HOME/.local/share/godot/export_templates/4.3.stable/android_"*
+          } 2>&1 | tee artifacts/android-toolchain.log
+
+          /tmp/godot/godot --version | grep -q '^4\.3'
+          java -version 2>&1 | grep -q 'version "17\.'
+
+      - name: Install and verify project-local Android Gradle template
+        run: |
+          bash scripts/android/install_gradle_build_template.sh \
+            "$HOME/.local/share/godot/export_templates/4.3.stable" \
+            "$GITHUB_WORKSPACE" \
+            "4.3.stable" \
+            2>&1 | tee artifacts/gradle-template.log
+
+          test -x android/build/gradlew
+          test -f android/build/build.gradle
+          test -f android/build/settings.gradle
+          test -f android/build/.gdignore
+          test -f android/.build_version
+          grep -Fxq '4.3.stable' android/.build_version
+
+          {
+            echo '=== android/.build_version ==='
+            cat android/.build_version
+            echo '=== Android build template root ==='
+            find android/build -maxdepth 2 -mindepth 1 -printf '%P\n' | sort | sed -n '1,160p'
+          } | tee artifacts/gradle-template-structure.log
+
+          if find . -type f -name '*.apk' -print -quit | grep -q .; then
+            echo 'APK exists before the configuration-only gate.' >&2
+            exit 1
+          fi
+
+      - name: Parse project and validate Android preset with Godot
+        run: |
+          /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/godot-editor-parse.log
+          /tmp/godot/godot --headless --path . --script res://tests/android_export_setup_step4_gate.gd --check-only \
+            2>&1 | tee artifacts/android-preset-check-only.log
+          /tmp/godot/godot --headless --path . --script res://tests/android_export_setup_step4_gate.gd \
+            2>&1 | tee artifacts/android-preset-validation.log
+          grep -Fq 'ANDROID_EXPORT_SETUP_STEP4_PRESET_PASS' artifacts/android-preset-validation.log
+
+      - name: Configure Gradle project without assembling an APK
+        run: |
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android/build/local.properties
+          (
+            cd android/build
+            ./gradlew --no-daemon --console=plain help
+          ) 2>&1 | tee artifacts/gradle-configuration-check.log
+          grep -Fq 'BUILD SUCCESSFUL' artifacts/gradle-configuration-check.log
+
+          if find . -type f -name '*.apk' -print -quit | grep -q .; then
+            echo 'Configuration gate produced an APK; refusing to accept Step 4.' >&2
+            exit 1
+          fi
+          echo 'ANDROID_EXPORT_SETUP_STEP4_NO_APK_PASS' | tee artifacts/no-apk-check.log
+
+      - name: Upload Step 4 setup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-step4-android-setup
+          path: artifacts/
+          if-no-files-found: error

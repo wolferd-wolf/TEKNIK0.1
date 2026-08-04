@@ -1,0 +1,161 @@
+name: TEKNIK Step 5 Export Configuration Diagnostic
+
+on:
+  push:
+    branches: [session/touch-controls-android-export]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-export-configuration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Record diagnostic-only source
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          if find . -type f -name '*.apk' -print -quit | grep -q .; then
+            echo 'APK exists before diagnostic setup.' >&2
+            exit 1
+          fi
+
+      - name: Install Godot 4.3 and matching templates
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+
+          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+          test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_source.zip"
+
+      - name: Generate the same ephemeral debug keystore
+        run: |
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-debug.keystore"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
+            2>&1 | tee artifacts/debug-keystore.log
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+
+      - name: Read fixed project settings through Godot
+        run: |
+          cat > /tmp/step5_export_config_diagnostic.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const ETC2_ASTC_SETTING := "rendering/textures/vram_compression/import_etc2_astc"
+          const ICON_SETTING := "application/config/icon"
+
+          func _initialize() -> void:
+              print("STEP5_DIAGNOSTIC_OS=", OS.get_name())
+              print("STEP5_DIAGNOSTIC_ETC2_ASTC_VALUE=", ProjectSettings.get_setting(ETC2_ASTC_SETTING, false))
+              print("STEP5_DIAGNOSTIC_ICON=", ProjectSettings.get_setting(ICON_SETTING, ""))
+              print("STEP5_DIAGNOSTIC_ICON_EXISTS=", FileAccess.file_exists("res://assets/icon.svg"))
+              quit(0)
+          GDSCRIPT
+
+          /tmp/godot/godot --headless --path . --script /tmp/step5_export_config_diagnostic.gd \
+            2>&1 | tee artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_OS=Linux' artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_ETC2_ASTC_VALUE=true' artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_ICON=res://assets/icon.svg' artifacts/runtime-project-settings.log
+          grep -Fq 'STEP5_DIAGNOSTIC_ICON_EXISTS=true' artifacts/runtime-project-settings.log
+
+      - name: Install and inspect complete Godot 4.3 Gradle template
+        run: |
+          bash scripts/android/install_gradle_build_template.sh \
+            "$HOME/.local/share/godot/export_templates/4.3.stable" \
+            "$GITHUB_WORKSPACE" \
+            "4.3.stable" \
+            2>&1 | tee artifacts/gradle-template.log
+
+          test -x android/build/gradlew
+          test -f android/build/build.gradle
+          test -f android/build/settings.gradle
+          test -f android/build/.gdignore
+          test -f android/.build_version
+          grep -Fxq '4.3.stable' android/.build_version
+
+          {
+            echo '=== android/.build_version ==='
+            cat android/.build_version
+            echo '=== Android build template root ==='
+            find android/build -maxdepth 2 -mindepth 1 -printf '%P\n' | sort | sed -n '1,160p'
+          } | tee artifacts/gradle-template-structure.log
+
+      - name: Verify the exact Godot 4.3 installer and validation paths
+        run: |
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/editor/export/export_template_manager.cpp -O /tmp/export-template-manager.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/editor/editor_node.cpp -O /tmp/editor-node.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/main/main.cpp -O /tmp/main.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/platform/android/export/export_plugin.cpp -O /tmp/android-export-plugin.cpp
+
+          {
+            echo '=== Built-in installer marker and ignore file ==='
+            grep -n -A8 -B5 'parent_dir.path_join(".build_version")' /tmp/export-template-manager.cpp
+            grep -n -A4 -B3 'build_dir.path_join(".gdignore")' /tmp/export-template-manager.cpp
+            echo '=== Default template identifier ==='
+            grep -n -A8 -B3 'get_android_template_identifier' /tmp/export-template-manager.cpp | head -n 30
+            echo '=== Godot 4.3 CI install option ==='
+            grep -n -A2 -B2 -- '--install-android-build-template' /tmp/main.cpp
+            grep -n -A5 -B3 'install_android_template(export_preset)' /tmp/editor-node.cpp
+            echo '=== Export-time version validation ==='
+            grep -n -A12 -B4 'gradle_base_directory.path_join(".build_version")' /tmp/android-export-plugin.cpp
+          } | tee artifacts/godot-4.3-template-contract.log
+
+          grep -Fq 'parent_dir.path_join(".build_version")' /tmp/export-template-manager.cpp
+          grep -Fq 'f->store_line(get_android_template_identifier(p_preset))' /tmp/export-template-manager.cpp
+          grep -Fq 'build_dir.path_join(".gdignore")' /tmp/export-template-manager.cpp
+          grep -Fq 'return VERSION_FULL_CONFIG;' /tmp/export-template-manager.cpp
+          grep -Fq -- '--install-android-build-template' /tmp/main.cpp
+          grep -Fq 'install_android_template(export_preset)' /tmp/editor-node.cpp
+          grep -Fq 'gradle_base_directory.path_join(".build_version")' /tmp/android-export-plugin.cpp
+
+          cat > artifacts/root-cause.txt <<'EOF'
+          ROOT_CAUSE=The previous CI helper extracted android_source.zip into android/build but did not create android/.build_version.
+          GODOT_4_3_EXPECTED_MARKER=android/.build_version
+          GODOT_4_3_EXPECTED_IDENTIFIER=4.3.stable
+          SECONDARY_OMISSION=The previous helper also omitted android/build/.gdignore.
+          FIX_STEP4=The configuration-only installer now creates and validates both files and the archive root structure.
+          FIX_STEP5=The supervised export command uses Godot 4.3's built-in --install-android-build-template option together with --export-debug.
+          PROJECT_ICON=res://assets/icon.svg
+          EXPORT_ATTEMPTED=false
+          APK_PRODUCED=false
+          STEP5_DIAGNOSTIC_GRADLE_TEMPLATE_CONTRACT_PASS
+          EOF
+          cat artifacts/root-cause.txt
+
+      - name: Confirm diagnostic produced no APK
+        run: |
+          if find . -type f -name '*.apk' -print -quit | grep -q .; then
+            echo 'Diagnostic workflow produced an APK.' >&2
+            exit 1
+          fi
+          echo 'STEP5_DIAGNOSTIC_NO_APK_PASS' | tee artifacts/no-apk-check.log
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-step5-export-config-diagnostic
+          path: artifacts/
+          if-no-files-found: error
