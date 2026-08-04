@@ -190,3 +190,27 @@ Same gameplay behavior as before (mining, placement, crafting all produce identi
 
 ### Report format
 Commit log in order, plus Actions run status for each step. Include actual timing numbers (milliseconds) for remesh duration before and after threading, not prose descriptions of speed.
+
+## Session: Polish and World Fixes
+
+### Rules (in addition to all prior session rules)
+1. One step per commit, gate before marking complete.
+2. This session touches the Android/mobile ported world system (ColoredAtomicVoxelWorld-derived) for the water and tree steps, and shared settings/rendering code for sensitivity and shadows. Confirm which platform each change actually affects, given the known desktop/Android world split — do not assume a desktop-only test validates an Android-path fix.
+
+### Steps
+
+1. APK size audit (diagnostic first, no fixes yet): inspect the exported APK contents — what's actually taking up the 69MB. Check for: duplicate/unused assets from the old-repo port, uncompressed textures, debug symbols in a debug build (expected to be larger than release — confirm if this build is debug or release), duplicate native templates, or anything obviously bloated. Report a breakdown by category/size before proposing fixes. Compare against what the old 28MB build actually included, if that data is available.
+
+2. Water bug diagnosis and fix: confirm whether water is a global plane filling all air below sea level, versus localized water bodies (rivers/lakes) like the original design intended. Report the actual cause before fixing. Fix should make water only appear in intended water-body locations, not fill every underground air pocket near sea level.
+
+3. Camera/touch look sensitivity: expose as an adjustable value (even a simple constant bump is fine for now, a settings UI is a later session) and confirm the new default feels closer to normal FPS game sensitivity, not just a small tweak.
+
+4. Minecraft-style shadows: simplify the current DirectionalLight3D/shadow configuration toward lower-resolution, harder-edged, less costly shadows — matching Minecraft's blocky flat-shadow look rather than smooth real-time shadow mapping. Note if this also improves the frame-time numbers from the earlier lag testing, since shadow rendering cost is a plausible contributor there.
+
+5. Mineable trees: add a simple blocky tree (trunk + leaf blocks, Minecraft-style) to world generation, integrated into the same mining/inventory pipeline as ore blocks — mining a tree block yields an item, same pattern already proven for stone/dirt/grass/sand. Confirm trees generate in the same world/platform path currently used on Android (the ported system), not just the unused desktop chunk manager.
+
+### Definition of done
+Water only appears in real water-body locations, camera sensitivity feels normal, shadows are simplified Minecraft-style, trees generate and are mineable into inventory, and the APK size increase (if any) from these changes is understood and reported, not just accepted silently.
+
+### Report format
+Commit log, Actions run status per step, and for step 1 specifically: an actual size breakdown, not just a total number.
