@@ -77,6 +77,27 @@ jobs:
           bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" \
             2>&1 | tee artifacts/debug-keystore.log
 
+      - name: Export installable arm64 phone APK
+        run: |
+          set -o pipefail
+          grep '^architectures/' export_presets.cfg | tee artifacts/phone-architectures.txt
+          /tmp/godot/godot \
+            --headless \
+            --verbose \
+            --path "$GITHUB_WORKSPACE" \
+            --install-android-build-template \
+            --export-debug "Android Debug" \
+            "$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-fixed-arm64-debug.apk" \
+            2>&1 | tee artifacts/android-phone-export.log
+          apk="artifacts/TEKNIK-0.1-fixed-arm64-debug.apk"
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk" \
+            2>&1 | tee artifacts/phone-apk-signature.txt
+          unzip -Z1 "$apk" | grep '^lib/arm64-v8a/' \
+            | tee artifacts/phone-apk-arm64-libraries.txt
+          stat --printf='size_bytes=%s\n' "$apk" | tee artifacts/phone-apk-size.txt
+          sha256sum "$apk" | tee artifacts/phone-apk-sha256.txt
+
       - name: Configure x86_64 emulator-only export
         run: |
           sed -i 's/architectures\/arm64-v8a=true/architectures\/arm64-v8a=false/' export_presets.cfg
@@ -90,14 +111,13 @@ jobs:
             --headless \
             --verbose \
             --path "$GITHUB_WORKSPACE" \
-            --install-android-build-template \
             --export-debug "Android Debug" \
             "$GITHUB_WORKSPACE/artifacts/TEKNIK-0.1-emulator-debug.apk" \
             2>&1 | tee artifacts/android-emulator-export.log
           test -s artifacts/TEKNIK-0.1-emulator-debug.apk
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose \
             artifacts/TEKNIK-0.1-emulator-debug.apk \
-            2>&1 | tee artifacts/apk-signature.txt
+            2>&1 | tee artifacts/emulator-apk-signature.txt
 
       - name: Boot Android emulator and verify app remains alive
         uses: reactivecircus/android-emulator-runner@v2
@@ -135,11 +155,11 @@ jobs:
             fi
             echo 'ANDROID_RUNTIME_SMOKE_PASS' | tee artifacts/android-runtime-result.txt
 
-      - name: Upload Android runtime evidence
+      - name: Upload verified Android builds and runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-android-runtime-smoke
+          name: teknik-android-verified-builds
           path: artifacts/
           if-no-files-found: error
           compression-level: 0
