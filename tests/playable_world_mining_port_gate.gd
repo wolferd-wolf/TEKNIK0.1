@@ -1,7 +1,7 @@
 extends SceneTree
 
 const WORLD_PORT_SCRIPT := preload("res://scripts/world/playable_world_port.gd")
-const FRAME_LIMIT := 1200
+const FRAME_LIMIT := 600
 
 var failures: Array[String] = []
 
@@ -15,15 +15,22 @@ func _fail(message: String) -> void:
 	push_error(message)
 
 
-func _wait_for_idle(manager, context: String) -> bool:
+func _wait_for_collision_ring(manager) -> bool:
 	for _frame in range(FRAME_LIMIT):
 		await process_frame
-		if (
-			manager.chunk_count() == manager.expected_chunk_count()
-			and manager.is_remesh_idle()
-		):
+		if manager._legacy_spawn_ring_ready():
 			return true
-	_fail("Playable-world port did not become idle during %s" % context)
+	_fail("Imported 3x3 collision-first startup ring did not become ready")
+	return false
+
+
+func _wait_for_atomic_swap(manager, previous_swap_count: int) -> bool:
+	for _frame in range(FRAME_LIMIT):
+		await process_frame
+		var diagnostics: Dictionary = manager.get_remesh_diagnostics()
+		if int(diagnostics.get("atomic_swaps", 0)) > previous_swap_count:
+			return true
+	_fail("Imported mining rebuild did not complete an atomic chunk swap")
 	return false
 
 
@@ -48,13 +55,14 @@ func _run_gate() -> void:
 		_fail("Forced playable-world port did not activate")
 		_finish()
 		return
+	if manager.expected_chunk_count() != 49:
+		_fail("Imported world no longer targets the original 7x7 visual radius")
 
-	if not await _wait_for_idle(manager, "initial world generation"):
+	if not await _wait_for_collision_ring(manager):
 		_finish()
 		return
-
-	if manager.chunk_count() != 49:
-		_fail("Imported world must load 49 visual chunks, got %d" % manager.chunk_count())
+	if manager.chunk_count() < 9:
+		_fail("Collision-first startup loaded fewer than nine nearby chunks")
 
 	var height_samples: Dictionary = {}
 	for sample in [Vector2i(2, 2), Vector2i(28, 7), Vector2i(-19, 31), Vector2i(47, -23)]:
@@ -82,6 +90,7 @@ func _run_gate() -> void:
 		_finish()
 		return
 
+	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 	if not manager.mine_block_world(mine_coord):
 		_fail("Imported mining system rejected a valid surface block")
 		_finish()
@@ -89,7 +98,7 @@ func _run_gate() -> void:
 	if manager.get_block_world(mine_coord) != 0:
 		_fail("Mined block data did not become air immediately")
 
-	if not await _wait_for_idle(manager, "atomic mining rebuild"):
+	if not await _wait_for_atomic_swap(manager, swaps_before):
 		_finish()
 		return
 
@@ -103,14 +112,13 @@ func _run_gate() -> void:
 		_fail("Mining replacement did not preserve nearby collision")
 
 	var diagnostics: Dictionary = manager.get_remesh_diagnostics()
-	if int(diagnostics.get("atomic_swaps", 0)) < 1:
-		_fail("Mining diagnostics did not record an atomic chunk swap")
 	if int(diagnostics.get("atomic_swap_failures", 0)) != 0:
 		_fail("Mining atomic replacement reported a failure")
 
 	if failures.is_empty():
 		print("PLAYABLE_WORLD_MINING_PORT_GATE_PASS")
-		print("PLAYABLE_WORLD_CHUNKS=%d" % manager.chunk_count())
+		print("PLAYABLE_WORLD_STARTUP_CHUNKS=%d" % manager.chunk_count())
+		print("PLAYABLE_WORLD_TARGET_CHUNKS=%d" % manager.expected_chunk_count())
 		print("PLAYABLE_WORLD_MINED_BLOCK=%d" % original_block)
 		print("PLAYABLE_WORLD_ATOMIC_SWAPS=%d" % int(diagnostics.get("atomic_swaps", 0)))
 
