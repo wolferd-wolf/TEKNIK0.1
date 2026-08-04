@@ -1,0 +1,92 @@
+name: TEKNIK Polish Camera Sensitivity Gate
+
+on:
+  push:
+    branches:
+      - session/polish-world-fixes
+    paths:
+      - scenes/main.tscn
+      - scripts/player/mobile_camera_sensitivity.gd
+      - tests/polish_camera_sensitivity_gate.gd
+      - .github/workflows/polish-camera-sensitivity-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  camera-sensitivity-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Record source revision
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          git status --short | tee artifacts/source-status.txt
+
+      - name: Install Godot 4.3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+
+      - name: Parse project
+        run: |
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --editor --quit-after 3 \
+            2>&1 | tee artifacts/project-parse.log
+          ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' artifacts/project-parse.log
+
+      - name: Run deterministic mobile drag sensitivity gate
+        run: |
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" \
+            --script res://tests/polish_camera_sensitivity_gate.gd \
+            2>&1 | tee artifacts/camera-sensitivity-gate.log
+          grep -Fq 'CAMERA_SENSITIVITY_GATE_PASS' artifacts/camera-sensitivity-gate.log
+
+      - name: Confirm scope isolation
+        run: |
+          base="3b8f28a137937333210a7a56755f76394efadd38"
+          git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
+          allowed='^(scenes/main\.tscn|scripts/player/mobile_camera_sensitivity\.gd|tests/polish_camera_sensitivity_gate\.gd|\.github/workflows/polish-camera-sensitivity-gate\.yml)$'
+          if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
+            echo 'Camera sensitivity gate found out-of-scope files.' >&2
+            exit 1
+          fi
+          ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
+
+      - name: Upload camera sensitivity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-polish-camera-sensitivity-gate
+          path: artifacts/
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish camera sensitivity commit status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
+              context: 'TEKNIK Polish Camera Sensitivity Gate',
+              description: '${{ job.status }}' === 'success'
+                ? 'Direct mobile drag sensitivity gate passed'
+                : 'Direct mobile drag sensitivity gate failed'
+            });
