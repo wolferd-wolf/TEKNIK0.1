@@ -9,6 +9,14 @@ on:
       - scripts/world/localized_water_bodies.gd
       - tests/polish_water_gate.gd
       - .github/workflows/polish-water-gate.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scenes/main.tscn
+      - scripts/world/localized_water_bodies.gd
+      - tests/polish_water_gate.gd
+      - .github/workflows/polish-water-gate.yml
   workflow_dispatch:
 
 permissions:
