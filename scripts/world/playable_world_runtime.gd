@@ -9,6 +9,7 @@ const COLLISION_RADIUS := 1
 const UNLOAD_RADIUS := 4
 const BUILD_BUDGET_USEC := 5500
 const EDIT_DEBOUNCE_MSEC := 75
+const MESH_CACHE_PADDING := 2
 
 var target: Node3D
 var target_physics_enabled := false
@@ -41,7 +42,7 @@ func configure(streaming_target: Node3D) -> void:
 	material.vertex_color_use_as_albedo = true
 	material.roughness = 0.94
 	material.metallic = 0.0
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.cull_mode = BaseMaterial3D.CULL_BACK
 	_create_water()
 	if is_instance_valid(target):
 		target_physics_enabled = target.is_physics_processing()
@@ -252,14 +253,14 @@ func _pump_builds() -> void:
 
 
 func _build_height_cache(coord: Vector2i) -> PackedInt32Array:
-	var width := CHUNK_SIZE + 2
+	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var heights := PackedInt32Array()
 	heights.resize(width * width)
 	var origin_x := coord.x * CHUNK_SIZE
 	var origin_z := coord.y * CHUNK_SIZE
-	for local_z in range(-1, CHUNK_SIZE + 1):
-		for local_x in range(-1, CHUNK_SIZE + 1):
-			var index := (local_z + 1) * width + local_x + 1
+	for local_z in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
+		for local_x in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
+			var index := (local_z + MESH_CACHE_PADDING) * width + local_x + MESH_CACHE_PADDING
 			heights[index] = data.terrain_height(origin_x + local_x, origin_z + local_z)
 	return heights
 
@@ -423,24 +424,28 @@ func _unload_far_chunks() -> void:
 
 
 func _schedule_affected_rebuilds(cell: Vector3i) -> void:
-	var affected: Array[Vector2i] = [cell_to_chunk(cell)]
+	var chunk_coord := cell_to_chunk(cell)
+	var chunk_x_values: Array[int] = [chunk_coord.x]
+	var chunk_z_values: Array[int] = [chunk_coord.y]
 	var local_x := posmod(cell.x, CHUNK_SIZE)
 	var local_z := posmod(cell.z, CHUNK_SIZE)
 	if local_x == 0:
-		affected.append(cell_to_chunk(cell + Vector3i.LEFT))
+		chunk_x_values.append(chunk_coord.x - 1)
 	elif local_x == CHUNK_SIZE - 1:
-		affected.append(cell_to_chunk(cell + Vector3i.RIGHT))
+		chunk_x_values.append(chunk_coord.x + 1)
 	if local_z == 0:
-		affected.append(cell_to_chunk(cell + Vector3i(0, 0, -1)))
+		chunk_z_values.append(chunk_coord.y - 1)
 	elif local_z == CHUNK_SIZE - 1:
-		affected.append(cell_to_chunk(cell + Vector3i(0, 0, 1)))
-	for coord: Vector2i in affected:
-		if not loaded.has(coord):
-			continue
-		if pending_rebuilds.has(coord):
-			coalesced_edits += 1
-		pending_rebuilds[coord] = true
-		rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_DEBOUNCE_MSEC
+		chunk_z_values.append(chunk_coord.y + 1)
+	for chunk_z in chunk_z_values:
+		for chunk_x in chunk_x_values:
+			var coord := Vector2i(chunk_x, chunk_z)
+			if not loaded.has(coord):
+				continue
+			if pending_rebuilds.has(coord):
+				coalesced_edits += 1
+			pending_rebuilds[coord] = true
+			rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_DEBOUNCE_MSEC
 
 
 func _promote_rebuilds() -> void:
