@@ -9,6 +9,14 @@ on:
       - scripts/world/playable_world_runtime.gd
       - tests/polish_leaf_seam_diagnostic.gd
       - .github/workflows/polish-leaf-seam-gate.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/world/playable_world_mesher.gd
+      - scripts/world/playable_world_runtime.gd
+      - tests/polish_leaf_seam_diagnostic.gd
+      - .github/workflows/polish-leaf-seam-gate.yml
   workflow_dispatch:
 
 permissions:
