@@ -41,10 +41,10 @@ jobs:
           git rev-parse HEAD | tee artifacts/source-commit.txt
           git status --short | tee artifacts/source-status.txt
 
-      - name: Install Godot 4.3
+      - name: Install Godot 4.3 and graphical test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends unzip wget
+          sudo apt-get install -y --no-install-recommends unzip wget xvfb
           wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp/godot
           mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
@@ -59,7 +59,10 @@ jobs:
 
       - name: Run real-scene mobile drag propagation gate
         run: |
-          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" \
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path "$GITHUB_WORKSPACE" \
             --script res://tests/polish_camera_sensitivity_gate.gd \
             2>&1 | tee artifacts/camera-sensitivity-gate.log
           grep -Fq 'CAMERA_SENSITIVITY_GATE_PASS' artifacts/camera-sensitivity-gate.log
