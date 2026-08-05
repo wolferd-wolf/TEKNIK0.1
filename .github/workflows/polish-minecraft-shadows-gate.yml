@@ -55,7 +55,7 @@ jobs:
             2>&1 | tee artifacts/parse.log
           ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' artifacts/parse.log
 
-      - name: Run real-tree shadow artifact gate
+      - name: Run controlled tree shadow A-B gate
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
@@ -64,6 +64,7 @@ jobs:
             --script res://tests/polish_minecraft_shadows_gate.gd \
             2>&1 | tee artifacts/shadow-gate.log
           grep -Fq 'POLISH_MINECRAFT_SHADOWS_GATE_PASS' artifacts/shadow-gate.log
+          test -s artifacts/shadow-artifact-before.png
           test -s artifacts/shadow-artifact-after.png
 
       - name: Verify corrective shadow scope
@@ -99,6 +100,6 @@ jobs:
               state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
               context: 'TEKNIK Shadow Artifact Gate',
               description: '${{ job.status }}' === 'success'
-                ? 'Reverse-cull tree shadow capture passed'
+                ? 'Controlled tree shadow A-B capture passed'
                 : 'Tree shadow artifact gate failed'
             });
