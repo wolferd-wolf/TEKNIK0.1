@@ -4,7 +4,9 @@ class_name BlockInventory
 signal changed
 
 const EMPTY_BLOCK_ID := 0
-const DEFAULT_SLOT_COUNT := 24
+const HOTBAR_SLOT_COUNT := 9
+const STORAGE_SLOT_COUNT := 27
+const DEFAULT_SLOT_COUNT := HOTBAR_SLOT_COUNT + STORAGE_SLOT_COUNT
 const DEFAULT_MAX_STACK_SIZE := 64
 
 var _slot_count: int
@@ -24,6 +26,14 @@ func _init(
 
 func get_slot_count() -> int:
 	return _slot_count
+
+
+func get_hotbar_slot_count() -> int:
+	return mini(HOTBAR_SLOT_COUNT, _slot_count)
+
+
+func get_storage_slot_count() -> int:
+	return maxi(_slot_count - get_hotbar_slot_count(), 0)
 
 
 func get_max_stack_size() -> int:
@@ -107,8 +117,7 @@ func add_item(block_id: int, count: int = 1) -> bool:
 			return true
 
 	for slot_index in range(_slots.size()):
-		var slot: Dictionary = _slots[slot_index]
-		if int(slot["block_id"]) != EMPTY_BLOCK_ID:
+		if int(_slots[slot_index]["block_id"]) != EMPTY_BLOCK_ID:
 			continue
 		var added := mini(_max_stack_size, remaining)
 		_slots[slot_index] = {
@@ -119,10 +128,6 @@ func add_item(block_id: int, count: int = 1) -> bool:
 		if remaining == 0:
 			changed.emit()
 			return true
-
-	if remaining == 0:
-		changed.emit()
-		return true
 	return false
 
 
@@ -148,10 +153,6 @@ func remove_item(block_id: int, count: int = 1) -> bool:
 		if remaining == 0:
 			changed.emit()
 			return true
-
-	if remaining == 0:
-		changed.emit()
-		return true
 	return false
 
 
@@ -170,6 +171,75 @@ func remove_from_slot(slot_index: int, count: int = 1) -> bool:
 	)
 	changed.emit()
 	return true
+
+
+func take_from_slot(slot_index: int, count: int = -1) -> Dictionary:
+	if not _is_valid_slot(slot_index) or count == 0:
+		return _empty_slot()
+	var slot: Dictionary = _slots[slot_index]
+	var current_count := int(slot["count"])
+	if current_count <= 0:
+		return _empty_slot()
+	var take_count := current_count if count < 0 else mini(count, current_count)
+	var remainder := current_count - take_count
+	_slots[slot_index] = (
+		_empty_slot()
+		if remainder == 0
+		else {"block_id": int(slot["block_id"]), "count": remainder}
+	)
+	changed.emit()
+	return {"block_id": int(slot["block_id"]), "count": take_count}
+
+
+func split_from_slot(slot_index: int) -> Dictionary:
+	if not _is_valid_slot(slot_index):
+		return _empty_slot()
+	var current_count := int(_slots[slot_index]["count"])
+	if current_count <= 0:
+		return _empty_slot()
+	return take_from_slot(slot_index, ceili(float(current_count) * 0.5))
+
+
+func put_stack_into_slot(
+	slot_index: int,
+	incoming_stack: Dictionary,
+	single_item: bool = false
+) -> Dictionary:
+	var incoming := _normalize_stack(incoming_stack)
+	if int(incoming["count"]) <= 0:
+		return _empty_slot()
+	if not _is_valid_slot(slot_index):
+		return incoming
+
+	var incoming_block_id := int(incoming["block_id"])
+	var incoming_count := int(incoming["count"])
+	var target: Dictionary = _slots[slot_index]
+	var target_block_id := int(target["block_id"])
+	var target_count := int(target["count"])
+
+	if target_count == 0:
+		var placed := 1 if single_item else mini(incoming_count, _max_stack_size)
+		_slots[slot_index] = {"block_id": incoming_block_id, "count": placed}
+		changed.emit()
+		return _stack_or_empty(incoming_block_id, incoming_count - placed)
+
+	if target_block_id == incoming_block_id:
+		var capacity := _max_stack_size - target_count
+		if capacity <= 0:
+			return incoming
+		var requested := 1 if single_item else incoming_count
+		var merged := mini(capacity, requested)
+		target["count"] = target_count + merged
+		_slots[slot_index] = target
+		changed.emit()
+		return _stack_or_empty(incoming_block_id, incoming_count - merged)
+
+	if single_item or incoming_count > _max_stack_size:
+		return incoming
+
+	_slots[slot_index] = incoming
+	changed.emit()
+	return target.duplicate(true)
 
 
 func craft_item(
@@ -221,10 +291,7 @@ func _add_item_to_slots(slots: Array[Dictionary], block_id: int, count: int) -> 
 		if int(slots[slot_index]["block_id"]) != EMPTY_BLOCK_ID:
 			continue
 		var added := mini(_max_stack_size, remaining)
-		slots[slot_index] = {
-			"block_id": block_id,
-			"count": added,
-		}
+		slots[slot_index] = {"block_id": block_id, "count": added}
 		remaining -= added
 		if remaining == 0:
 			return true
@@ -261,12 +328,21 @@ func _available_capacity(block_id: int) -> int:
 	return capacity
 
 
+func _normalize_stack(stack: Dictionary) -> Dictionary:
+	var block_id := int(stack.get("block_id", EMPTY_BLOCK_ID))
+	var count := int(stack.get("count", 0))
+	return _stack_or_empty(block_id, count)
+
+
+func _stack_or_empty(block_id: int, count: int) -> Dictionary:
+	if block_id <= EMPTY_BLOCK_ID or count <= 0:
+		return _empty_slot()
+	return {"block_id": block_id, "count": count}
+
+
 func _is_valid_slot(slot_index: int) -> bool:
 	return slot_index >= 0 and slot_index < _slots.size()
 
 
 func _empty_slot() -> Dictionary:
-	return {
-		"block_id": EMPTY_BLOCK_ID,
-		"count": 0,
-	}
+	return {"block_id": EMPTY_BLOCK_ID, "count": 0}

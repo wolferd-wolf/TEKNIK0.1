@@ -3,6 +3,7 @@ class_name InventoryFirstPersonController
 
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
+const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/ui/minecraft_inventory_screen.gd")
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_SLOT_ACTIONS := [
 	"select_hotbar_1",
@@ -15,6 +16,19 @@ const HOTBAR_SLOT_ACTIONS := [
 	"select_hotbar_8",
 	"select_hotbar_9",
 ]
+const INVENTORY_LOCK_ACTIONS := [
+	"move_left",
+	"move_right",
+	"move_forward",
+	"move_backward",
+	"jump",
+	"look_left",
+	"look_right",
+	"look_up",
+	"look_down",
+	"mine_block",
+	"place_block",
+]
 const TEST_RECIPE_INPUT_BLOCK_ID := BLOCK_DIRT
 const TEST_RECIPE_INPUT_COUNT := 4
 const TEST_RECIPE_OUTPUT_BLOCK_ID := BLOCK_STONE
@@ -23,6 +37,8 @@ const TEST_RECIPE_OUTPUT_COUNT := 1
 var _inventory: BlockInventory = BLOCK_INVENTORY_SCRIPT.new()
 var _selected_inventory_slot: int = 0
 var _hotbar: InventoryHotbar
+var _inventory_screen: MinecraftInventoryScreen
+var _inventory_input_locked := false
 
 
 func _ready() -> void:
@@ -31,9 +47,25 @@ func _ready() -> void:
 	_configure_target_highlight()
 	_inventory.changed.connect(_refresh_hotbar)
 	call_deferred("_configure_hotbar")
+	call_deferred("_configure_inventory_screen")
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _inventory_input_locked:
+		return
+	super(event)
+
+
+func _physics_process(delta: float) -> void:
+	if _inventory_input_locked:
+		velocity = Vector3.ZERO
+		return
+	super(delta)
 
 
 func _process(delta: float) -> void:
+	if _inventory_input_locked:
+		return
 	var action_look := Input.get_vector(
 		"look_left",
 		"look_right",
@@ -52,12 +84,26 @@ func _process(delta: float) -> void:
 		craft_test_recipe()
 
 
+func apply_look_delta(look_delta: Vector2) -> void:
+	if _inventory_input_locked:
+		return
+	super(look_delta)
+
+
 func get_inventory() -> BlockInventory:
 	return _inventory
 
 
 func get_hotbar() -> InventoryHotbar:
 	return _hotbar
+
+
+func get_inventory_screen() -> MinecraftInventoryScreen:
+	return _inventory_screen
+
+
+func is_inventory_input_locked() -> bool:
+	return _inventory_input_locked
 
 
 func get_selected_inventory_slot() -> int:
@@ -69,7 +115,7 @@ func get_selected_inventory_item() -> Dictionary:
 
 
 func select_inventory_slot(slot_index: int) -> bool:
-	if slot_index < 0 or slot_index >= _inventory.get_slot_count():
+	if slot_index < 0 or slot_index >= HOTBAR_SLOT_COUNT:
 		return false
 	_selected_inventory_slot = slot_index
 	_refresh_hotbar()
@@ -153,6 +199,33 @@ func _configure_hotbar() -> void:
 		_hotbar.name = "InventoryHotbar"
 		main_root.add_child(_hotbar)
 	_refresh_hotbar()
+
+
+func _configure_inventory_screen() -> void:
+	var main_root := get_parent()
+	if main_root == null:
+		return
+	_inventory_screen = main_root.get_node_or_null("MinecraftInventoryScreen") as MinecraftInventoryScreen
+	if _inventory_screen == null:
+		_inventory_screen = INVENTORY_SCREEN_SCRIPT.new() as MinecraftInventoryScreen
+		_inventory_screen.name = "MinecraftInventoryScreen"
+		main_root.add_child(_inventory_screen)
+	_inventory_screen.setup(_inventory, self)
+	if not _inventory_screen.inventory_visibility_changed.is_connected(_on_inventory_visibility_changed):
+		_inventory_screen.inventory_visibility_changed.connect(_on_inventory_visibility_changed)
+	_on_inventory_visibility_changed(_inventory_screen.is_inventory_open())
+
+
+func _on_inventory_visibility_changed(is_open: bool) -> void:
+	_inventory_input_locked = is_open
+	if is_open:
+		velocity = Vector3.ZERO
+		_clear_block_target()
+		for action in INVENTORY_LOCK_ACTIONS:
+			Input.action_release(action)
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _refresh_hotbar() -> void:
