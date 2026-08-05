@@ -43,6 +43,7 @@ rotation_degrees = Vector3(-52, -28, 0)
 light_color = Color(1, 0.94, 0.82, 1)
 light_energy = 1.15
 shadow_enabled = true
+shadow_reverse_cull_face = true
 shadow_bias = 0.035
 shadow_normal_bias = 0.75
 shadow_blur = 0.15
