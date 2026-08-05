@@ -13,6 +13,7 @@ var _enabled: bool = false
 
 
 func _ready() -> void:
+	_move_to_input_front()
 	_player = get_node_or_null(player_path)
 	_enabled = force_enabled_for_tests or DisplayServer.is_touchscreen_available()
 	if not _enabled or _player == null:
@@ -58,9 +59,25 @@ func _is_look_position(position: Vector2) -> bool:
 	return position.y < viewport_size.y - bottom_reserved_height
 
 
+func _move_to_input_front() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	# Viewport dispatches `_input` in reverse scene-tree order. Keep this
+	# adapter after the legacy touch overlay so it receives Android drags before
+	# that overlay marks them handled. This preserves the old simulated-touch
+	# InputMap path while making the direct pixel-delta path reliable on-device.
+	parent.move_child(self, parent.get_child_count() - 1)
+
+
 func get_active_look_touch_index() -> int:
 	return _active_look_touch_index
 
 
 func is_mobile_look_enabled() -> bool:
 	return _enabled
+
+
+func has_input_precedence() -> bool:
+	var parent := get_parent()
+	return parent != null and get_index() == parent.get_child_count() - 1
