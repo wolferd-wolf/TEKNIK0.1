@@ -39,7 +39,7 @@ func _run() -> void:
 	var winding_state := _inspect_winding(mesh_data)
 
 	_setup_scene()
-	mesh_instance.mesh = _array_mesh(mesh_data)
+	mesh_instance.mesh = _top_face_mesh(mesh_data)
 	await _wait_frames(5)
 
 	var cull_on_center := await _capture(BaseMaterial3D.CULL_BACK, CULL_ON_PATH)
@@ -48,16 +48,16 @@ func _run() -> void:
 	var cull_off_visible := not _is_magenta(cull_off_center)
 
 	if not cull_off_visible:
-		_fail("Adjacent leaf pair was not visible with culling disabled")
+		_fail("Isolated leaf top faces were not visible with culling disabled")
 
 	if winding_state == "INWARD":
 		if cull_on_visible:
-			_fail("Inward-wound leaf mesh unexpectedly remained visible with back-face culling")
+			_fail("Inward-wound isolated leaf top faces remained visible with back-face culling")
 		else:
 			print("LEAF_WINDING_ROOT_CAUSE_CONFIRMED")
 	elif winding_state == "OUTWARD":
 		if not cull_on_visible:
-			_fail("Corrected leaf mesh was culled with back-face culling enabled")
+			_fail("Corrected isolated leaf top faces were culled")
 		else:
 			print("LEAF_SEAM_GATE_PASS")
 	else:
@@ -134,8 +134,7 @@ func _inspect_winding(mesh_data: Dictionary) -> String:
 		var cross_normal := (vertices[index_b] - vertices[index_a]).cross(
 			vertices[index_c] - vertices[index_a]
 		).normalized()
-		var outward_normal := normals[index_a]
-		var winding_dot := cross_normal.dot(outward_normal)
+		var winding_dot := cross_normal.dot(normals[index_a])
 		if winding_dot > 0.99:
 			inward_faces += 1
 		elif winding_dot < -0.99:
@@ -155,13 +154,40 @@ func _inspect_winding(mesh_data: Dictionary) -> String:
 	return "MIXED"
 
 
-func _array_mesh(mesh_data: Dictionary) -> ArrayMesh:
+func _top_face_mesh(mesh_data: Dictionary) -> ArrayMesh:
+	var source_vertices: PackedVector3Array = mesh_data.get("vertices", PackedVector3Array())
+	var source_normals: PackedVector3Array = mesh_data.get("normals", PackedVector3Array())
+	var source_colors: PackedColorArray = mesh_data.get("colors", PackedColorArray())
+	var source_indices: PackedInt32Array = mesh_data.get("indices", PackedInt32Array())
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+
+	for index_offset in range(0, source_indices.size(), 6):
+		var source_base := source_indices[index_offset]
+		if not source_normals[source_base].is_equal_approx(Vector3.UP):
+			continue
+		var destination_base := vertices.size()
+		for vertex_offset in range(4):
+			vertices.append(source_vertices[source_base + vertex_offset])
+			normals.append(source_normals[source_base + vertex_offset])
+			colors.append(source_colors[source_base + vertex_offset])
+		for triangle_offset in range(6):
+			indices.append(destination_base + source_indices[index_offset + triangle_offset] - source_base)
+
+	if vertices.size() != 8 or indices.size() != 12:
+		_fail("Expected two isolated top quads, got %d vertices and %d indices" % [
+			vertices.size(),
+			indices.size(),
+		])
+
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = mesh_data.get("vertices", PackedVector3Array())
-	arrays[Mesh.ARRAY_NORMAL] = mesh_data.get("normals", PackedVector3Array())
-	arrays[Mesh.ARRAY_COLOR] = mesh_data.get("colors", PackedColorArray())
-	arrays[Mesh.ARRAY_INDEX] = mesh_data.get("indices", PackedInt32Array())
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
@@ -191,7 +217,7 @@ func _setup_scene() -> void:
 	camera.far = 20.0
 	scene_root.add_child(camera)
 	camera.global_position = Vector3(1.5, 7.0, 1.5)
-	camera.look_at(Vector3(1.5, 2.5, 1.5), Vector3.FORWARD)
+	camera.look_at(Vector3(1.5, 3.0, 1.5), Vector3.FORWARD)
 
 
 func _capture(cull_mode: BaseMaterial3D.CullMode, path: String) -> Color:
