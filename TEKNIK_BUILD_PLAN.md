@@ -214,3 +214,26 @@ Water only appears in real water-body locations, camera sensitivity feels normal
 
 ### Report format
 Commit log, Actions run status per step, and for step 1 specifically: an actual size breakdown, not just a total number.
+
+## Session: Mobile-Only World Consolidation
+
+### Decision
+TEKNIK0.1 is mobile-first by original design intent. The project standardizes on the ported world/mining system (from `playable_world_port.gd` and related, originally Android-only) as the single world system. The original 16×16×16 GDScript chunk/terrain system (session one through the threaded-remeshing session) is retired, not kept as a parallel desktop path.
+
+### Rules
+1. This is cleanup and consolidation, not new features. No biomes, no caves, no new gameplay.
+2. Gameplay layers built independently of world generation — mining/placement input handling, inventory, crafting, touch controls, hotbar — are NOT retired. Only the world/chunk/terrain generation layer is replaced.
+3. One step per commit, gate before marking complete.
+
+### Steps
+1. Audit: list every file, system, and CI gate tied specifically to the original desktop chunk/terrain system (not shared gameplay code). Report this list before deleting anything.
+2. Remove the original chunk/terrain system and its dedicated tests/gates. Confirm no shared gameplay code (mining, placement, inventory, crafting) depended on desktop-specific assumptions that need adjusting.
+3. Re-point remaining relevant tests (mining, placement, inventory regression, etc.) to run against the surviving ported world system as their single source of truth — including in desktop/headless CI runs, not just Android builds. Desktop CI now tests the same world system that ships to the phone.
+4. Confirm the full acceptance suite runs clean against the single consolidated system.
+5. Real-device confirmation: export and install on Android, confirm nothing regressed (world generation, mining, placement, trees, water — the full feature set already verified working).
+
+### Definition of done
+One world system, no parallel/dead code, all CI gates test the actual system that ships to the phone, real-device confirmation nothing broke in the consolidation.
+
+### Report format
+Same evidence standard as every session — commit log, Actions run IDs, explicit list of what was removed vs. kept.
