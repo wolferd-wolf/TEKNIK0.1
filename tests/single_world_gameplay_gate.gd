@@ -108,10 +108,10 @@ func _run_gate() -> void:
 		if inventory == null or inventory.get_slot_count() != 24 or inventory.get_max_stack_size() != 64:
 			_fail("Shared 24-slot/64-stack inventory contract changed")
 		else:
-			var before := inventory.snapshot()
+			var before := inventory.get_slots()
 			if inventory.remove_item(BLOCK_DIRT, 1):
 				_fail("Empty inventory unexpectedly removed dirt")
-			if inventory.snapshot() != before:
+			if inventory.get_slots() != before:
 				_fail("Failed inventory transaction mutated slots")
 	else:
 		_fail("Player no longer exposes the shared inventory")
