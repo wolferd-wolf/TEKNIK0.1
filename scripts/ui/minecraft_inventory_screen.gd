@@ -7,6 +7,7 @@ const TOGGLE_ACTION := StringName("toggle_inventory")
 const HOTBAR_SLOT_COUNT := 9
 const STORAGE_SLOT_COUNT := 27
 const STORAGE_START_INDEX := HOTBAR_SLOT_COUNT
+const LONG_PRESS_SECONDS := 0.45
 const BLOCK_NAMES := {
 	0: "EMPTY",
 	1: "GRASS",
@@ -22,8 +23,14 @@ var _overlay: Control
 var _inventory_panel: PanelContainer
 var _toggle_button: Button
 var _close_button: Button
+var _cursor_label: Label
+var _long_press_timer: Timer
 var _storage_labels: Array[Label] = []
 var _hotbar_labels: Array[Label] = []
+var _slot_buttons: Dictionary = {}
+var _cursor_stack: Dictionary = {"block_id": 0, "count": 0}
+var _active_press_slot := -1
+var _long_press_consumed := false
 var _is_open := false
 
 
@@ -62,6 +69,7 @@ func open_inventory() -> void:
 
 
 func close_inventory() -> void:
+	_cancel_active_press()
 	_set_open(false)
 
 
@@ -75,6 +83,18 @@ func get_toggle_button() -> Button:
 
 func get_close_button() -> Button:
 	return _close_button
+
+
+func get_cursor_label() -> Label:
+	return _cursor_label
+
+
+func get_cursor_stack() -> Dictionary:
+	return _cursor_stack.duplicate(true)
+
+
+func get_slot_button(slot_index: int) -> Button:
+	return _slot_buttons.get(slot_index) as Button
 
 
 func get_storage_slot_label(storage_index: int) -> Label:
@@ -97,6 +117,26 @@ func get_hotbar_slot_count() -> int:
 	return _hotbar_labels.size()
 
 
+func interact_slot_primary(slot_index: int) -> void:
+	if not _is_open or _inventory == null:
+		return
+	if _is_stack_empty(_cursor_stack):
+		_cursor_stack = _inventory.take_from_slot(slot_index)
+	else:
+		_cursor_stack = _inventory.put_stack_into_slot(slot_index, _cursor_stack)
+	_refresh()
+
+
+func interact_slot_secondary(slot_index: int) -> void:
+	if not _is_open or _inventory == null:
+		return
+	if _is_stack_empty(_cursor_stack):
+		_cursor_stack = _inventory.split_from_slot(slot_index)
+	else:
+		_cursor_stack = _inventory.put_stack_into_slot(slot_index, _cursor_stack, true)
+	_refresh()
+
+
 func _set_open(value: bool) -> void:
 	_is_open = value
 	if is_instance_valid(_overlay):
@@ -109,14 +149,15 @@ func _set_open(value: bool) -> void:
 
 
 func _refresh() -> void:
-	if _inventory == null:
-		return
-	for slot_index in range(HOTBAR_SLOT_COUNT):
-		if slot_index < _hotbar_labels.size():
-			_hotbar_labels[slot_index].text = _slot_text(slot_index, true)
-	for storage_index in range(STORAGE_SLOT_COUNT):
-		if storage_index < _storage_labels.size():
-			_storage_labels[storage_index].text = _slot_text(STORAGE_START_INDEX + storage_index, false)
+	if _inventory != null:
+		for slot_index in range(HOTBAR_SLOT_COUNT):
+			if slot_index < _hotbar_labels.size():
+				_hotbar_labels[slot_index].text = _slot_text(slot_index, true)
+		for storage_index in range(STORAGE_SLOT_COUNT):
+			if storage_index < _storage_labels.size():
+				_storage_labels[storage_index].text = _slot_text(STORAGE_START_INDEX + storage_index, false)
+	if is_instance_valid(_cursor_label):
+		_cursor_label.text = _cursor_text()
 
 
 func _slot_text(slot_index: int, include_number: bool) -> String:
@@ -129,6 +170,62 @@ func _slot_text(slot_index: int, include_number: bool) -> String:
 	return "%s x%d" % [block_name, count]
 
 
+func _cursor_text() -> String:
+	var block_id := int(_cursor_stack.get("block_id", 0))
+	var count := int(_cursor_stack.get("count", 0))
+	var block_name := String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
+	return "CARRIED: %s x%d" % [block_name, count]
+
+
+func _is_stack_empty(stack: Dictionary) -> bool:
+	return int(stack.get("block_id", 0)) <= 0 or int(stack.get("count", 0)) <= 0
+
+
+func _slot_button_down(slot_index: int) -> void:
+	if not _is_open:
+		return
+	_active_press_slot = slot_index
+	_long_press_consumed = false
+	_long_press_timer.start(LONG_PRESS_SECONDS)
+
+
+func _slot_button_up(slot_index: int) -> void:
+	if slot_index != _active_press_slot:
+		return
+	_long_press_timer.stop()
+	if not _long_press_consumed:
+		interact_slot_primary(slot_index)
+	_active_press_slot = -1
+	_long_press_consumed = false
+
+
+func _slot_gui_input(event: InputEvent, slot_index: int) -> void:
+	if not _is_open:
+		return
+	if (
+		event is InputEventMouseButton
+		and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT
+		and (event as InputEventMouseButton).pressed
+	):
+		_cancel_active_press()
+		interact_slot_secondary(slot_index)
+		get_viewport().set_input_as_handled()
+
+
+func _on_long_press_timeout() -> void:
+	if _active_press_slot < 0 or not _is_open:
+		return
+	_long_press_consumed = true
+	interact_slot_secondary(_active_press_slot)
+
+
+func _cancel_active_press() -> void:
+	if is_instance_valid(_long_press_timer):
+		_long_press_timer.stop()
+	_active_press_slot = -1
+	_long_press_consumed = false
+
+
 func _build_screen() -> void:
 	_root = Control.new()
 	_root.name = "InventoryRoot"
@@ -136,6 +233,13 @@ func _build_screen() -> void:
 	_root.anchor_bottom = 1.0
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
+
+	_long_press_timer = Timer.new()
+	_long_press_timer.name = "LongPressTimer"
+	_long_press_timer.one_shot = true
+	_long_press_timer.wait_time = LONG_PRESS_SECONDS
+	_long_press_timer.timeout.connect(_on_long_press_timeout)
+	add_child(_long_press_timer)
 
 	_toggle_button = Button.new()
 	_toggle_button.name = "InventoryToggle"
@@ -173,34 +277,42 @@ func _build_screen() -> void:
 	_inventory_panel.anchor_right = 0.5
 	_inventory_panel.anchor_bottom = 0.5
 	_inventory_panel.offset_left = -500.0
-	_inventory_panel.offset_top = -270.0
+	_inventory_panel.offset_top = -280.0
 	_inventory_panel.offset_right = 500.0
-	_inventory_panel.offset_bottom = 270.0
+	_inventory_panel.offset_bottom = 280.0
 	_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(_inventory_panel)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 24)
-	margin.add_theme_constant_override("margin_top", 20)
+	margin.add_theme_constant_override("margin_top", 18)
 	margin.add_theme_constant_override("margin_right", 24)
-	margin.add_theme_constant_override("margin_bottom", 20)
+	margin.add_theme_constant_override("margin_bottom", 18)
 	_inventory_panel.add_child(margin)
 
 	var column := VBoxContainer.new()
 	column.name = "Content"
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", 9)
 	margin.add_child(column)
 
 	var title := Label.new()
 	title.name = "Title"
 	title.text = "INVENTORY"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_font_size_override("font_size", 24)
 	column.add_child(title)
+
+	_cursor_label = Label.new()
+	_cursor_label.name = "CursorStack"
+	_cursor_label.text = "CARRIED: EMPTY x0"
+	_cursor_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_cursor_label.add_theme_font_size_override("font_size", 17)
+	_cursor_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.18, 1.0))
+	column.add_child(_cursor_label)
 
 	var storage_title := Label.new()
 	storage_title.text = "STORAGE — 27 SLOTS"
-	storage_title.add_theme_font_size_override("font_size", 16)
+	storage_title.add_theme_font_size_override("font_size", 15)
 	column.add_child(storage_title)
 
 	var storage_grid := GridContainer.new()
@@ -210,12 +322,14 @@ func _build_screen() -> void:
 	storage_grid.add_theme_constant_override("v_separation", 6)
 	column.add_child(storage_grid)
 	for storage_index in range(STORAGE_SLOT_COUNT):
-		var label := _create_slot(storage_grid, "StorageSlot%d" % (storage_index + 1))
-		_storage_labels.append(label)
+		var inventory_index := STORAGE_START_INDEX + storage_index
+		var slot_nodes := _create_slot(storage_grid, "StorageSlot%d" % (storage_index + 1), inventory_index)
+		_storage_labels.append(slot_nodes["label"] as Label)
+		_slot_buttons[inventory_index] = slot_nodes["button"]
 
 	var hotbar_title := Label.new()
 	hotbar_title.text = "HOTBAR — 9 SLOTS"
-	hotbar_title.add_theme_font_size_override("font_size", 16)
+	hotbar_title.add_theme_font_size_override("font_size", 15)
 	column.add_child(hotbar_title)
 
 	var hotbar_grid := GridContainer.new()
@@ -224,23 +338,24 @@ func _build_screen() -> void:
 	hotbar_grid.add_theme_constant_override("h_separation", 6)
 	column.add_child(hotbar_grid)
 	for slot_index in range(HOTBAR_SLOT_COUNT):
-		var label := _create_slot(hotbar_grid, "HotbarSlot%d" % (slot_index + 1))
-		_hotbar_labels.append(label)
+		var slot_nodes := _create_slot(hotbar_grid, "HotbarSlot%d" % (slot_index + 1), slot_index)
+		_hotbar_labels.append(slot_nodes["label"] as Label)
+		_slot_buttons[slot_index] = slot_nodes["button"]
 
 	_close_button = Button.new()
 	_close_button.name = "CloseButton"
 	_close_button.text = "CLOSE INVENTORY"
-	_close_button.custom_minimum_size = Vector2(0.0, 48.0)
+	_close_button.custom_minimum_size = Vector2(0.0, 44.0)
 	_close_button.focus_mode = Control.FOCUS_NONE
 	_close_button.add_theme_font_size_override("font_size", 18)
 	_close_button.pressed.connect(close_inventory)
 	column.add_child(_close_button)
 
 
-func _create_slot(parent: Control, slot_name: String) -> Label:
+func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = Vector2(98.0, 66.0)
+	panel.custom_minimum_size = Vector2(98.0, 62.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(panel)
 
@@ -256,4 +371,17 @@ func _create_slot(parent: Control, slot_name: String) -> Label:
 	label.add_theme_constant_override("shadow_offset_y", 1)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(label)
-	return label
+
+	var button := Button.new()
+	button.name = "Interact"
+	button.anchor_right = 1.0
+	button.anchor_bottom = 1.0
+	button.flat = true
+	button.text = ""
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.button_down.connect(_slot_button_down.bind(slot_index))
+	button.button_up.connect(_slot_button_up.bind(slot_index))
+	button.gui_input.connect(_slot_gui_input.bind(slot_index))
+	panel.add_child(button)
+	return {"label": label, "button": button}

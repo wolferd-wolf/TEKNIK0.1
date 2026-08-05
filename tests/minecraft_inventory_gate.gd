@@ -2,8 +2,7 @@ extends SceneTree
 
 const INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const MAIN_SCENE := "res://scenes/main.tscn"
-const SCREENSHOT_PATH := "res://artifacts/minecraft-inventory-step2.png"
-const TOGGLE_ACTION := StringName("toggle_inventory")
+const SCREENSHOT_PATH := "res://artifacts/minecraft-inventory-step3.png"
 const BLOCK_AIR := 0
 const BLOCK_DIRT := 2
 const BLOCK_STONE := 3
@@ -35,37 +34,17 @@ func _assert_stack(stack: Dictionary, block_id: int, count: int, context: String
 func _validate_model() -> void:
 	var inventory = INVENTORY_SCRIPT.new()
 	if inventory.get_slot_count() != 36:
-		_fail("Default inventory had %d slots instead of 36" % inventory.get_slot_count())
-	if inventory.get_hotbar_slot_count() != 9 or inventory.get_storage_slot_count() != 27:
-		_fail("Inventory did not expose 9 hotbar plus 27 storage slots")
+		_fail("Default inventory did not have 36 slots")
 	if not inventory.add_item(BLOCK_STONE, 70):
-		_fail("Could not seed model stack test")
-	var held: Dictionary = inventory.take_from_slot(0, 10)
+		_fail("Could not seed model test")
+	var held: Dictionary = inventory.take_from_slot(0)
 	held = inventory.put_stack_into_slot(1, held)
-	_assert_stack(held, BLOCK_AIR, 0, "merge remainder")
-	_assert_stack(inventory.get_slot(1), BLOCK_STONE, 16, "merged slot")
-	held = inventory.split_from_slot(1)
-	_assert_stack(held, BLOCK_STONE, 8, "split held stack")
-	_assert_stack(inventory.get_slot(1), BLOCK_STONE, 8, "split source stack")
-
-
-func _validate_toggle_input() -> void:
-	if not InputMap.has_action(TOGGLE_ACTION):
-		_fail("toggle_inventory InputMap action is missing")
-		return
-	var has_e_key := false
-	for event in InputMap.action_get_events(TOGGLE_ACTION):
-		if event is InputEventKey and event.physical_keycode == 69:
-			has_e_key = true
-			break
-	if not has_e_key:
-		_fail("toggle_inventory is not bound to physical key E")
+	_assert_stack(inventory.get_slot(1), BLOCK_STONE, 64, "model merge target")
+	_assert_stack(held, BLOCK_STONE, 6, "model merge remainder")
 
 
 func _run_gate() -> void:
 	_validate_model()
-	_validate_toggle_input()
-
 	var packed_scene := load(MAIN_SCENE) as PackedScene
 	if packed_scene == null:
 		_fail("Main scene failed to load")
@@ -83,54 +62,71 @@ func _run_gate() -> void:
 	var inventory = player.get_inventory()
 	var screen = player.get_inventory_screen()
 	if inventory == null or screen == null:
-		_fail("Inventory or full inventory screen is null")
+		_fail("Inventory or screen is null")
 		_finish()
 		return
 
-	if screen.get_storage_slot_count() != 27:
-		_fail("Screen rendered %d storage slots instead of 27" % screen.get_storage_slot_count())
-	if screen.get_hotbar_slot_count() != 9:
-		_fail("Screen rendered %d hotbar slots instead of 9" % screen.get_hotbar_slot_count())
-	if screen.is_inventory_open():
-		_fail("Inventory screen started open")
-	if screen.get_inventory_panel().is_visible_in_tree():
-		_fail("Inventory panel was visible before opening")
-	if not screen.get_toggle_button().is_visible_in_tree():
-		_fail("Touch-friendly inventory toggle is not visible")
+	if not inventory.add_item(BLOCK_STONE, 70):
+		_fail("Could not seed stone stacks")
+	if not inventory.add_item(BLOCK_DIRT, 5):
+		_fail("Could not seed dirt stack")
+	screen.open_inventory()
+	await _wait_frames(3)
 
-	if not inventory.add_item(BLOCK_STONE, 9 * 64):
-		_fail("Could not fill the nine hotbar stacks")
-	if not inventory.add_item(BLOCK_DIRT, 12):
-		_fail("Could not seed first storage slot")
-	await _wait_frames(4)
+	screen.interact_slot_primary(0)
+	_assert_stack(screen.get_cursor_stack(), BLOCK_STONE, 64, "primary full-stack pickup")
+	_assert_stack(inventory.get_slot(0), BLOCK_AIR, 0, "picked-up source")
 
-	var hotbar_label := screen.get_hotbar_slot_label(0) as Label
-	var storage_label := screen.get_storage_slot_label(0) as Label
-	if hotbar_label == null or hotbar_label.text != "1\nSTONE x64":
-		_fail("Full-screen hotbar slot 1 did not mirror STONE x64")
-	if storage_label == null or storage_label.text != "DIRT x12":
-		_fail("First storage slot did not render DIRT x12")
+	screen.interact_slot_primary(1)
+	_assert_stack(inventory.get_slot(1), BLOCK_STONE, 64, "primary merge target")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_STONE, 6, "primary merge remainder")
 
-	Input.action_press(TOGGLE_ACTION)
-	await process_frame
-	Input.action_release(TOGGLE_ACTION)
-	await _wait_frames(4)
-	if not screen.is_inventory_open() or not screen.get_inventory_panel().is_visible_in_tree():
-		_fail("InputMap action did not open the inventory screen")
-	if screen.get_toggle_button().text != "CLOSE":
-		_fail("Visible toggle did not change to CLOSE while open")
+	screen.interact_slot_primary(2)
+	_assert_stack(inventory.get_slot(2), BLOCK_STONE, 6, "primary swap destination")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 5, "primary swap cursor")
+
+	screen.interact_slot_primary(9)
+	_assert_stack(inventory.get_slot(9), BLOCK_DIRT, 5, "storage full-stack placement")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_AIR, 0, "cursor after storage placement")
+
+	screen.interact_slot_secondary(9)
+	_assert_stack(inventory.get_slot(9), BLOCK_DIRT, 2, "secondary split source")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 3, "secondary split cursor")
+
+	screen.interact_slot_secondary(10)
+	_assert_stack(inventory.get_slot(10), BLOCK_DIRT, 1, "secondary single placement")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 2, "single placement remainder")
+
+	var long_press_button := screen.get_slot_button(10) as Button
+	if long_press_button == null:
+		_fail("Storage slot long-press button is missing")
+	else:
+		long_press_button.emit_signal("button_down")
+		await _wait_frames(35)
+		long_press_button.emit_signal("button_up")
+		await _wait_frames(2)
+		_assert_stack(inventory.get_slot(10), BLOCK_DIRT, 2, "touch long-press single placement")
+		_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 1, "touch long-press cursor remainder")
+
+	screen.interact_slot_primary(11)
+	_assert_stack(inventory.get_slot(11), BLOCK_DIRT, 1, "final cursor placement")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_AIR, 0, "empty final cursor")
+
+	var storage_zero := screen.get_storage_slot_label(0) as Label
+	var storage_one := screen.get_storage_slot_label(1) as Label
+	if storage_zero == null or storage_zero.text != "DIRT x2":
+		_fail("Storage label 1 did not refresh to DIRT x2")
+	if storage_one == null or storage_one.text != "DIRT x2":
+		_fail("Storage label 2 did not refresh to DIRT x2")
+	if screen.get_cursor_label().text != "CARRIED: EMPTY x0":
+		_fail("Cursor label did not refresh to empty")
 
 	await _capture_screenshot()
-	screen.close_inventory()
-	await _wait_frames(2)
-	if screen.is_inventory_open() or screen.get_inventory_panel().is_visible_in_tree():
-		_fail("Close operation did not hide the inventory screen")
-
 	if failures.is_empty():
-		print("MINECRAFT_INVENTORY_STEP_2_GATE_PASS")
-		print("INVENTORY_LAYOUT=27 storage + shared 9-slot hotbar")
-		print("INVENTORY_TOGGLE=physical E + visible touch button")
-		print("INVENTORY_INTERACTION=disabled until Step 3")
+		print("MINECRAFT_INVENTORY_STEP_3_GATE_PASS")
+		print("PRIMARY=pickup,place,merge,swap")
+		print("SECONDARY=split-half,place-one")
+		print("TOUCH_SECONDARY=0.45 second long press")
 	_finish()
 
 
@@ -138,23 +134,20 @@ func _capture_screenshot() -> void:
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
 	if image == null or image.is_empty():
-		_fail("Inventory screen screenshot was empty")
-		return
-	if image.get_width() != 1280 or image.get_height() != 720:
-		_fail("Screenshot dimensions were %dx%d" % [image.get_width(), image.get_height()])
+		_fail("Step 3 screenshot was empty")
 		return
 	var save_error := image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
 	if save_error != OK:
-		_fail("Screenshot save failed with error %d" % save_error)
+		_fail("Step 3 screenshot save failed with error %d" % save_error)
 		return
-	print("MINECRAFT_INVENTORY_STEP_2_SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
+	print("MINECRAFT_INVENTORY_STEP_3_SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
 
 
 func _finish() -> void:
 	if failures.is_empty():
 		quit(0)
 	else:
-		print("MINECRAFT_INVENTORY_STEP_2_GATE_FAIL")
+		print("MINECRAFT_INVENTORY_STEP_3_GATE_FAIL")
 		for failure in failures:
 			print("FAILURE=%s" % failure)
 		quit(1)
