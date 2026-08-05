@@ -1,0 +1,99 @@
+name: TEKNIK Polish Mineable Trees Gate
+
+on:
+  push:
+    branches:
+      - session/polish-world-fixes
+    paths:
+      - scripts/world/playable_world_data.gd
+      - scripts/world/playable_world_mesher.gd
+      - scripts/world/playable_world_runtime.gd
+      - scripts/ui/inventory_hotbar.gd
+      - tests/polish_mineable_trees_gate.gd
+      - .github/workflows/polish-mineable-trees-gate.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/world/playable_world_data.gd
+      - scripts/world/playable_world_mesher.gd
+      - scripts/world/playable_world_runtime.gd
+      - scripts/ui/inventory_hotbar.gd
+      - tests/polish_mineable_trees_gate.gd
+      - .github/workflows/polish-mineable-trees-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  mineable-trees:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget unzip libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libxrender1 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project
+        run: /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --editor --quit
+
+      - name: Gate deterministic generated and mineable trees
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --script res://tests/polish_mineable_trees_gate.gd \
+            2>&1 | tee artifacts/polish-mineable-trees-gate.log
+          grep -Fq POLISH_MINEABLE_TREES_GATE_PASS artifacts/polish-mineable-trees-gate.log
+
+      - name: Reject unrelated scope
+        run: |
+          changed="$(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}' 2>/dev/null || true)"
+          printf '%s\n' "$changed" | tee artifacts/changed-files.txt
+          if printf '%s\n' "$changed" | grep -E '^(export_presets\.cfg|scripts/player/|scripts/world/localized_water_bodies\.gd|scenes/main\.tscn)$'; then
+            echo 'Mineable trees gate rejected unrelated protected-file changes.' >&2
+            exit 1
+          fi
+
+      - name: Record revision
+        if: always()
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          git status --short | tee artifacts/source-status.txt
+
+      - name: Upload mineable trees evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-polish-mineable-trees-gate
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Publish mineable trees status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=success
+          [[ "$JOB_STATUS" == success ]] || state=failure
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$state" \
+            -f context='teknik/polish-mineable-trees' \
+            -f description="Mineable trees gate: $JOB_STATUS"
