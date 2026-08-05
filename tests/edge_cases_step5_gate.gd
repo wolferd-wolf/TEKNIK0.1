@@ -7,6 +7,7 @@ const BLOCK_AIR := 0
 const BLOCK_STONE := 3
 const BLOCK_SAND := 4
 const EDGE_STRESS_CYCLES := 16
+const REMESH_IDLE_FRAME_LIMIT := 720
 
 var failures: Array[String] = []
 var boundary_summary := ""
@@ -26,6 +27,18 @@ func _fail(message: String) -> void:
 func _wait_frames(count: int) -> void:
 	for _frame in range(count):
 		await process_frame
+
+
+func _wait_for_remesh_idle(manager, context: String) -> bool:
+	if not manager.has_method("is_remesh_idle"):
+		return true
+	for _frame in range(REMESH_IDLE_FRAME_LIMIT):
+		await physics_frame
+		if manager.is_remesh_idle():
+			await physics_frame
+			return true
+	_fail("Remesh queue did not become idle during %s" % context)
+	return false
 
 
 func _run_gate() -> void:
@@ -60,7 +73,9 @@ func _run_gate() -> void:
 	player.set_process(true)
 	manager.refresh_streaming(Vector3(0.5, 20.5, 0.5))
 	manager.set_process(false)
-	await _wait_frames(12)
+	if not await _wait_for_remesh_idle(manager, "initial edge-case streaming"):
+		_finish()
+		return
 
 	await _validate_boundary_mining_and_placement(manager, player)
 	_validate_player_overlap_rejection(manager, player)
@@ -94,7 +109,8 @@ func _validate_boundary_mining_and_placement(manager, player) -> void:
 	if not manager.place_block_world(target, BLOCK_STONE):
 		_fail("Failed to create boundary target block at %s" % target)
 		return
-	await _wait_frames(6)
+	if not await _wait_for_remesh_idle(manager, "boundary setup"):
+		return
 
 	if not _chunk_has_render_and_collision(target_chunk, "Boundary target before mine"):
 		return
@@ -113,7 +129,8 @@ func _validate_boundary_mining_and_placement(manager, player) -> void:
 	if not manager.mine_block_world(target):
 		_fail("Boundary target mining returned false")
 		return
-	await _wait_frames(6)
+	if not await _wait_for_remesh_idle(manager, "boundary mine"):
+		return
 
 	if manager.get_block_world(target) != BLOCK_AIR:
 		_fail("Boundary target did not become air")
@@ -148,7 +165,8 @@ func _validate_boundary_mining_and_placement(manager, player) -> void:
 	if not player.place_block_at(target):
 		_fail("Boundary inventory placement returned false at %s" % target)
 		return
-	await _wait_frames(6)
+	if not await _wait_for_remesh_idle(manager, "boundary inventory placement"):
+		return
 
 	if manager.get_block_world(target) != BLOCK_SAND:
 		_fail("Boundary placement wrote ID %d instead of sand ID 4" % manager.get_block_world(target))
@@ -226,7 +244,8 @@ func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> v
 	if not manager.place_block_world(target, BLOCK_STONE):
 		_fail("Failed to create render-edge mining target: %s" % target)
 		return
-	await _wait_frames(6)
+	if not await _wait_for_remesh_idle(manager, "render-edge setup"):
+		return
 	if not _chunk_has_render_and_collision(edge_chunk, "Render-edge chunk before mine"):
 		return
 
@@ -251,7 +270,8 @@ func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> v
 	Input.action_press("mine_block", 1.0)
 	await process_frame
 	Input.action_release("mine_block")
-	await _wait_frames(8)
+	if not await _wait_for_remesh_idle(manager, "render-edge input mining"):
+		return
 	if manager.get_block_world(target) != BLOCK_AIR:
 		_fail("InputMap mining did not clear render-edge target")
 	if edge_chunk.mesh_instance.visible:
@@ -280,8 +300,7 @@ func _validate_render_radius_edge_mining(manager, player, camera: Camera3D) -> v
 
 	if not manager.place_block_world(target, BLOCK_STONE):
 		_fail("Failed to restore render-edge target for screenshot")
-	else:
-		await _wait_frames(8)
+	elif await _wait_for_remesh_idle(manager, "render-edge screenshot restore"):
 		camera.look_at(target_center, Vector3.UP)
 		await _wait_frames(8)
 	edge_summary = "%s mined by InputMap plus %d unloaded-neighbor cycles; outside %s stayed unloaded" % [
