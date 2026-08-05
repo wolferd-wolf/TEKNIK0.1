@@ -8,6 +8,8 @@ const BLOCK_NAMES := {
 	2: "DIRT",
 	3: "STONE",
 	4: "SAND",
+	5: "LOG",
+	6: "LEAVES",
 }
 
 var _slot_panels: Array[PanelContainer] = []
