@@ -312,8 +312,8 @@ func _test_atmosphere(environment: WorldEnvironment, sun: DirectionalLight3D) ->
 		_fail("World environment is not using the configured sky background")
 	if environment.environment.sky == null:
 		_fail("World environment sky resource is missing")
-	if not sun.shadow_enabled:
-		_fail("Directional light shadows are disabled")
+	if sun.shadow_enabled:
+		_fail("Classic vanilla lighting must keep directional shadow maps disabled")
 	if failures.is_empty():
 		print("STEP_5_GATE_PASS")
 
