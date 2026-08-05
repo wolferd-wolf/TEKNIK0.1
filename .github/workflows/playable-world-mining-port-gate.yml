@@ -1,6 +1,8 @@
-name: TEKNIK Playable World Mining Port
+name: TEKNIK Single World Gameplay Gate
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -8,11 +10,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: playable-world-mining-port-${{ github.ref }}
+  group: single-world-gameplay-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  playable-world-mining-port:
+  single-world-gameplay:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -23,7 +25,7 @@ jobs:
       - name: Install runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+          sudo apt-get install -y --no-install-recommends xvfb unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
 
       - name: Install Godot 4.3
         run: |
@@ -33,30 +35,38 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse project strictly
+      - name: Parse single-world project strictly
         run: |
           mkdir -p artifacts
           set -o pipefail
-          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/playable-world-port-parse.log
-          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/playable-world-port-parse.log; then
+          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/single-world-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/single-world-parse.log; then
             exit 1
           fi
 
-      - name: Validate imported world and mining pipeline
+      - name: Validate world, edits, streaming, collision, and inventory contract
         run: |
           set -o pipefail
-          timeout 300 /tmp/godot/godot \
-            --headless \
+          timeout 420 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
             --audio-driver Dummy \
             --path . \
-            --script res://tests/playable_world_mining_port_gate.gd \
-            2>&1 | tee artifacts/playable-world-mining-port.log
-          grep -F "PLAYABLE_WORLD_MINING_PORT_GATE_PASS" artifacts/playable-world-mining-port.log
+            --script res://tests/single_world_gameplay_gate.gd \
+            2>&1 | tee artifacts/single-world-gameplay.log
+          grep -F "SINGLE_WORLD_GAMEPLAY_GATE_PASS" artifacts/single-world-gameplay.log
+
+      - name: Reject retired desktop-world references
+        run: |
+          set -o pipefail
+          if grep -R -n -E 'res://scripts/world/(chunk|chunk_manager|chunk_mesher|threaded_chunk_mesher)\.gd' \
+            --include='*.gd' --include='*.tscn' --include='*.yml' .; then
+            echo "Retired desktop-world reference found"
+            exit 1
+          fi
 
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playable-world-mining-port-evidence
+          name: single-world-gameplay-evidence
           path: artifacts/
           if-no-files-found: error
