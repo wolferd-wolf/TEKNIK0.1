@@ -5,6 +5,13 @@ const BLOCK_GRASS := 1
 const BLOCK_DIRT := 2
 const BLOCK_STONE := 3
 const BLOCK_SAND := 4
+const BLOCK_LOG := 5
+const BLOCK_LEAVES := 6
+const WORLD_SEED := 734921
+const TREE_SPACING := 7
+const TREE_OFFSET := 3
+const TREE_TRUNK_HEIGHT := 4
+const TREE_CANOPY_RADIUS := 1
 
 const FACE_DIRECTIONS: Array[Vector3i] = [
 	Vector3i.UP,
@@ -107,17 +114,51 @@ static func _get_block(
 	if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
 		return BLOCK_AIR
 	var height := heights[cache_z * cache_width + cache_x]
-	return _generated_block(cell.y, height, sea_level)
+	if cell.y <= height:
+		return _terrain_block(cell.y, height, sea_level)
+	return _generated_tree_block(cell, origin, heights, cache_width, world_height, sea_level)
 
 
-static func _generated_block(y: int, height: int, sea_level: int) -> int:
-	if y > height:
-		return BLOCK_AIR
+static func _terrain_block(y: int, height: int, sea_level: int) -> int:
 	if y == height:
 		return BLOCK_SAND if height <= sea_level + 1 else BLOCK_GRASS
 	if y >= height - 3:
 		return BLOCK_SAND if height <= sea_level + 1 else BLOCK_DIRT
 	return BLOCK_STONE
+
+
+static func _generated_tree_block(
+	cell: Vector3i,
+	origin: Vector3i,
+	heights: PackedInt32Array,
+	cache_width: int,
+	world_height: int,
+	sea_level: int
+) -> int:
+	for tree_z in range(cell.z - TREE_CANOPY_RADIUS, cell.z + TREE_CANOPY_RADIUS + 1):
+		for tree_x in range(cell.x - TREE_CANOPY_RADIUS, cell.x + TREE_CANOPY_RADIUS + 1):
+			var cache_x := tree_x - origin.x + 1
+			var cache_z := tree_z - origin.z + 1
+			if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
+				continue
+			var surface := heights[cache_z * cache_width + cache_x]
+			if not _is_tree_origin(tree_x, tree_z, surface, world_height, sea_level):
+				continue
+			var trunk_top := surface + TREE_TRUNK_HEIGHT
+			if cell.x == tree_x and cell.z == tree_z and cell.y > surface and cell.y <= trunk_top:
+				return BLOCK_LOG
+			if cell.y >= trunk_top - 1 and cell.y <= trunk_top + 1:
+				return BLOCK_LEAVES
+	return BLOCK_AIR
+
+
+static func _is_tree_origin(x: int, z: int, surface: int, world_height: int, sea_level: int) -> bool:
+	if posmod(x, TREE_SPACING) != TREE_OFFSET or posmod(z, TREE_SPACING) != TREE_OFFSET:
+		return false
+	if surface <= sea_level + 1 or surface + TREE_TRUNK_HEIGHT + 1 >= world_height:
+		return false
+	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	return hash_value % 4 != 0
 
 
 static func _block_color(block: int, cell: Vector3i, shade: float) -> Color:
@@ -131,6 +172,10 @@ static func _block_color(block: int, cell: Vector3i, shade: float) -> Color:
 			base_color = Color(0.56, 0.58, 0.60)
 		BLOCK_SAND:
 			base_color = Color(0.82, 0.75, 0.54)
+		BLOCK_LOG:
+			base_color = Color(0.48, 0.30, 0.14)
+		BLOCK_LEAVES:
+			base_color = Color(0.22, 0.52, 0.18)
 		_:
 			base_color = Color.WHITE
 	var hash_value := absi((cell.x * 73856093) ^ (cell.y * 83492791) ^ (cell.z * 19349663))
