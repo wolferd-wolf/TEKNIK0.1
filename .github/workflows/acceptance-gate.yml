@@ -40,15 +40,15 @@ jobs:
             exit 1
           fi
 
-      - name: Validate single-world gameplay behavior
+      - name: Validate single playable-world runtime
         run: |
           set -o pipefail
           timeout 420 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
             --audio-driver Dummy \
             --path . \
-            --script res://tests/single_world_gameplay_gate.gd \
-            2>&1 | tee artifacts/single-world-gameplay.log
-          grep -F "SINGLE_WORLD_GAMEPLAY_GATE_PASS" artifacts/single-world-gameplay.log
+            --script res://tests/playable_world_mining_port_gate.gd \
+            2>&1 | tee artifacts/single-world-runtime.log
+          grep -F "PLAYABLE_WORLD_MINING_PORT_GATE_PASS" artifacts/single-world-runtime.log
 
       - name: Validate standalone inventory transactions
         run: |
@@ -58,6 +58,15 @@ jobs:
             --path . \
             --script res://tests/inventory_step1_gate.gd \
             2>&1 | tee artifacts/inventory-model.log
+
+      - name: Reject retired production-world references
+        run: |
+          set -o pipefail
+          if grep -R -n -E 'res://scripts/world/(chunk|chunk_manager|chunk_mesher|threaded_chunk_mesher)\.gd' \
+            --include='*.gd' --include='*.tscn' scripts scenes project.godot 2>/dev/null; then
+            echo "Retired desktop-world production reference found"
+            exit 1
+          fi
 
       - name: Upload acceptance artifacts
         if: always()
