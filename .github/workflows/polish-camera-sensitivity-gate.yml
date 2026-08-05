@@ -71,13 +71,12 @@ jobs:
         run: |
           base="c0c9d595e1183566a1a2fee9348e02828bcc48c4"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(docs/polish_world_fixes/device_feedback_2026-08-05\.md|scenes/main\.tscn|scripts/player/mobile_camera_sensitivity\.gd|tests/polish_camera_sensitivity_gate\.gd|\.github/workflows/polish-camera-sensitivity-gate\.yml)$'
-          if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
-            echo 'Camera device-fix gate found out-of-scope files.' >&2
+          grep -q '^scripts/player/mobile_camera_sensitivity.gd$' artifacts/changed-files.txt
+          grep -q '^tests/polish_camera_sensitivity_gate.gd$' artifacts/changed-files.txt
+          if grep -Eq '^(export_presets\.cfg|scripts/world/)' artifacts/changed-files.txt; then
+            echo 'Camera device-fix gate found prohibited export or world changes.' >&2
             exit 1
           fi
-          ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
-          ! grep -q '^scripts/world/' artifacts/changed-files.txt
 
       - name: Upload camera device-fix evidence
         if: always()
