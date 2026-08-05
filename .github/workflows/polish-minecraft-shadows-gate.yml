@@ -6,6 +6,8 @@ on:
       - session/polish-world-fixes
     paths:
       - scenes/main.tscn
+      - scripts/world/playable_world_mesher.gd
+      - scripts/world/playable_world_runtime.gd
       - tests/polish_minecraft_shadows_gate.gd
       - .github/workflows/polish-minecraft-shadows-gate.yml
   pull_request:
@@ -13,6 +15,8 @@ on:
       - main
     paths:
       - scenes/main.tscn
+      - scripts/world/playable_world_mesher.gd
+      - scripts/world/playable_world_runtime.gd
       - tests/polish_minecraft_shadows_gate.gd
       - .github/workflows/polish-minecraft-shadows-gate.yml
   workflow_dispatch:
@@ -55,7 +59,7 @@ jobs:
             2>&1 | tee artifacts/parse.log
           ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' artifacts/parse.log
 
-      - name: Run controlled tree shadow A-B gate
+      - name: Run corrected geometry shadow gate
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
@@ -63,20 +67,25 @@ jobs:
             --path "$GITHUB_WORKSPACE" \
             --script res://tests/polish_minecraft_shadows_gate.gd \
             2>&1 | tee artifacts/shadow-gate.log
+          grep -Fq 'SHADOW_MESH_WINDING_PASS' artifacts/shadow-gate.log
           grep -Fq 'POLISH_MINECRAFT_SHADOWS_GATE_PASS' artifacts/shadow-gate.log
           test -s artifacts/shadow-artifact-before.png
           test -s artifacts/shadow-artifact-after.png
 
       - name: Verify corrective shadow scope
         run: |
-          base="ca397377d7d8d612f32aa98bdaefceec6d0e52c4"
+          base="de3c70e8271104c17d44d10b0ca86cfc050b086c"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          grep -q '^scenes/main.tscn$' artifacts/changed-files.txt
-          grep -q '^tests/polish_minecraft_shadows_gate.gd$' artifacts/changed-files.txt
-          if grep -Eq '^(export_presets\.cfg|scripts/world/)' artifacts/changed-files.txt; then
-            echo 'Shadow artifact gate found prohibited export or world changes.' >&2
+          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_runtime\.gd|tests/polish_leaf_seam_diagnostic\.gd|tests/polish_minecraft_shadows_gate\.gd|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-minecraft-shadows-gate\.yml)$'
+          if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
+            echo 'Corrected geometry shadow gate found an out-of-scope file.' >&2
             exit 1
           fi
+          grep -Fxq 'scenes/main.tscn' artifacts/changed-files.txt
+          grep -Fxq 'scripts/world/playable_world_mesher.gd' artifacts/changed-files.txt
+          grep -Fxq 'scripts/world/playable_world_runtime.gd' artifacts/changed-files.txt
+          grep -Fxq 'tests/polish_minecraft_shadows_gate.gd' artifacts/changed-files.txt
+          ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
 
       - name: Upload shadow visual evidence
         if: always()
@@ -99,6 +108,6 @@ jobs:
               state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
               context: 'TEKNIK Shadow Artifact Gate',
               description: '${{ job.status }}' === 'success'
-                ? 'Controlled tree shadow A-B capture passed'
-                : 'Tree shadow artifact gate failed'
+                ? 'Corrected winding shadow capture passed'
+                : 'Corrected winding shadow gate failed'
             });
