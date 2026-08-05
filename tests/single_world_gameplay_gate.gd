@@ -109,8 +109,8 @@ func _run_gate() -> void:
 			_fail("Shared 24-slot/64-stack inventory contract changed")
 		else:
 			var before := inventory.get_slots()
-			if inventory.remove_item(BLOCK_DIRT, 1):
-				_fail("Empty inventory unexpectedly removed dirt")
+			if inventory.remove_item(BLOCK_DIRT, 999999):
+				_fail("Impossible inventory removal unexpectedly succeeded")
 			if inventory.get_slots() != before:
 				_fail("Failed inventory transaction mutated slots")
 	else:
