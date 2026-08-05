@@ -85,7 +85,7 @@ The active Android world is generated on demand from world coordinates and a fix
 
 The repository still contains an older desktop-oriented 16 x 16 x 16 chunk implementation. Android activates the optimized playable-world runtime through `playable_world_port.gd`.
 
-See [Architecture](docs/ARCHITECTURE.md) for the exact runtime split.
+See [Current World Generation](docs/WORLD_GENERATION.md) for the exact generator and [Architecture](docs/ARCHITECTURE.md) for the runtime split.
 
 ## Running the Project
 
@@ -145,6 +145,7 @@ tests/                  Godot acceptance and regression tests
 ## Documentation
 
 - [Gameplay](docs/GAMEPLAY.md)
+- [Current World Generation](docs/WORLD_GENERATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Building and Exporting](docs/BUILDING.md)
 - [Testing](docs/TESTING.md)
