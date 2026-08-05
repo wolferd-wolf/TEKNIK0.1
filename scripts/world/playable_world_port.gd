@@ -18,6 +18,8 @@ func _ready() -> void:
 	_runtime.name = "PlayableWorldRuntime"
 	add_child(_runtime)
 	_runtime.configure(get_node_or_null(streaming_target_path) as Node3D)
+	_runtime.material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_runtime.material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 
 
 func _process(delta: float) -> void:
