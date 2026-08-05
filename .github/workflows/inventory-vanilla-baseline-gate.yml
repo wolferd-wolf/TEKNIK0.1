@@ -35,6 +35,9 @@ jobs:
           scripts/inventory/block_inventory.gd
           scripts/player/inventory_first_person_controller.gd
           scripts/ui/minecraft_inventory_screen.gd
+          tests/inventory_mining_step2_gate.gd
+          tests/inventory_placement_step3_gate.gd
+          tests/inventory_step1_gate.gd
           tests/inventory_vanilla_baseline_gate.gd
           EOF
           git diff --name-only "$baseline" HEAD | sort > /tmp/actual-files.txt
@@ -81,6 +84,25 @@ jobs:
           grep -Fq 'INVENTORY_VANILLA_BASELINE_GATE_PASS' artifacts/inventory-vanilla-baseline.log
           grep -Fq 'APPROVED_CAMERA_SENSITIVITY=0.0035 radians per drag pixel' artifacts/inventory-vanilla-baseline.log
           grep -Fq 'APPROVED_DIRECTIONAL_SHADOW_MAPS=disabled' artifacts/inventory-vanilla-baseline.log
+
+      - name: Validate 36-slot inventory acceptance compatibility
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/inventory_step1_gate.gd \
+            2>&1 | tee artifacts/inventory-step1.log
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/inventory_mining_step2_gate.gd \
+            2>&1 | tee artifacts/inventory-mining-step2.log
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/inventory_placement_step3_gate.gd \
+            2>&1 | tee artifacts/inventory-placement-step3.log
 
       - name: Upload inventory evidence
         if: always()
