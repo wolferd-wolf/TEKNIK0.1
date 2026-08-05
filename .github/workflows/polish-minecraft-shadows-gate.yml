@@ -59,7 +59,7 @@ jobs:
             2>&1 | tee artifacts/parse.log
           ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' artifacts/parse.log
 
-      - name: Run classic vanilla lighting gate
+      - name: Run reviewed classic vanilla lighting gate
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
@@ -109,6 +109,6 @@ jobs:
               state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
               context: 'TEKNIK Vanilla Lighting Gate',
               description: '${{ job.status }}' === 'success'
-                ? 'Classic face dimming, AO and skylight passed'
+                ? 'Face dimming, corner AO, skylight and material passed'
                 : 'Classic vanilla lighting gate failed'
             });
