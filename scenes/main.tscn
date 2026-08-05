@@ -76,11 +76,11 @@ streaming_target_path = NodePath("../Player")
 [node name="LocalizedWaterBodies" type="Node3D" parent="ChunkManager"]
 script = ExtResource("5_localized_water")
 
-[node name="MobileCameraSensitivity" type="Node" parent="."]
-script = ExtResource("6_mobile_camera")
-
 [node name="TouchControls" type="CanvasLayer" parent="."]
 script = ExtResource("3_touch_controls")
 
 [node name="TouchActionControls" type="CanvasLayer" parent="."]
 script = ExtResource("4_touch_action_controls")
+
+[node name="MobileCameraSensitivity" type="Node" parent="."]
+script = ExtResource("6_mobile_camera")
