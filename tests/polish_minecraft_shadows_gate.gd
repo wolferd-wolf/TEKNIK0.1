@@ -42,6 +42,7 @@ func _init() -> void:
 		WORLD_DATA.SEA_LEVEL
 	)
 	_expect(int(mesh_data.get("face_count", 0)) > 0, "Controlled tree chunk must contain visible faces", failures)
+	_assert_mesh_winding(mesh_data, failures)
 
 	var surface: int = data.terrain_height(tree_origin.x, tree_origin.y)
 	var before := _build_capture_viewport(
@@ -51,7 +52,7 @@ func _init() -> void:
 		surface,
 		production_sun,
 		false,
-		"BaselineShadowViewport"
+		"ProductionNormalCullViewport"
 	)
 	var after := _build_capture_viewport(
 		mesh_data,
@@ -60,7 +61,7 @@ func _init() -> void:
 		surface,
 		production_sun,
 		true,
-		"ReverseCullShadowViewport"
+		"ReverseCullReferenceViewport"
 	)
 	root.add_child(before)
 	root.add_child(after)
@@ -72,7 +73,7 @@ func _init() -> void:
 	_capture_viewport(before, BEFORE_PATH, failures)
 	_capture_viewport(after, AFTER_PATH, failures)
 
-	print("POLISH_MINECRAFT_SHADOWS_GATE_PASS tree=%s surface=%d chunk=%s before=%s after=%s" % [
+	print("POLISH_MINECRAFT_SHADOWS_GATE_PASS tree=%s surface=%d chunk=%s normal=%s reverse_reference=%s" % [
 		tree_origin,
 		surface,
 		chunk_coord,
@@ -165,7 +166,7 @@ func _build_mesh_instance(mesh_data: Dictionary) -> MeshInstance3D:
 	material.vertex_color_use_as_albedo = true
 	material.roughness = 0.94
 	material.metallic = 0.0
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.cull_mode = BaseMaterial3D.CULL_BACK
 	mesh.surface_set_material(0, material)
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = mesh
@@ -174,7 +175,7 @@ func _build_mesh_instance(mesh_data: Dictionary) -> MeshInstance3D:
 
 func _assert_shadow_contract(sun: DirectionalLight3D, failures: PackedStringArray) -> void:
 	_expect(sun.shadow_enabled, "Sun shadows must be enabled", failures)
-	_expect(sun.shadow_reverse_cull_face, "Production closed voxel meshes must use reverse shadow culling", failures)
+	_expect(not sun.shadow_reverse_cull_face, "Corrected voxel winding must use normal shadow culling", failures)
 	_expect(sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "Sun must use four cascaded shadow splits", failures)
 	_expect(not sun.directional_shadow_blend_splits, "Split blending must remain disabled for crisp block-style transitions", failures)
 	_expect(sun.directional_shadow_max_distance <= 72.0, "Shadow distance must stay bounded for mobile", failures)
@@ -182,6 +183,28 @@ func _assert_shadow_contract(sun: DirectionalLight3D, failures: PackedStringArra
 	_expect(sun.shadow_blur <= 0.2, "Shadow blur must remain low for hard block edges", failures)
 	_expect(sun.shadow_bias >= 0.02 and sun.shadow_bias <= 0.06, "Shadow bias must stay in the tuned range", failures)
 	_expect(sun.shadow_normal_bias >= 0.5 and sun.shadow_normal_bias <= 1.0, "Normal bias must stay in the tuned voxel range", failures)
+
+
+func _assert_mesh_winding(mesh_data: Dictionary, failures: PackedStringArray) -> void:
+	var vertices: PackedVector3Array = mesh_data.get("vertices", PackedVector3Array())
+	var normals: PackedVector3Array = mesh_data.get("normals", PackedVector3Array())
+	var indices: PackedInt32Array = mesh_data.get("indices", PackedInt32Array())
+	var corrected_triangles := 0
+	var bad_triangles := 0
+	for index_offset in range(0, indices.size(), 3):
+		var index_a := indices[index_offset]
+		var index_b := indices[index_offset + 1]
+		var index_c := indices[index_offset + 2]
+		var cross_normal := (vertices[index_b] - vertices[index_a]).cross(
+			vertices[index_c] - vertices[index_a]
+		).normalized()
+		if cross_normal.dot(normals[index_a]) < -0.99:
+			corrected_triangles += 1
+		else:
+			bad_triangles += 1
+	_expect(bad_triangles == 0, "Production tree chunk contains %d incorrectly wound triangles" % bad_triangles, failures)
+	if bad_triangles == 0:
+		print("SHADOW_MESH_WINDING_PASS triangles=%d" % corrected_triangles)
 
 
 func _capture_viewport(viewport: SubViewport, path: String, failures: PackedStringArray) -> void:
