@@ -5,6 +5,7 @@ on:
     branches:
       - session/polish-world-fixes
     paths:
+      - scenes/main.tscn
       - scripts/world/playable_world_mesher.gd
       - scripts/world/playable_world_runtime.gd
       - tests/polish_leaf_seam_diagnostic.gd
@@ -13,6 +14,7 @@ on:
     branches:
       - main
     paths:
+      - scenes/main.tscn
       - scripts/world/playable_world_mesher.gd
       - scripts/world/playable_world_runtime.gd
       - tests/polish_leaf_seam_diagnostic.gd
@@ -57,7 +59,7 @@ jobs:
             2>&1 | tee artifacts/parse.log
           ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' artifacts/parse.log
 
-      - name: Run leaf seam root-cause diagnostic
+      - name: Run corrected leaf seam gate
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
@@ -66,20 +68,25 @@ jobs:
             --script res://tests/polish_leaf_seam_diagnostic.gd \
             2>&1 | tee artifacts/leaf-seam-gate.log
           grep -Fq 'LEAF_SHARED_FACE_CULL_PASS' artifacts/leaf-seam-gate.log
-          grep -Fq 'LEAF_WINDING_ROOT_CAUSE_CONFIRMED' artifacts/leaf-seam-gate.log
+          grep -Fq 'LEAF_RENDER_SETTINGS_PASS' artifacts/leaf-seam-gate.log
+          grep -Fq 'LEAF_SEAM_GATE_PASS' artifacts/leaf-seam-gate.log
           grep -Fq 'POLISH_LEAF_SEAM_DIAGNOSTIC_PASS' artifacts/leaf-seam-gate.log
           test -s artifacts/leaf-seam-culling-on.png
           test -s artifacts/leaf-seam-culling-off.png
 
-      - name: Verify diagnostic-only scope
+      - name: Verify corrective scope
         run: |
           base="de3c70e8271104c17d44d10b0ca86cfc050b086c"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(tests/polish_leaf_seam_diagnostic\.gd|\.github/workflows/polish-leaf-seam-gate\.yml)$'
+          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_runtime\.gd|tests/polish_leaf_seam_diagnostic\.gd|\.github/workflows/polish-leaf-seam-gate\.yml)$'
           if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
-            echo 'Leaf seam diagnosis touched production files before root cause was gated.' >&2
+            echo 'Leaf seam correction touched an out-of-scope file.' >&2
             exit 1
           fi
+          grep -Fxq 'scenes/main.tscn' artifacts/changed-files.txt
+          grep -Fxq 'scripts/world/playable_world_mesher.gd' artifacts/changed-files.txt
+          grep -Fxq 'scripts/world/playable_world_runtime.gd' artifacts/changed-files.txt
+          ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
 
       - name: Upload leaf seam evidence
         if: always()
@@ -102,6 +109,6 @@ jobs:
               state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
               context: 'TEKNIK Leaf Seam Gate',
               description: '${{ job.status }}' === 'success'
-                ? 'Leaf culling and winding diagnosis passed'
-                : 'Leaf seam diagnosis failed'
+                ? 'Leaf winding and culling correction passed'
+                : 'Leaf seam correction failed'
             });
