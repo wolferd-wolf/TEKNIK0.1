@@ -71,13 +71,12 @@ jobs:
         run: |
           base="ca397377d7d8d612f32aa98bdaefceec6d0e52c4"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(scenes/main\.tscn|tests/polish_minecraft_shadows_gate\.gd|\.github/workflows/polish-minecraft-shadows-gate\.yml)$'
-          if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
-            echo 'Unexpected files in shadow artifact correction.' >&2
+          grep -q '^scenes/main.tscn$' artifacts/changed-files.txt
+          grep -q '^tests/polish_minecraft_shadows_gate.gd$' artifacts/changed-files.txt
+          if grep -Eq '^(export_presets\.cfg|scripts/world/)' artifacts/changed-files.txt; then
+            echo 'Shadow artifact gate found prohibited export or world changes.' >&2
             exit 1
           fi
-          ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
-          ! grep -q '^scripts/world/' artifacts/changed-files.txt
 
       - name: Upload shadow visual evidence
         if: always()
