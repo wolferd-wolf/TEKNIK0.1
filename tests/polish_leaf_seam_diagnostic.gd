@@ -1,5 +1,6 @@
 extends SceneTree
 
+# Uses the production playable-world mesher; this is not a synthetic face table.
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const WORLD_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const ARTIFACT_DIR := "res://artifacts"
