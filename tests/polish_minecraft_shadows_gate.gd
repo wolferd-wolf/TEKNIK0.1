@@ -231,10 +231,12 @@ func _sample_average_luminance(image: Image) -> float:
 func _non_background_fraction(image: Image, background: Color) -> float:
 	var different := 0
 	var count := 0
+	var background_rgb := Vector3(background.r, background.g, background.b)
 	for y in range(0, image.get_height(), 12):
 		for x in range(0, image.get_width(), 12):
 			var color := image.get_pixel(x, y)
-			if color.distance_to(background) > 0.08:
+			var color_rgb := Vector3(color.r, color.g, color.b)
+			if color_rgb.distance_to(background_rgb) > 0.08:
 				different += 1
 			count += 1
 	return float(different) / float(maxi(count, 1))
