@@ -6,6 +6,8 @@ const WORLD_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const ARTIFACT_DIR := "res://artifacts"
 const CULL_ON_PATH := "res://artifacts/leaf-seam-culling-on.png"
 const CULL_OFF_PATH := "res://artifacts/leaf-seam-culling-off.png"
+const RUNTIME_SOURCE_PATH := "res://scripts/world/playable_world_runtime.gd"
+const MAIN_SCENE_SOURCE_PATH := "res://scenes/main.tscn"
 const MAGENTA := Color(1.0, 0.0, 1.0, 1.0)
 const LEAF_COLOR := Color(0.15, 0.85, 0.25, 1.0)
 const CHUNK_SIZE := 4
@@ -36,6 +38,7 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(ARTIFACT_DIR))
 	var mesh_data := _build_adjacent_leaf_mesh()
 	_validate_shared_face_culling(mesh_data)
+	_validate_runtime_render_settings()
 	var winding_state := _inspect_winding(mesh_data)
 
 	_setup_scene()
@@ -49,19 +52,12 @@ func _run() -> void:
 
 	if not cull_off_visible:
 		_fail("Isolated leaf top faces were not visible with culling disabled")
-
-	if winding_state == "INWARD":
-		if cull_on_visible:
-			_fail("Inward-wound isolated leaf top faces remained visible with back-face culling")
-		else:
-			print("LEAF_WINDING_ROOT_CAUSE_CONFIRMED")
-	elif winding_state == "OUTWARD":
-		if not cull_on_visible:
-			_fail("Corrected isolated leaf top faces were culled")
-		else:
-			print("LEAF_SEAM_GATE_PASS")
+	if winding_state != "OUTWARD":
+		_fail("Leaf exterior winding was not corrected: %s" % winding_state)
+	elif not cull_on_visible:
+		_fail("Corrected isolated leaf top faces were culled")
 	else:
-		_fail("Leaf mesh contains mixed or degenerate winding")
+		print("LEAF_SEAM_GATE_PASS")
 
 	print("LEAF_CULL_CAPTURE mode=on center=%s visible=%s" % [cull_on_center, cull_on_visible])
 	print("LEAF_CULL_CAPTURE mode=off center=%s visible=%s" % [cull_off_center, cull_off_visible])
@@ -117,6 +113,25 @@ func _validate_shared_face_culling(mesh_data: Dictionary) -> void:
 		_fail("Adjacent leaf pair must retain two exterior top faces, got %d" % top_faces)
 	if failures.is_empty():
 		print("LEAF_SHARED_FACE_CULL_PASS faces=%d top_faces=%d" % [face_count, top_faces])
+
+
+func _validate_runtime_render_settings() -> void:
+	var runtime_source := FileAccess.get_file_as_string(RUNTIME_SOURCE_PATH)
+	if runtime_source.is_empty():
+		_fail("Could not read playable-world runtime source")
+	elif not runtime_source.contains("material.cull_mode = BaseMaterial3D.CULL_BACK"):
+		_fail("Playable-world runtime does not enable back-face culling")
+	elif runtime_source.contains("material.cull_mode = BaseMaterial3D.CULL_DISABLED"):
+		_fail("Playable-world runtime still disables culling")
+
+	var main_scene_source := FileAccess.get_file_as_string(MAIN_SCENE_SOURCE_PATH)
+	if main_scene_source.is_empty():
+		_fail("Could not read main scene source")
+	elif main_scene_source.contains("shadow_reverse_cull_face = true"):
+		_fail("Main scene still uses the reverse-shadow-cull workaround")
+
+	if failures.is_empty():
+		print("LEAF_RENDER_SETTINGS_PASS")
 
 
 func _inspect_winding(mesh_data: Dictionary) -> String:
