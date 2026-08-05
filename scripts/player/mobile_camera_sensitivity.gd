@@ -2,6 +2,7 @@ extends Node
 class_name MobileCameraSensitivity
 
 @export var player_path: NodePath = NodePath("../Player")
+@export var blocking_touch_controls_path: NodePath = NodePath("../TouchControls")
 @export_range(0.0005, 0.01, 0.0001) var radians_per_drag_pixel: float = 0.0035
 @export var right_half_only: bool = true
 @export var bottom_reserved_height: float = 120.0
@@ -65,7 +66,7 @@ func _move_to_input_front() -> void:
 	if parent == null or has_input_precedence():
 		return
 	# Viewport dispatches `_input` in reverse scene-tree order. Dynamic hosts
-	# may not place this adapter last, so move it only after child setup ends.
+	# must keep this adapter after the legacy touch overlay that marks drags handled.
 	parent.move_child(self, parent.get_child_count() - 1)
 
 
@@ -79,4 +80,7 @@ func is_mobile_look_enabled() -> bool:
 
 func has_input_precedence() -> bool:
 	var parent := get_parent()
-	return parent != null and get_index() == parent.get_child_count() - 1
+	if parent == null:
+		return false
+	var blocker := get_node_or_null(blocking_touch_controls_path)
+	return blocker == null or get_index() > blocker.get_index()
