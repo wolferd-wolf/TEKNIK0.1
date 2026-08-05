@@ -61,16 +61,37 @@ func is_inventory_open() -> bool:
 
 
 func toggle_inventory() -> void:
-	_set_open(not _is_open)
+	if _is_open:
+		close_inventory()
+	else:
+		open_inventory()
 
 
 func open_inventory() -> void:
 	_set_open(true)
 
 
-func close_inventory() -> void:
+func close_inventory() -> bool:
 	_cancel_active_press()
+	if not return_cursor_stack():
+		return false
 	_set_open(false)
+	return true
+
+
+func return_cursor_stack() -> bool:
+	if _is_stack_empty(_cursor_stack):
+		return true
+	if _inventory == null:
+		return false
+	var block_id := int(_cursor_stack.get("block_id", 0))
+	var count := int(_cursor_stack.get("count", 0))
+	if not _inventory.add_item(block_id, count):
+		push_error("Inventory could not return carried stack before closing")
+		return false
+	_cursor_stack = {"block_id": 0, "count": 0}
+	_refresh()
+	return true
 
 
 func get_inventory_panel() -> PanelContainer:

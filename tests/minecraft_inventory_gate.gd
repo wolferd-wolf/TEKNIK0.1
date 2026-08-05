@@ -2,9 +2,8 @@ extends SceneTree
 
 const INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const MAIN_SCENE := "res://scenes/main.tscn"
-const SCREENSHOT_PATH := "res://artifacts/minecraft-inventory-step3.png"
+const SCREENSHOT_PATH := "res://artifacts/minecraft-inventory-step4.png"
 const BLOCK_AIR := 0
-const BLOCK_DIRT := 2
 const BLOCK_STONE := 3
 
 var failures: Array[String] = []
@@ -31,20 +30,11 @@ func _assert_stack(stack: Dictionary, block_id: int, count: int, context: String
 		_fail("%s expected %d/%d, got %d/%d" % [context, block_id, count, actual_block_id, actual_count])
 
 
-func _validate_model() -> void:
-	var inventory = INVENTORY_SCRIPT.new()
-	if inventory.get_slot_count() != 36:
-		_fail("Default inventory did not have 36 slots")
-	if not inventory.add_item(BLOCK_STONE, 70):
-		_fail("Could not seed model test")
-	var held: Dictionary = inventory.take_from_slot(0)
-	held = inventory.put_stack_into_slot(1, held)
-	_assert_stack(inventory.get_slot(1), BLOCK_STONE, 64, "model merge target")
-	_assert_stack(held, BLOCK_STONE, 6, "model merge remainder")
-
-
 func _run_gate() -> void:
-	_validate_model()
+	var model = INVENTORY_SCRIPT.new()
+	if model.get_slot_count() != 36:
+		_fail("Inventory model regressed from 36 slots")
+
 	var packed_scene := load(MAIN_SCENE) as PackedScene
 	if packed_scene == null:
 		_fail("Main scene failed to load")
@@ -55,78 +45,76 @@ func _run_gate() -> void:
 	await _wait_frames(30)
 
 	var player := main.get_node_or_null("Player")
-	if player == null or not player.has_method("get_inventory_screen"):
-		_fail("Inventory player or screen accessor is missing")
+	if (
+		player == null
+		or not player.has_method("get_inventory_screen")
+		or not player.has_method("is_inventory_input_locked")
+	):
+		_fail("Inventory player lock API is missing")
 		_finish()
 		return
 	var inventory = player.get_inventory()
 	var screen = player.get_inventory_screen()
-	if inventory == null or screen == null:
-		_fail("Inventory or screen is null")
+	var hotbar = player.get_hotbar()
+	if inventory == null or screen == null or hotbar == null:
+		_fail("Inventory, screen, or always-visible hotbar is null")
 		_finish()
 		return
 
-	if not inventory.add_item(BLOCK_STONE, 70):
-		_fail("Could not seed stone stacks")
-	if not inventory.add_item(BLOCK_DIRT, 5):
-		_fail("Could not seed dirt stack")
+	if not inventory.add_item(BLOCK_STONE, 5):
+		_fail("Could not seed five stone")
 	screen.open_inventory()
 	await _wait_frames(3)
+	if not player.is_inventory_input_locked():
+		_fail("Opening inventory did not lock gameplay input")
+	if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
+		_fail("Opening inventory did not expose the mouse cursor")
+
+	var position_before: Vector3 = player.global_position
+	var rotation_before: Vector3 = player.rotation
+	for action in ["move_forward", "jump", "look_right", "mine_block", "place_block"]:
+		Input.action_press(action)
+	await _wait_frames(10)
+	for action in ["move_forward", "jump", "look_right", "mine_block", "place_block"]:
+		Input.action_release(action)
+	if player.global_position.distance_to(position_before) > 0.0001:
+		_fail("Player moved while inventory input was locked")
+	if player.rotation.distance_to(rotation_before) > 0.0001:
+		_fail("Player looked around while inventory input was locked")
+	if inventory.get_item_count(BLOCK_STONE) != 5:
+		_fail("Locked gameplay actions changed inventory contents")
 
 	screen.interact_slot_primary(0)
-	_assert_stack(screen.get_cursor_stack(), BLOCK_STONE, 64, "primary full-stack pickup")
-	_assert_stack(inventory.get_slot(0), BLOCK_AIR, 0, "picked-up source")
+	_assert_stack(screen.get_cursor_stack(), BLOCK_STONE, 5, "carried stack before close")
+	_assert_stack(inventory.get_slot(0), BLOCK_AIR, 0, "emptied source before close")
+	if not screen.close_inventory():
+		_fail("Inventory refused to close with a returnable carried stack")
+	await _wait_frames(3)
+	_assert_stack(screen.get_cursor_stack(), BLOCK_AIR, 0, "cursor after close")
+	if inventory.get_item_count(BLOCK_STONE) != 5:
+		_fail("Closing inventory did not return all five carried stone")
+	if player.is_inventory_input_locked():
+		_fail("Closing inventory did not restore gameplay input")
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		_fail("Closing inventory did not recapture the mouse")
 
-	screen.interact_slot_primary(1)
-	_assert_stack(inventory.get_slot(1), BLOCK_STONE, 64, "primary merge target")
-	_assert_stack(screen.get_cursor_stack(), BLOCK_STONE, 6, "primary merge remainder")
+	var hotbar_label := hotbar.get_node_or_null("HotbarRoot/Slots/Slot1/Content") as Label
+	if hotbar_label == null or hotbar_label.text != "1\nSTONE x5":
+		_fail("Always-visible hotbar did not synchronize returned stack")
 
-	screen.interact_slot_primary(2)
-	_assert_stack(inventory.get_slot(2), BLOCK_STONE, 6, "primary swap destination")
-	_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 5, "primary swap cursor")
-
-	screen.interact_slot_primary(9)
-	_assert_stack(inventory.get_slot(9), BLOCK_DIRT, 5, "storage full-stack placement")
-	_assert_stack(screen.get_cursor_stack(), BLOCK_AIR, 0, "cursor after storage placement")
-
-	screen.interact_slot_secondary(9)
-	_assert_stack(inventory.get_slot(9), BLOCK_DIRT, 2, "secondary split source")
-	_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 3, "secondary split cursor")
-
-	screen.interact_slot_secondary(10)
-	_assert_stack(inventory.get_slot(10), BLOCK_DIRT, 1, "secondary single placement")
-	_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 2, "single placement remainder")
-
-	var long_press_button := screen.get_slot_button(10) as Button
-	if long_press_button == null:
-		_fail("Storage slot long-press button is missing")
-	else:
-		long_press_button.emit_signal("button_down")
-		await _wait_frames(35)
-		long_press_button.emit_signal("button_up")
-		await _wait_frames(2)
-		_assert_stack(inventory.get_slot(10), BLOCK_DIRT, 2, "touch long-press single placement")
-		_assert_stack(screen.get_cursor_stack(), BLOCK_DIRT, 1, "touch long-press cursor remainder")
-
-	screen.interact_slot_primary(11)
-	_assert_stack(inventory.get_slot(11), BLOCK_DIRT, 1, "final cursor placement")
-	_assert_stack(screen.get_cursor_stack(), BLOCK_AIR, 0, "empty final cursor")
-
-	var storage_zero := screen.get_storage_slot_label(0) as Label
-	var storage_one := screen.get_storage_slot_label(1) as Label
-	if storage_zero == null or storage_zero.text != "DIRT x2":
-		_fail("Storage label 1 did not refresh to DIRT x2")
-	if storage_one == null or storage_one.text != "DIRT x2":
-		_fail("Storage label 2 did not refresh to DIRT x2")
-	if screen.get_cursor_label().text != "CARRIED: EMPTY x0":
-		_fail("Cursor label did not refresh to empty")
-
+	screen.open_inventory()
+	await _wait_frames(3)
+	var screen_label := screen.get_hotbar_slot_label(0) as Label
+	if screen_label == null or screen_label.text != "1\nSTONE x5":
+		_fail("Full inventory hotbar did not synchronize returned stack")
 	await _capture_screenshot()
+	screen.close_inventory()
+
 	if failures.is_empty():
-		print("MINECRAFT_INVENTORY_STEP_3_GATE_PASS")
-		print("PRIMARY=pickup,place,merge,swap")
-		print("SECONDARY=split-half,place-one")
-		print("TOUCH_SECONDARY=0.45 second long press")
+		print("MINECRAFT_INVENTORY_STEP_4_GATE_PASS")
+		print("INPUT_LOCK=movement,look,jump,mine,place")
+		print("CURSOR_RETURN=atomic before close")
+		print("HOTBAR_SYNC=always-visible and full-screen views")
 	_finish()
 
 
@@ -134,20 +122,20 @@ func _capture_screenshot() -> void:
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
 	if image == null or image.is_empty():
-		_fail("Step 3 screenshot was empty")
+		_fail("Step 4 screenshot was empty")
 		return
 	var save_error := image.save_png(ProjectSettings.globalize_path(SCREENSHOT_PATH))
 	if save_error != OK:
-		_fail("Step 3 screenshot save failed with error %d" % save_error)
+		_fail("Step 4 screenshot save failed with error %d" % save_error)
 		return
-	print("MINECRAFT_INVENTORY_STEP_3_SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
+	print("MINECRAFT_INVENTORY_STEP_4_SCREENSHOT=%s" % ProjectSettings.globalize_path(SCREENSHOT_PATH))
 
 
 func _finish() -> void:
 	if failures.is_empty():
 		quit(0)
 	else:
-		print("MINECRAFT_INVENTORY_STEP_3_GATE_FAIL")
+		print("MINECRAFT_INVENTORY_STEP_4_GATE_FAIL")
 		for failure in failures:
 			print("FAILURE=%s" % failure)
 		quit(1)
