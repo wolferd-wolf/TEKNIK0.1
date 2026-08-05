@@ -33,6 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Record source revision
         run: |
@@ -56,34 +57,36 @@ jobs:
             2>&1 | tee artifacts/project-parse.log
           ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' artifacts/project-parse.log
 
-      - name: Run deterministic mobile drag sensitivity gate
+      - name: Run real-scene mobile drag propagation gate
         run: |
           /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" \
             --script res://tests/polish_camera_sensitivity_gate.gd \
             2>&1 | tee artifacts/camera-sensitivity-gate.log
           grep -Fq 'CAMERA_SENSITIVITY_GATE_PASS' artifacts/camera-sensitivity-gate.log
 
-      - name: Confirm scope isolation
+      - name: Confirm corrective scope isolation
         run: |
-          base="3b8f28a137937333210a7a56755f76394efadd38"
+          base="c0c9d595e1183566a1a2fee9348e02828bcc48c4"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(scenes/main\.tscn|scripts/player/mobile_camera_sensitivity\.gd|tests/polish_camera_sensitivity_gate\.gd|\.github/workflows/polish-camera-sensitivity-gate\.yml)$'
+          allowed='^(docs/polish_world_fixes/device_feedback_2026-08-05\.md|scripts/player/mobile_camera_sensitivity\.gd|tests/polish_camera_sensitivity_gate\.gd|\.github/workflows/polish-camera-sensitivity-gate\.yml)$'
           if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
-            echo 'Camera sensitivity gate found out-of-scope files.' >&2
+            echo 'Camera device-fix gate found out-of-scope files.' >&2
             exit 1
           fi
           ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
+          ! grep -q '^scenes/main.tscn$' artifacts/changed-files.txt
+          ! grep -q '^scripts/world/' artifacts/changed-files.txt
 
-      - name: Upload camera sensitivity evidence
+      - name: Upload camera device-fix evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-polish-camera-sensitivity-gate
+          name: teknik-polish-camera-device-fix-gate
           path: artifacts/
           if-no-files-found: error
           compression-level: 0
 
-      - name: Publish camera sensitivity commit status
+      - name: Publish camera device-fix commit status
         if: always()
         uses: actions/github-script@v7
         with:
@@ -93,8 +96,8 @@ jobs:
               repo: context.repo.repo,
               sha: context.sha,
               state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
-              context: 'TEKNIK Polish Camera Sensitivity Gate',
+              context: 'TEKNIK Camera Device Fix Gate',
               description: '${{ job.status }}' === 'success'
-                ? 'Direct mobile drag sensitivity gate passed'
-                : 'Direct mobile drag sensitivity gate failed'
+                ? 'Real-scene Android drag propagation passed'
+                : 'Real-scene Android drag propagation failed'
             });
