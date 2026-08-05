@@ -41,7 +41,7 @@ func configure(streaming_target: Node3D) -> void:
 	material.vertex_color_use_as_albedo = true
 	material.roughness = 0.94
 	material.metallic = 0.0
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.cull_mode = BaseMaterial3D.CULL_BACK
 	_create_water()
 	if is_instance_valid(target):
 		target_physics_enabled = target.is_physics_processing()
