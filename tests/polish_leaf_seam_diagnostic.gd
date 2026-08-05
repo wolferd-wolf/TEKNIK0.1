@@ -189,9 +189,9 @@ func _setup_scene() -> void:
 	camera.fov = 28.0
 	camera.near = 0.05
 	camera.far = 20.0
+	scene_root.add_child(camera)
 	camera.global_position = Vector3(1.5, 7.0, 1.5)
 	camera.look_at(Vector3(1.5, 2.5, 1.5), Vector3.FORWARD)
-	scene_root.add_child(camera)
 
 
 func _capture(cull_mode: BaseMaterial3D.CullMode, path: String) -> Color:
