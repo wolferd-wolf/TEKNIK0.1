@@ -14,7 +14,7 @@ permissions:
 jobs:
   minecraft-inventory:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
           set -o pipefail
           timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/parse.log
 
-      - name: Run current inventory session gate
+      - name: Validate inventory model, screen, interaction, and input lock
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
@@ -46,6 +46,15 @@ jobs:
             --path . \
             --script res://tests/minecraft_inventory_gate.gd \
             2>&1 | tee artifacts/minecraft-inventory.log
+
+      - name: Validate inventory mining and placement integration
+        run: |
+          set -o pipefail
+          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+            --audio-driver Dummy \
+            --path . \
+            --script res://tests/minecraft_inventory_world_gate.gd \
+            2>&1 | tee artifacts/minecraft-inventory-world.log
 
       - name: Upload gate artifacts
         if: always()
@@ -65,7 +74,7 @@ jobs:
           description="Minecraft inventory gate failed"
           if [ "$JOB_STATUS" = "success" ]; then
             state="success"
-            description="Minecraft inventory gate passed"
+            description="Minecraft inventory acceptance passed"
           fi
           curl --fail-with-body \
             --request POST \

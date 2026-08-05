@@ -133,32 +133,23 @@ jobs:
             --script res://tests/edge_cases_step5_gate.gd \
             2>&1 | tee artifacts/edge-cases-step5.log
 
-      - name: Validate inventory data structure and capture screenshot
+      - name: Validate Minecraft inventory model, screen, interactions, and input lock
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
             --audio-driver Dummy \
             --path . \
-            --script res://tests/inventory_step1_gate.gd \
-            2>&1 | tee artifacts/inventory-step1.log
+            --script res://tests/minecraft_inventory_gate.gd \
+            2>&1 | tee artifacts/minecraft-inventory.log
 
-      - name: Validate inventory-backed mining and full-inventory fallback
+      - name: Validate Minecraft inventory mining and placement integration
         run: |
           set -o pipefail
           timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
             --audio-driver Dummy \
             --path . \
-            --script res://tests/inventory_mining_step2_gate.gd \
-            2>&1 | tee artifacts/inventory-mining-step2.log
-
-      - name: Validate inventory-backed placement and selected-empty-slot fallback
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_placement_step3_gate.gd \
-            2>&1 | tee artifacts/inventory-placement-step3.log
+            --script res://tests/minecraft_inventory_world_gate.gd \
+            2>&1 | tee artifacts/minecraft-inventory-world.log
 
       - name: Validate rendered hotbar contents and InputMap selection
         run: |
