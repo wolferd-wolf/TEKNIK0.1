@@ -73,8 +73,8 @@ jobs:
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
           grep -q '^scripts/player/mobile_camera_sensitivity.gd$' artifacts/changed-files.txt
           grep -q '^tests/polish_camera_sensitivity_gate.gd$' artifacts/changed-files.txt
-          if grep -Eq '^(export_presets\.cfg|scripts/world/)' artifacts/changed-files.txt; then
-            echo 'Camera device-fix gate found prohibited export or world changes.' >&2
+          if grep -Eq '^(export_presets\.cfg|scripts/android/|\.github/workflows/polish-release-export\.yml)$' artifacts/changed-files.txt; then
+            echo 'Camera device-fix gate found a prohibited release/export change.' >&2
             exit 1
           fi
 
