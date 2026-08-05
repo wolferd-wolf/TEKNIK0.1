@@ -76,11 +76,11 @@ static func build(
 						colors.append(color)
 					indices.append_array(PackedInt32Array([
 						base_index,
+						base_index + 2,
 						base_index + 1,
-						base_index + 2,
 						base_index,
-						base_index + 2,
 						base_index + 3,
+						base_index + 2,
 					]))
 					face_count += 1
 
