@@ -8,7 +8,9 @@ on:
       - scenes/main.tscn
       - scripts/world/playable_world_mesher.gd
       - scripts/world/playable_world_port.gd
+      - scripts/world/playable_world_runtime.gd
       - tests/polish_minecraft_shadows_gate.gd
+      - tests/vanilla_lighting_boundary_gate.gd
       - .github/workflows/polish-minecraft-shadows-gate.yml
   pull_request:
     branches:
@@ -17,7 +19,9 @@ on:
       - scenes/main.tscn
       - scripts/world/playable_world_mesher.gd
       - scripts/world/playable_world_port.gd
+      - scripts/world/playable_world_runtime.gd
       - tests/polish_minecraft_shadows_gate.gd
+      - tests/vanilla_lighting_boundary_gate.gd
       - .github/workflows/polish-minecraft-shadows-gate.yml
   workflow_dispatch:
 
@@ -73,11 +77,22 @@ jobs:
           grep -Fq 'VANILLA_LIGHTING_GATE_PASS' artifacts/vanilla-lighting-gate.log
           test -s artifacts/vanilla-lighting.png
 
+      - name: Run chunk-boundary lighting gate
+        run: |
+          set -o pipefail
+          timeout 120 /tmp/godot/godot \
+            --headless \
+            --path "$GITHUB_WORKSPACE" \
+            --script res://tests/vanilla_lighting_boundary_gate.gd \
+            2>&1 | tee artifacts/vanilla-lighting-boundary-gate.log
+          grep -Fq 'VANILLA_LIGHTING_CACHE_BORDER_PASS' artifacts/vanilla-lighting-boundary-gate.log
+          grep -Fq 'VANILLA_LIGHTING_DIAGONAL_REMESH_PASS' artifacts/vanilla-lighting-boundary-gate.log
+
       - name: Verify vanilla lighting scope
         run: |
           base="3556c09ac255cf59b1e2be7c68575c06562c7172"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_port\.gd|tests/polish_minecraft_shadows_gate\.gd|tests/acceptance_gate\.gd|tests/threaded_remesh_step5_playthrough_gate\.gd|\.github/workflows/polish-minecraft-shadows-gate\.yml|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-camera-sensitivity-gate\.yml|\.github/workflows/threaded-remesh-step5\.yml)$'
+          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_port\.gd|scripts/world/playable_world_runtime\.gd|tests/polish_minecraft_shadows_gate\.gd|tests/vanilla_lighting_boundary_gate\.gd|tests/acceptance_gate\.gd|tests/threaded_remesh_step5_playthrough_gate\.gd|\.github/workflows/polish-minecraft-shadows-gate\.yml|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-camera-sensitivity-gate\.yml|\.github/workflows/threaded-remesh-step5\.yml)$'
           if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
             echo 'Vanilla lighting gate found an out-of-scope file.' >&2
             exit 1
@@ -85,7 +100,9 @@ jobs:
           grep -Fxq 'scenes/main.tscn' artifacts/changed-files.txt
           grep -Fxq 'scripts/world/playable_world_mesher.gd' artifacts/changed-files.txt
           grep -Fxq 'scripts/world/playable_world_port.gd' artifacts/changed-files.txt
+          grep -Fxq 'scripts/world/playable_world_runtime.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/polish_minecraft_shadows_gate.gd' artifacts/changed-files.txt
+          grep -Fxq 'tests/vanilla_lighting_boundary_gate.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/acceptance_gate.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/threaded_remesh_step5_playthrough_gate.gd' artifacts/changed-files.txt
           ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
@@ -111,6 +128,6 @@ jobs:
               state: '${{ job.status }}' === 'success' ? 'success' : 'failure',
               context: 'TEKNIK Vanilla Lighting Gate',
               description: '${{ job.status }}' === 'success'
-                ? 'Face dimming, corner AO, skylight and material passed'
+                ? 'Face dimming, AO, skylight and boundaries passed'
                 : 'Classic vanilla lighting gate failed'
             });
