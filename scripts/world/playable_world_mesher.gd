@@ -68,7 +68,7 @@ static func build(
 	if cache_width * cache_width != heights.size():
 		cache_width = chunk_size + 2
 	var cache_padding := maxi(floori(float(cache_width - chunk_size) * 0.5), 1)
-	var sky_light := _build_sky_light(
+	var block_cache := _build_block_cache(
 		origin,
 		heights,
 		overrides,
@@ -77,34 +77,31 @@ static func build(
 		world_height,
 		sea_level
 	)
+	var sky_light := _build_sky_light_from_blocks(block_cache, cache_width, world_height)
 
 	for local_z in range(chunk_size):
 		for local_x in range(chunk_size):
 			for y in range(world_height):
 				var cell := Vector3i(origin.x + local_x, y, origin.z + local_z)
-				var block := _get_block(
+				var block := _cached_block(
 					cell,
 					origin,
-					heights,
-					overrides,
+					block_cache,
 					cache_width,
 					cache_padding,
-					world_height,
-					sea_level
+					world_height
 				)
 				if block == BLOCK_AIR:
 					continue
 				for face_index in range(6):
 					var neighbor := cell + FACE_DIRECTIONS[face_index]
-					if _get_block(
+					if _cached_block(
 						neighbor,
 						origin,
-						heights,
-						overrides,
+						block_cache,
 						cache_width,
 						cache_padding,
-						world_height,
-						sea_level
+						world_height
 					) != BLOCK_AIR:
 						continue
 					var base_index := vertices.size()
@@ -113,17 +110,15 @@ static func build(
 					var ao_levels: Array[int] = []
 					for vertex_index in range(4):
 						var vertex := Vector3(face_vertices[vertex_index])
-						var ao_level := _vertex_ao_level(
+						var ao_level := _vertex_ao_level_cached(
 							cell,
 							face_index,
 							vertex,
 							origin,
-							heights,
-							overrides,
+							block_cache,
 							cache_width,
 							cache_padding,
-							world_height,
-							sea_level
+							world_height
 						)
 						ao_levels.append(ao_level)
 						var sky_factor := _vertex_sky_factor(
@@ -150,6 +145,55 @@ static func build(
 		"indices": indices,
 		"face_count": face_count,
 	}
+
+
+static func _build_block_cache(
+	origin: Vector3i,
+	heights: PackedInt32Array,
+	overrides: Dictionary,
+	cache_width: int,
+	cache_padding: int,
+	world_height: int,
+	sea_level: int
+) -> PackedByteArray:
+	var blocks := PackedByteArray()
+	blocks.resize(cache_width * cache_width * world_height)
+	for cache_z in range(cache_width):
+		for cache_x in range(cache_width):
+			var world_x := origin.x + cache_x - cache_padding
+			var world_z := origin.z + cache_z - cache_padding
+			for y in range(world_height):
+				var block := _get_block(
+					Vector3i(world_x, y, world_z),
+					origin,
+					heights,
+					overrides,
+					cache_width,
+					cache_padding,
+					world_height,
+					sea_level
+				)
+				blocks[_volume_index(cache_x, y, cache_z, cache_width, world_height)] = block
+	return blocks
+
+
+static func _cached_block(
+	cell: Vector3i,
+	origin: Vector3i,
+	blocks: PackedByteArray,
+	cache_width: int,
+	cache_padding: int,
+	world_height: int
+) -> int:
+	if cell.y < 0:
+		return BLOCK_STONE
+	if cell.y >= world_height:
+		return BLOCK_AIR
+	var cache_x := cell.x - origin.x + cache_padding
+	var cache_z := cell.z - origin.z + cache_padding
+	if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
+		return BLOCK_AIR
+	return int(blocks[_volume_index(cache_x, cell.y, cache_z, cache_width, world_height)])
 
 
 static func _get_block(
@@ -239,30 +283,36 @@ static func _build_sky_light(
 	world_height: int,
 	sea_level: int
 ) -> PackedByteArray:
+	var blocks := _build_block_cache(
+		origin,
+		heights,
+		overrides,
+		cache_width,
+		cache_padding,
+		world_height,
+		sea_level
+	)
+	return _build_sky_light_from_blocks(blocks, cache_width, world_height)
+
+
+static func _build_sky_light_from_blocks(
+	blocks: PackedByteArray,
+	cache_width: int,
+	world_height: int
+) -> PackedByteArray:
 	var sky_light := PackedByteArray()
 	sky_light.resize(cache_width * cache_width * world_height)
 	for cache_z in range(cache_width):
 		for cache_x in range(cache_width):
-			var world_x := origin.x + cache_x - cache_padding
-			var world_z := origin.z + cache_z - cache_padding
 			var light_level := MAX_SKY_LIGHT
 			for y in range(world_height - 1, -1, -1):
-				var cell := Vector3i(world_x, y, world_z)
-				var block := _get_block(
-					cell,
-					origin,
-					heights,
-					overrides,
-					cache_width,
-					cache_padding,
-					world_height,
-					sea_level
-				)
+				var index := _volume_index(cache_x, y, cache_z, cache_width, world_height)
+				var block := int(blocks[index])
 				if block == BLOCK_LEAVES:
 					light_level = maxi(light_level - 1, 0)
 				elif block != BLOCK_AIR:
 					light_level = 0
-				sky_light[_sky_index(cache_x, y, cache_z, cache_width, world_height)] = light_level
+				sky_light[index] = light_level
 	return sky_light
 
 
@@ -278,40 +328,65 @@ static func _vertex_ao_level(
 	world_height: int,
 	sea_level: int
 ) -> int:
+	var blocks := _build_block_cache(
+		origin,
+		heights,
+		overrides,
+		cache_width,
+		cache_padding,
+		world_height,
+		sea_level
+	)
+	return _vertex_ao_level_cached(
+		cell,
+		face_index,
+		vertex,
+		origin,
+		blocks,
+		cache_width,
+		cache_padding,
+		world_height
+	)
+
+
+static func _vertex_ao_level_cached(
+	cell: Vector3i,
+	face_index: int,
+	vertex: Vector3,
+	origin: Vector3i,
+	blocks: PackedByteArray,
+	cache_width: int,
+	cache_padding: int,
+	world_height: int
+) -> int:
 	var normal := FACE_DIRECTIONS[face_index]
 	var tangent_axes := FACE_TANGENT_AXES[face_index]
 	var side_a_direction := _axis_direction(tangent_axes.x, _axis_component(vertex, tangent_axes.x) > 0.5)
 	var side_b_direction := _axis_direction(tangent_axes.y, _axis_component(vertex, tangent_axes.y) > 0.5)
 	var sample_origin := cell + normal
-	var side_a := _occludes_ambient(_get_block(
+	var side_a := _occludes_ambient(_cached_block(
 		sample_origin + side_a_direction,
 		origin,
-		heights,
-		overrides,
+		blocks,
 		cache_width,
 		cache_padding,
-		world_height,
-		sea_level
+		world_height
 	))
-	var side_b := _occludes_ambient(_get_block(
+	var side_b := _occludes_ambient(_cached_block(
 		sample_origin + side_b_direction,
 		origin,
-		heights,
-		overrides,
+		blocks,
 		cache_width,
 		cache_padding,
-		world_height,
-		sea_level
+		world_height
 	))
-	var corner := _occludes_ambient(_get_block(
+	var corner := _occludes_ambient(_cached_block(
 		sample_origin + side_a_direction + side_b_direction,
 		origin,
-		heights,
-		overrides,
+		blocks,
 		cache_width,
 		cache_padding,
-		world_height,
-		sea_level
+		world_height
 	))
 	if side_a and side_b:
 		return 0
@@ -365,11 +440,15 @@ static func _sky_light_at(
 	var cache_z := cell.z - origin.z + cache_padding
 	if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
 		return MAX_SKY_LIGHT
-	return int(sky_light[_sky_index(cache_x, cell.y, cache_z, cache_width, world_height)])
+	return int(sky_light[_volume_index(cache_x, cell.y, cache_z, cache_width, world_height)])
+
+
+static func _volume_index(x: int, y: int, z: int, width: int, world_height: int) -> int:
+	return (z * width + x) * world_height + y
 
 
 static func _sky_index(x: int, y: int, z: int, width: int, world_height: int) -> int:
-	return (z * width + x) * world_height + y
+	return _volume_index(x, y, z, width, world_height)
 
 
 static func _occludes_ambient(block: int) -> bool:
