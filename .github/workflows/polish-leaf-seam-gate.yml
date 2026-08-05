@@ -78,7 +78,7 @@ jobs:
         run: |
           base="de3c70e8271104c17d44d10b0ca86cfc050b086c"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_runtime\.gd|scripts/world/playable_world_port\.gd|tests/polish_leaf_seam_diagnostic\.gd|tests/polish_minecraft_shadows_gate\.gd|tests/acceptance_gate\.gd|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-minecraft-shadows-gate\.yml|\.github/workflows/polish-camera-sensitivity-gate\.yml|\.github/workflows/threaded-remesh-step5\.yml)$'
+          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_runtime\.gd|scripts/world/playable_world_port\.gd|tests/polish_leaf_seam_diagnostic\.gd|tests/polish_minecraft_shadows_gate\.gd|tests/acceptance_gate\.gd|tests/threaded_remesh_step5_playthrough_gate\.gd|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-minecraft-shadows-gate\.yml|\.github/workflows/polish-camera-sensitivity-gate\.yml|\.github/workflows/threaded-remesh-step5\.yml)$'
           if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
             echo 'Leaf seam and vanilla-lighting correction touched an out-of-scope file.' >&2
             exit 1
