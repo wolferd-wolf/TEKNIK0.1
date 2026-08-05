@@ -11,6 +11,7 @@ on:
       - scripts/world/playable_world_runtime.gd
       - tests/polish_minecraft_shadows_gate.gd
       - tests/vanilla_lighting_boundary_gate.gd
+      - tests/edge_cases_step5_gate.gd
       - .github/workflows/polish-minecraft-shadows-gate.yml
   pull_request:
     branches:
@@ -22,6 +23,7 @@ on:
       - scripts/world/playable_world_runtime.gd
       - tests/polish_minecraft_shadows_gate.gd
       - tests/vanilla_lighting_boundary_gate.gd
+      - tests/edge_cases_step5_gate.gd
       - .github/workflows/polish-minecraft-shadows-gate.yml
   workflow_dispatch:
 
@@ -92,7 +94,7 @@ jobs:
         run: |
           base="3556c09ac255cf59b1e2be7c68575c06562c7172"
           git diff --name-only "$base" "$GITHUB_SHA" | sort | tee artifacts/changed-files.txt
-          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_port\.gd|scripts/world/playable_world_runtime\.gd|tests/polish_minecraft_shadows_gate\.gd|tests/vanilla_lighting_boundary_gate\.gd|tests/acceptance_gate\.gd|tests/threaded_remesh_step5_playthrough_gate\.gd|\.github/workflows/polish-minecraft-shadows-gate\.yml|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-camera-sensitivity-gate\.yml|\.github/workflows/threaded-remesh-step5\.yml)$'
+          allowed='^(scenes/main\.tscn|scripts/world/playable_world_mesher\.gd|scripts/world/playable_world_port\.gd|scripts/world/playable_world_runtime\.gd|tests/polish_minecraft_shadows_gate\.gd|tests/vanilla_lighting_boundary_gate\.gd|tests/edge_cases_step5_gate\.gd|tests/acceptance_gate\.gd|tests/threaded_remesh_step5_playthrough_gate\.gd|\.github/workflows/polish-minecraft-shadows-gate\.yml|\.github/workflows/polish-leaf-seam-gate\.yml|\.github/workflows/polish-camera-sensitivity-gate\.yml|\.github/workflows/threaded-remesh-step5\.yml)$'
           if grep -Ev "$allowed" artifacts/changed-files.txt | grep -q .; then
             echo 'Vanilla lighting gate found an out-of-scope file.' >&2
             exit 1
@@ -103,6 +105,7 @@ jobs:
           grep -Fxq 'scripts/world/playable_world_runtime.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/polish_minecraft_shadows_gate.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/vanilla_lighting_boundary_gate.gd' artifacts/changed-files.txt
+          grep -Fxq 'tests/edge_cases_step5_gate.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/acceptance_gate.gd' artifacts/changed-files.txt
           grep -Fxq 'tests/threaded_remesh_step5_playthrough_gate.gd' artifacts/changed-files.txt
           ! grep -q '^export_presets.cfg$' artifacts/changed-files.txt
