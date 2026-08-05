@@ -3,6 +3,7 @@ class_name InventoryFirstPersonController
 
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
+const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/ui/minecraft_inventory_screen.gd")
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_SLOT_ACTIONS := [
 	"select_hotbar_1",
@@ -23,6 +24,7 @@ const TEST_RECIPE_OUTPUT_COUNT := 1
 var _inventory: BlockInventory = BLOCK_INVENTORY_SCRIPT.new()
 var _selected_inventory_slot: int = 0
 var _hotbar: InventoryHotbar
+var _inventory_screen: MinecraftInventoryScreen
 
 
 func _ready() -> void:
@@ -31,6 +33,7 @@ func _ready() -> void:
 	_configure_target_highlight()
 	_inventory.changed.connect(_refresh_hotbar)
 	call_deferred("_configure_hotbar")
+	call_deferred("_configure_inventory_screen")
 
 
 func _process(delta: float) -> void:
@@ -60,6 +63,10 @@ func get_hotbar() -> InventoryHotbar:
 	return _hotbar
 
 
+func get_inventory_screen() -> MinecraftInventoryScreen:
+	return _inventory_screen
+
+
 func get_selected_inventory_slot() -> int:
 	return _selected_inventory_slot
 
@@ -69,7 +76,7 @@ func get_selected_inventory_item() -> Dictionary:
 
 
 func select_inventory_slot(slot_index: int) -> bool:
-	if slot_index < 0 or slot_index >= _inventory.get_slot_count():
+	if slot_index < 0 or slot_index >= HOTBAR_SLOT_COUNT:
 		return false
 	_selected_inventory_slot = slot_index
 	_refresh_hotbar()
@@ -153,6 +160,18 @@ func _configure_hotbar() -> void:
 		_hotbar.name = "InventoryHotbar"
 		main_root.add_child(_hotbar)
 	_refresh_hotbar()
+
+
+func _configure_inventory_screen() -> void:
+	var main_root := get_parent()
+	if main_root == null:
+		return
+	_inventory_screen = main_root.get_node_or_null("MinecraftInventoryScreen") as MinecraftInventoryScreen
+	if _inventory_screen == null:
+		_inventory_screen = INVENTORY_SCREEN_SCRIPT.new() as MinecraftInventoryScreen
+		_inventory_screen.name = "MinecraftInventoryScreen"
+		main_root.add_child(_inventory_screen)
+	_inventory_screen.setup(_inventory, self)
 
 
 func _refresh_hotbar() -> void:

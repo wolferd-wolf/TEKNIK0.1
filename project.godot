@@ -104,6 +104,10 @@ hotbar_next={
 "deadzone": 0.2,
 "events": [Object(InputEventMouseButton,"button_index":5)]
 }
+toggle_inventory={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":69)]
+}
 craft_test_recipe={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":67)]
