@@ -115,16 +115,28 @@ func get_block_world(world_block_coord: Vector3i) -> int:
 	return _runtime.get_block(world_block_coord)
 
 
+func is_block_world_available(world_block_coord: Vector3i) -> bool:
+	if _runtime == null:
+		return false
+	return _runtime.loaded.has(_runtime.cell_to_chunk(world_block_coord))
+
+
 func set_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
-	return _runtime != null and _runtime.set_block(world_block_coord, block_id)
+	if not is_block_world_available(world_block_coord):
+		return false
+	return _runtime.set_block(world_block_coord, block_id)
 
 
 func mine_block_world(world_block_coord: Vector3i) -> bool:
-	return _runtime != null and _runtime.mine_block(world_block_coord)
+	if not is_block_world_available(world_block_coord):
+		return false
+	return _runtime.mine_block(world_block_coord)
 
 
 func place_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
-	return _runtime != null and _runtime.place_block(world_block_coord, block_id)
+	if not is_block_world_available(world_block_coord):
+		return false
+	return _runtime.place_block(world_block_coord, block_id)
 
 
 func get_recovery_position(position: Vector3) -> Vector3:

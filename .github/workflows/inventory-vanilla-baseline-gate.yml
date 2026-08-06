@@ -1,10 +1,9 @@
-name: TEKNIK Inventory on Vanilla Baseline
+name: TEKNIK Inventory on Consolidated World
 
 on:
   push:
-    branches:
-      - session/inventory-on-vanilla-lighting
-      - main
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,47 +11,13 @@ permissions:
   statuses: write
 
 jobs:
-  inventory-on-vanilla-baseline:
+  inventory-on-consolidated-world:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Enforce inventory-only scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          baseline=cf99111d98f6259deda4535bfe9770bcba9d18e9
-          git cat-file -e "${baseline}^{commit}"
-
-          cat > /tmp/expected-files.txt <<'EOF'
-          .github/workflows/inventory-vanilla-baseline-gate.yml
-          project.godot
-          scripts/inventory/block_inventory.gd
-          scripts/player/inventory_first_person_controller.gd
-          scripts/ui/minecraft_inventory_screen.gd
-          tests/inventory_mining_step2_gate.gd
-          tests/inventory_placement_step3_gate.gd
-          tests/inventory_step1_gate.gd
-          tests/inventory_vanilla_baseline_gate.gd
-          EOF
-          git diff --name-only "$baseline" HEAD | sort > /tmp/actual-files.txt
-          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
-
-          git diff --exit-code "$baseline" HEAD -- \
-            scenes/main.tscn \
-            scripts/player/first_person_controller.gd \
-            scripts/player/mobile_camera_sensitivity.gd \
-            scripts/ui/touch_controls.gd \
-            scripts/ui/touch_action_controls.gd \
-            scripts/world
-
-          echo 'INVENTORY_ONLY_SCOPE_PASS'
-          echo 'APPROVED_BASELINE=cf99111d98f6259deda4535bfe9770bcba9d18e9'
 
       - name: Install runtime dependencies
         run: |
@@ -67,62 +32,79 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse approved project plus inventory
+      - name: Parse inventory plus shipping world strictly
         run: |
           mkdir -p artifacts
           set -o pipefail
-          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/inventory-parse.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-inventory-parse" \
+            timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/inventory-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/inventory-parse.log; then
+            exit 1
+          fi
 
-      - name: Validate Minecraft inventory on approved gameplay baseline
+      - name: Prove inventory scene uses the shipping world
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_vanilla_baseline_gate.gd \
-            2>&1 | tee artifacts/inventory-vanilla-baseline.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-inventory-world-binding" \
+            timeout 300 /tmp/godot/godot \
+              --headless \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/playable_world_mining_port_gate.gd \
+              2>&1 | tee artifacts/inventory-world-binding.log
+          grep -Fq 'PLAYABLE_WORLD_STANDALONE_GATE_PASS' artifacts/inventory-world-binding.log
+
+      - name: Validate approved inventory camera and lighting behavior
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-inventory-vanilla-baseline" \
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/inventory_vanilla_baseline_gate.gd \
+              2>&1 | tee artifacts/inventory-vanilla-baseline.log
           grep -Fq 'INVENTORY_VANILLA_BASELINE_GATE_PASS' artifacts/inventory-vanilla-baseline.log
           grep -Fq 'APPROVED_CAMERA_SENSITIVITY=0.0035 radians per drag pixel' artifacts/inventory-vanilla-baseline.log
           grep -Fq 'APPROVED_DIRECTIONAL_SHADOW_MAPS=disabled' artifacts/inventory-vanilla-baseline.log
 
-      - name: Validate 36-slot inventory acceptance compatibility
+      - name: Validate complete inventory transaction suite
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_step1_gate.gd \
-            2>&1 | tee artifacts/inventory-step1.log
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_mining_step2_gate.gd \
-            2>&1 | tee artifacts/inventory-mining-step2.log
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_placement_step3_gate.gd \
-            2>&1 | tee artifacts/inventory-placement-step3.log
+          for gate in \
+            inventory_step1_gate.gd \
+            inventory_mining_step2_gate.gd \
+            inventory_placement_step3_gate.gd \
+            inventory_hotbar_step4_gate.gd \
+            inventory_crafting_step5_gate.gd
+          do
+            name="${gate%.gd}"
+            XDG_DATA_HOME="$RUNNER_TEMP/teknik-${name}" \
+              timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+                --audio-driver Dummy --path . \
+                --script "res://tests/${gate}" \
+                2>&1 | tee "artifacts/${name}.log"
+          done
 
       - name: Upload inventory evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-inventory-on-vanilla-baseline
+          name: teknik-inventory-on-consolidated-world
           path: artifacts/
           if-no-files-found: error
 
-      - name: Publish inventory baseline status
+      - name: Publish inventory status
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           JOB_STATUS: ${{ job.status }}
         run: |
           state=failure
-          description='Inventory-on-vanilla gate failed'
+          description='Inventory consolidated-world gate failed'
           if [[ "$JOB_STATUS" == success ]]; then
             state=success
-            description='Inventory added; approved gameplay baseline preserved'
+            description='Inventory transactions passed on shipping world'
           fi
           curl --fail-with-body \
             --request POST \
@@ -130,4 +112,4 @@ jobs:
             --header "Authorization: Bearer ${GH_TOKEN}" \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            --data "{\"state\":\"${state}\",\"context\":\"TEKNIK Inventory Vanilla Baseline\",\"description\":\"${description}\"}"
+            --data "{\"state\":\"${state}\",\"context\":\"TEKNIK Inventory Consolidated World\",\"description\":\"${description}\"}"

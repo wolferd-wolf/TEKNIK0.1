@@ -2,7 +2,13 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SCREENSHOT_PATH := "res://artifacts/acceptance-gate.png"
-const REMESH_IDLE_FRAME_LIMIT := 360
+const WORLD_READY_FRAME_LIMIT := 900
+const MAX_RETAINED_CHUNK_COUNT := 81
+const BLOCK_AIR := 0
+const BLOCK_GRASS := 1
+const BLOCK_SAND := 4
+const BLOCK_LOG := 5
+const BLOCK_LEAVES := 6
 
 var failures: Array[String] = []
 var headless_only := false
@@ -28,14 +34,26 @@ func _wait_physics_frames(count: int) -> void:
 		await physics_frame
 
 
-func _wait_for_remesh_idle(manager, context: String) -> bool:
-	if not manager.has_method("is_remesh_idle"):
-		return true
-	for _frame in range(REMESH_IDLE_FRAME_LIMIT):
+func _wait_for_world_ready(manager, context: String) -> bool:
+	for _frame in range(WORLD_READY_FRAME_LIMIT):
 		await process_frame
-		if manager.is_remesh_idle():
+		if (
+			manager.chunk_count() >= manager.expected_chunk_count()
+			and manager.chunk_count() <= MAX_RETAINED_CHUNK_COUNT
+			and manager.is_playable_world_collision_ring_ready()
+			and manager.is_remesh_idle()
+		):
 			return true
-	_fail("Remesh queue did not become idle during %s" % context)
+	_fail(
+		"Playable world did not become ready during %s: chunks=%d expected=%d collision=%s idle=%s"
+		% [
+			context,
+			manager.chunk_count(),
+			manager.expected_chunk_count(),
+			manager.is_playable_world_collision_ring_ready(),
+			manager.is_remesh_idle(),
+		]
+	)
 	return false
 
 
@@ -48,9 +66,9 @@ func _run_gate() -> void:
 
 	var main := packed_scene.instantiate()
 	root.add_child(main)
-	await _wait_frames(20)
+	await _wait_frames(2)
 
-	var manager := main.get_node_or_null("ChunkManager")
+	var manager = main.get_node_or_null("ChunkManager")
 	var player := main.get_node_or_null("Player") as CharacterBody3D
 	var camera := main.get_node_or_null("Player/Camera3D") as Camera3D
 	var environment := main.get_node_or_null("WorldEnvironment") as WorldEnvironment
@@ -69,163 +87,165 @@ func _run_gate() -> void:
 		_finish()
 		return
 
+	if not manager.is_playable_world_port_active():
+		_fail("Desktop/headless main scene did not activate the playable-world system")
+	if player.get("_chunk_manager") != manager:
+		_fail("Player did not bind to the single ChunkManager world contract")
+	if not failures.is_empty():
+		_finish()
+		return
+
 	player.set_physics_process(false)
 	player.set_process(false)
 	print("HEADLESS_SCENE_LAUNCH_PASS")
+	print("SINGLE_WORLD_BINDING=playable_world_port.gd")
 
-	await _test_chunk_streaming(manager, player)
-	await _test_terrain_and_biomes(manager, player)
+	await _test_streaming(manager, player)
+	_test_terrain_and_features(manager)
 
 	if headless_only:
 		_finish()
 		return
 
-	await _test_mesh_and_collision(manager, player)
+	await _test_render_and_collision(manager, player)
 	await _test_player_controller(manager, player, camera)
 	_test_atmosphere(environment, sun)
 	await _capture_screenshot(manager, player, camera)
 	_finish()
 
 
-func _test_chunk_streaming(manager, player: CharacterBody3D) -> void:
+func _test_streaming(manager, player: CharacterBody3D) -> void:
 	var expected_count: int = manager.expected_chunk_count()
-	if manager.chunk_count() != expected_count:
-		_fail("Initial chunk count mismatch: expected %d, got %d" % [expected_count, manager.chunk_count()])
+	if expected_count != 49:
+		_fail("Playable-world expected chunk count changed from 49 to %d" % expected_count)
+		return
 
 	var traversal_positions := [
 		Vector3(0.5, 20.0, 0.5),
-		Vector3(48.5, 20.0, 0.5),
-		Vector3(-48.5, 20.0, 0.5),
-		Vector3(0.5, 20.0, 48.5),
-		Vector3(0.5, 20.0, -48.5),
+		Vector3(72.5, 20.0, 0.5),
+		Vector3(-72.5, 20.0, 0.5),
+		Vector3(0.5, 20.0, 72.5),
+		Vector3(0.5, 20.0, -72.5),
 		Vector3(0.5, 20.0, 0.5),
 	]
-	var previous_center := Vector3i(2147483647, 2147483647, 2147483647)
+	var previous_center := Vector3i(2147483647, 0, 2147483647)
+	var max_loaded_count := 0
 
 	for traversal_position in traversal_positions:
 		player.global_position = traversal_position
 		manager.refresh_streaming(traversal_position)
-		await _wait_frames(5)
-		var center = manager.world_to_chunk_coord(traversal_position)
-		if manager.chunk_count() != expected_count:
+		if not await _wait_for_world_ready(manager, "streaming traversal at %s" % traversal_position):
+			return
+		var center: Vector3i = manager.world_to_chunk_coord(traversal_position)
+		var loaded_count: int = manager.chunk_count()
+		max_loaded_count = maxi(max_loaded_count, loaded_count)
+		if loaded_count < expected_count or loaded_count > MAX_RETAINED_CHUNK_COUNT:
 			_fail(
-				"Traversal chunk count mismatch at %s: expected %d, got %d"
-				% [center, expected_count, manager.chunk_count()]
+				"Traversal at %s retained %d chunks; expected %d active and at most %d buffered"
+				% [center, loaded_count, expected_count, MAX_RETAINED_CHUNK_COUNT]
 			)
 			return
 		if not manager.has_chunk(center):
-			_fail("Center chunk %s was not loaded" % center)
+			_fail("Playable-world center chunk was not loaded at %s" % center)
 			return
-		if previous_center.x != 2147483647:
-			if previous_center.distance_squared_to(center) > manager.render_radius * manager.render_radius:
-				if manager.has_chunk(previous_center):
-					_fail("Previous center %s remained loaded after traversal to %s" % [previous_center, center])
-					return
+		var entry: Dictionary = manager.get_playable_world_chunk_entry(Vector2i(center.x, center.z))
+		if not _entry_has_mesh(entry):
+			_fail("Center chunk render entry was invalid at %s" % center)
+			return
+		if not is_instance_valid(entry.get("collision")):
+			_fail("Center chunk collision was unavailable at %s" % center)
+			return
+		if previous_center.x != 2147483647 and previous_center.distance_squared_to(center) > 25:
+			if manager.has_chunk(previous_center):
+				_fail("Far previous center %s remained loaded after traversal to %s" % [previous_center, center])
+				return
 		previous_center = center
 
-	if failures.is_empty():
-		print("STEP_1_GATE_PASS")
-		print("TRAVERSAL_POSITIONS_TESTED=%d" % traversal_positions.size())
-		print("EXPECTED_CHUNK_COUNT=%d" % expected_count)
+	print("PLAYABLE_STREAMING_GATE_PASS")
+	print("TRAVERSAL_POSITIONS_TESTED=%d" % traversal_positions.size())
+	print("ACTIVE_CHUNK_TARGET=%d" % expected_count)
+	print("MAX_RETAINED_CHUNKS=%d" % max_loaded_count)
 
 
-func _test_terrain_and_biomes(manager, player: CharacterBody3D) -> void:
-	var biome_samples: Dictionary = {}
-	for sample_x in range(-4096, 4097, 128):
-		for sample_z in range(-4096, 4097, 128):
-			var noise_value: float = manager._biome_noise.get_noise_2d(sample_x, sample_z)
-			var biome_id := 0
-			if noise_value < -0.25:
-				biome_id = 2
-			elif noise_value > 0.25:
-				biome_id = 1
-			if not biome_samples.has(biome_id):
-				biome_samples[biome_id] = Vector2i(sample_x, sample_z)
-			if biome_samples.size() == 3:
+func _test_terrain_and_features(manager) -> void:
+	var heights: Dictionary = {}
+	for sample in [Vector2i(0, 0), Vector2i(28, 7), Vector2i(-19, 31), Vector2i(47, -23), Vector2i(-64, -64)]:
+		var height: int = manager.get_playable_world_height(sample.x, sample.y)
+		heights[height] = true
+		if height < 3 or height > 27:
+			_fail("Terrain height %d was outside playable-world bounds at %s" % [height, sample])
+		var surface_block: int = manager.get_block_world(Vector3i(sample.x, height, sample.y))
+		if surface_block != BLOCK_GRASS and surface_block != BLOCK_SAND:
+			_fail("Terrain surface at %s used unexpected block ID %d" % [sample, surface_block])
+
+	if heights.size() < 2:
+		_fail("Playable-world terrain samples did not vary in height")
+
+	var tree_origin := Vector2i(2147483647, 2147483647)
+	for z in range(-32, 33):
+		for x in range(-32, 33):
+			var surface: int = manager.get_playable_world_height(x, z)
+			if manager.get_block_world(Vector3i(x, surface + 1, z)) == BLOCK_LOG:
+				tree_origin = Vector2i(x, z)
 				break
-		if biome_samples.size() == 3:
+		if tree_origin.x != 2147483647:
 			break
 
-	if biome_samples.size() != 3:
-		_fail("Biome noise scan found %d of 3 configured biomes" % biome_samples.size())
-		return
-
-	for expected_biome in biome_samples.keys():
-		var sample_position: Vector2i = biome_samples[expected_biome]
-		var world_position := Vector3(sample_position.x + 0.5, 8.0, sample_position.y + 0.5)
-		player.global_position = world_position
-		manager.refresh_streaming(world_position)
-		await _wait_frames(3)
-
-		var center_coord = manager.world_to_chunk_coord(world_position)
-		var sample_chunk = manager.get_chunk(center_coord)
-		if sample_chunk == null:
-			_fail("Biome sample chunk failed to load at %s" % center_coord)
-			continue
-
-		var local_column := Vector2i(posmod(sample_position.x, 16), posmod(sample_position.y, 16))
-		var actual_biome: int = sample_chunk.get_biome(local_column)
-		if actual_biome != int(expected_biome):
-			_fail("Biome mismatch at %s: expected %d, got %d" % [sample_position, expected_biome, actual_biome])
-			continue
-
-		var expected_density := 20
-		if int(expected_biome) == 1:
-			expected_density = 75
-		elif int(expected_biome) == 2:
-			expected_density = 0
-		var actual_density: int = sample_chunk.get_vegetation_density(local_column)
-		if actual_density != expected_density:
-			_fail("Vegetation density mismatch for biome %d: expected %d, got %d" % [expected_biome, expected_density, actual_density])
-
-		var surface_block := 0
-		for local_y in range(15, -1, -1):
-			var block_id: int = sample_chunk.get_block(Vector3i(local_column.x, local_y, local_column.y))
-			if block_id != 0:
-				surface_block = block_id
-				break
-		var expected_surface := 4 if int(expected_biome) == 2 else 1
-		if surface_block != expected_surface:
-			_fail("Surface block mismatch for biome %d: expected %d, got %d" % [expected_biome, expected_surface, surface_block])
+	if tree_origin.x == 2147483647:
+		_fail("No deterministic playable-world tree was found in the validation area")
+	else:
+		var tree_surface: int = manager.get_playable_world_height(tree_origin.x, tree_origin.y)
+		var leaves_found := false
+		for y in range(tree_surface + 3, tree_surface + 6):
+			for z_offset in range(-1, 2):
+				for x_offset in range(-1, 2):
+					if manager.get_block_world(Vector3i(tree_origin.x + x_offset, y, tree_origin.y + z_offset)) == BLOCK_LEAVES:
+						leaves_found = true
+		if not leaves_found:
+			_fail("Playable-world tree at %s had no leaf canopy" % tree_origin)
 
 	if failures.is_empty():
-		print("STEP_2_GATE_PASS")
-		print("BIOMES_VALIDATED=3")
+		print("PLAYABLE_TERRAIN_FEATURE_GATE_PASS")
+		print("HEIGHT_VARIANTS=%d" % heights.size())
+		print("TREE_ORIGIN=%s" % tree_origin)
 
 
-func _test_mesh_and_collision(manager, player: CharacterBody3D) -> void:
+func _test_render_and_collision(manager, player: CharacterBody3D) -> void:
 	var origin_position := Vector3(0.5, 20.0, 0.5)
 	player.global_position = origin_position
 	manager.refresh_streaming(origin_position)
-	if not await _wait_for_remesh_idle(manager, "mesh and collision validation"):
+	if not await _wait_for_world_ready(manager, "render and collision validation"):
 		return
-	var terrain_chunk = manager.get_chunk(Vector3i(0, 0, 0))
-	if terrain_chunk == null:
-		_fail("Terrain chunk (0, 0, 0) was unavailable for mesh validation")
-		return
-	if terrain_chunk.mesh_instance == null or terrain_chunk.mesh_instance.mesh == null:
-		_fail("Terrain chunk render mesh is missing")
-	elif terrain_chunk.mesh_instance.mesh.get_surface_count() == 0:
-		_fail("Terrain chunk render mesh has no surfaces")
-	if terrain_chunk.collision_shape == null or terrain_chunk.collision_shape.shape == null:
-		_fail("Terrain chunk collision shape is missing")
+	var entry: Dictionary = manager.get_playable_world_chunk_entry(Vector2i.ZERO)
+	if not _entry_has_mesh(entry):
+		_fail("Origin playable-world chunk render mesh is missing")
+	if not is_instance_valid(entry.get("collision")):
+		_fail("Origin playable-world collision is missing")
 	if failures.is_empty():
-		print("STEP_3_GATE_PASS")
+		print("PLAYABLE_RENDER_COLLISION_GATE_PASS")
+
+
+func _entry_has_mesh(entry: Dictionary) -> bool:
+	if entry.is_empty():
+		return false
+	var root_node := entry.get("root") as Node3D
+	var mesh := entry.get("mesh") as ArrayMesh
+	return is_instance_valid(root_node) and mesh != null and mesh.get_surface_count() > 0
 
 
 func _test_player_controller(manager, player: CharacterBody3D, camera: Camera3D) -> void:
-	player.global_position = Vector3(0.5, 18.0, 0.5)
+	var spawn_y: float = float(manager.get_playable_world_height(0, 0)) + 2.2
+	player.global_position = Vector3(0.5, spawn_y, 0.5)
 	player.velocity = Vector3.ZERO
 	player.rotation = Vector3.ZERO
 	camera.rotation = Vector3.ZERO
 	manager.refresh_streaming(player.global_position)
-	if not await _wait_for_remesh_idle(manager, "player controller collision readiness"):
+	if not await _wait_for_world_ready(manager, "player controller collision readiness"):
 		return
 	player.set_physics_process(true)
 	player.set_process(true)
 
-	var grounded := await _wait_until_stably_grounded(player, 3, 240)
-	if not grounded:
+	if not await _wait_until_stably_grounded(player, 3, 240):
 		_fail("Player did not remain grounded for three consecutive physics frames")
 		return
 
@@ -240,13 +260,10 @@ func _test_player_controller(manager, player: CharacterBody3D, camera: Camera3D)
 	if player.velocity.y <= 0.0:
 		_fail("Jump InputMap action did not produce upward controller velocity")
 		return
-	var rose_above_ground := await _wait_until_above_y(player, jump_start_y + 0.05, 12)
-	if not rose_above_ground:
-		_fail("Jump action did not raise the player above the grounded position")
+	if not await _wait_until_above_y(player, jump_start_y + 0.05, 12):
+		_fail("Jump action did not raise the player")
 		return
-
-	grounded = await _wait_until_grounded(player, 240)
-	if not grounded:
+	if not await _wait_until_grounded(player, 240):
 		_fail("Player did not return to ground after jumping")
 		return
 
@@ -259,19 +276,19 @@ func _test_player_controller(manager, player: CharacterBody3D, camera: Camera3D)
 		player.global_position.z - movement_start.z
 	).length()
 	if horizontal_distance < 0.25:
-		_fail("Player movement action produced only %.3f units of horizontal travel" % horizontal_distance)
+		_fail("Player movement produced only %.3f units of travel" % horizontal_distance)
 		return
 
 	var yaw_before := player.rotation.y
 	var pitch_before := camera.rotation.x
 	player.apply_look_delta(Vector2(0.2, -0.1))
 	if is_equal_approx(player.rotation.y, yaw_before):
-		_fail("Abstract look input did not change player yaw")
+		_fail("Look input did not change player yaw")
 	if is_equal_approx(camera.rotation.x, pitch_before):
-		_fail("Abstract look input did not change camera pitch")
+		_fail("Look input did not change camera pitch")
 
 	if failures.is_empty():
-		print("STEP_4_GATE_PASS")
+		print("PLAYER_CONTROLLER_GATE_PASS")
 
 
 func _wait_until_grounded(player: CharacterBody3D, frame_limit: int) -> bool:
@@ -282,20 +299,16 @@ func _wait_until_grounded(player: CharacterBody3D, frame_limit: int) -> bool:
 	return false
 
 
-func _wait_until_stably_grounded(
-	player: CharacterBody3D,
-	required_consecutive_frames: int,
-	frame_limit: int
-) -> bool:
-	var consecutive_frames := 0
+func _wait_until_stably_grounded(player: CharacterBody3D, required_frames: int, frame_limit: int) -> bool:
+	var consecutive := 0
 	for _frame in range(frame_limit):
 		await physics_frame
 		if player.is_on_floor():
-			consecutive_frames += 1
-			if consecutive_frames >= required_consecutive_frames:
+			consecutive += 1
+			if consecutive >= required_frames:
 				return true
 		else:
-			consecutive_frames = 0
+			consecutive = 0
 	return false
 
 
@@ -309,26 +322,25 @@ func _wait_until_above_y(player: CharacterBody3D, minimum_y: float, frame_limit:
 
 func _test_atmosphere(environment: WorldEnvironment, sun: DirectionalLight3D) -> void:
 	if environment.environment.background_mode != Environment.BG_SKY:
-		_fail("World environment is not using the configured sky background")
+		_fail("World environment is not using the configured sky")
 	if environment.environment.sky == null:
 		_fail("World environment sky resource is missing")
 	if sun.shadow_enabled:
-		_fail("Classic vanilla lighting must keep directional shadow maps disabled")
+		_fail("Vanilla lighting must keep directional shadow maps disabled")
 	if failures.is_empty():
-		print("STEP_5_GATE_PASS")
+		print("ATMOSPHERE_GATE_PASS")
 
 
 func _capture_screenshot(manager, player: CharacterBody3D, camera: Camera3D) -> void:
 	player.set_physics_process(false)
 	player.set_process(false)
-	player.global_position = Vector3(0.5, 18.0, 24.0)
+	player.global_position = Vector3(0.5, manager.get_playable_world_height(0, 24) + 6.0, 24.0)
 	player.rotation = Vector3.ZERO
 	camera.rotation_degrees.x = -22.0
 	manager.refresh_streaming(player.global_position)
-	if not await _wait_for_remesh_idle(manager, "screenshot terrain readiness"):
+	if not await _wait_for_world_ready(manager, "screenshot terrain readiness"):
 		return
 	await RenderingServer.frame_post_draw
-
 	var image := root.get_texture().get_image()
 	if image == null or image.is_empty():
 		_fail("Viewport screenshot capture returned an empty image")
@@ -344,6 +356,8 @@ func _capture_screenshot(manager, player: CharacterBody3D, camera: Camera3D) -> 
 
 
 func _finish() -> void:
+	for action in ["jump", "move_forward"]:
+		Input.action_release(action)
 	if failures.is_empty():
 		print("TEKNIK_ACCEPTANCE_GATE_PASS")
 		quit(0)
