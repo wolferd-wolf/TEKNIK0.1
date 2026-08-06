@@ -47,7 +47,7 @@ const PALETTE_ENTRIES := [
 
 @onready var camera: Camera3D = $Camera3D
 @onready var _player_collision: CollisionShape3D = $CollisionShape3D
-@onready var _chunk_manager: ChunkManager = get_node_or_null(chunk_manager_path) as ChunkManager
+@onready var _chunk_manager = get_node_or_null(chunk_manager_path)
 @onready var _target_highlight: MeshInstance3D = get_node_or_null("../TargetHighlight") as MeshInstance3D
 
 var _pitch_radians: float = 0.0

@@ -1,4 +1,4 @@
-name: TEKNIK Playable World Mining Port
+name: TEKNIK Playable World Standalone Gate
 
 on:
   pull_request:
@@ -8,11 +8,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: playable-world-mining-port-${{ github.ref }}
+  group: playable-world-standalone-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  playable-world-mining-port:
+  playable-world-standalone:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -33,16 +33,16 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse project strictly
+      - name: Parse standalone project strictly
         run: |
           mkdir -p artifacts
           set -o pipefail
-          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/playable-world-port-parse.log
-          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/playable-world-port-parse.log; then
+          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/playable-world-standalone-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/playable-world-standalone-parse.log; then
             exit 1
           fi
 
-      - name: Validate imported world and mining pipeline
+      - name: Prove playable world runs without legacy inheritance or fallback
         run: |
           set -o pipefail
           timeout 300 /tmp/godot/godot \
@@ -50,13 +50,13 @@ jobs:
             --audio-driver Dummy \
             --path . \
             --script res://tests/playable_world_mining_port_gate.gd \
-            2>&1 | tee artifacts/playable-world-mining-port.log
-          grep -F "PLAYABLE_WORLD_MINING_PORT_GATE_PASS" artifacts/playable-world-mining-port.log
+            2>&1 | tee artifacts/playable-world-standalone.log
+          grep -F "PLAYABLE_WORLD_STANDALONE_GATE_PASS" artifacts/playable-world-standalone.log
 
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playable-world-mining-port-evidence
+          name: playable-world-standalone-evidence
           path: artifacts/
           if-no-files-found: error
