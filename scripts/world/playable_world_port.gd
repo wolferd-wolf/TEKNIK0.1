@@ -1,4 +1,5 @@
 extends Node3D
+class_name ChunkManager
 
 const PORT_RUNTIME := preload("res://scripts/world/playable_world_runtime.gd")
 const CHUNK_SIZE := 12
