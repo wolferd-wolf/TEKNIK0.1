@@ -266,9 +266,11 @@ func _build_column_caches(coord: Vector2i) -> Dictionary:
 	for local_z in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
 		for local_x in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
 			var index := (local_z + MESH_CACHE_PADDING) * width + local_x + MESH_CACHE_PADDING
-			var samples: Vector4 = data.sample_column_noise(origin_x + local_x, origin_z + local_z)
+			var world_x := origin_x + local_x
+			var world_z := origin_z + local_z
+			var samples: Vector4 = data.sample_column_noise(world_x, world_z)
 			heights[index] = data.terrain_height_from_samples(samples)
-			biomes[index] = data.select_biome_from_samples(samples)
+			biomes[index] = data.blended_biome_from_samples(samples, world_x, world_z)
 	return {"heights": heights, "biomes": biomes}
 
 
