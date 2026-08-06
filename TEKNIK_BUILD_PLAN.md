@@ -237,3 +237,49 @@ One world system, no parallel/dead code, all CI gates test the actual system tha
 
 ### Report format
 Same evidence standard as every session — commit log, Actions run IDs, explicit list of what was removed vs. kept.
+
+## Session: Multi-Noise Biome Generation (Stage 1 — Heightmap and Climate)
+
+### Architecture decision after Step 1
+- **Decision: keep Stage 1 generation in GDScript.** Native code is not required for the remaining heightmap-and-climate work in this session.
+- The surviving generator was measured honestly against its actual pre-Step-1 implementation, which sampled two height-driving noise layers per column rather than one. Step 1 adds temperature and moisture for four total samples per column while preserving the existing terrain-height output.
+- On GitHub Actions run `31078709682` (Ubuntu 24.04.4, 4-vCPU AMD EPYC 7763, Godot 4.3), the benchmark measured 640 generated 12x12 chunks per path after four warm-up repetitions. Each runtime chunk generated the same padded 16x16 height cache used by the consolidated ported world.
+- Actual two-noise baseline: minimum `0.119 ms`, maximum `0.166 ms`, mean `0.125275 ms`, median `0.124 ms`, p95 `0.134 ms`, total `80.176 ms` across 640 chunks.
+- Four-noise GDScript path: minimum `0.193 ms`, maximum `0.297 ms`, mean `0.200642 ms`, median `0.198 ms`, p95 `0.211 ms`, total `128.411 ms` across 640 chunks.
+- Relative slowdown is `60.161%`, but the absolute mean increase is only `0.075367 ms` per chunk. Terrain checksums were identical (`1722760`) and the full consolidated acceptance suite passed.
+- Native escalation threshold for this session: reconsider only if later real-device profiling shows the generation stage itself at or above `1.0 ms` p95 per 12x12 chunk or demonstrates a material streaming stall. The measured CI p95 is `0.211 ms`, so moving to native code now would add architecture and export risk without evidence of a performance need.
+- The Step 1 architecture hard stop is cleared by this committed decision. Step 2 remains a separate implementation step and must still receive its own commit and acceptance gate.
+
+### Scope
+This session covers heightmap + climate-based biome selection ONLY, replacing the current single-noise terrain generator in the ported world system. Domain warping is included because it is needed to avoid round-blob biome shapes. Cave carving, ore placement changes, and river systems are explicitly OUT of scope — future sessions, not this one.
+
+### Rules (in addition to all standing rules)
+1. This integrates into the single consolidated ported world system (12x12 chunks) — not a new or parallel generator.
+2. One step per commit, gate before marking complete.
+3. Do not implement caves, rivers, or ore changes in this session even if partially related — write them as a follow-on "Stage 2" note instead.
+4. Kimi implements each step. GPT independently reviews the actual diff, repository state, tests, logs, and evidence before any step can be marked gated-complete.
+5. Kimi's self-reported completion is provisional until GPT review accepts it.
+
+### Steps
+1. Performance baseline: implement continentalness + terrain-shape + temperature/moisture noise layers (4 noise samples per column instead of the current 1), measure actual per-chunk generation time in GDScript on the CI runner. Report real numbers, using the same evidence standard as the remesh-timing step from the threaded-remeshing session. This determines the GDScript-vs-native decision above.
+2. Domain warping on the new noise layers, to avoid visible round noise-blob shapes.
+3. Biome selection from temperature/moisture. Start with 3-4 biomes: plains, forest, desert, and one new biome. Do not add more than that this session.
+4. Biome-weight blending at borders, producing gradual transitions instead of hard edges. This is expected to be the most complex step and must be budgeted and gated accordingly.
+5. Integration: confirm existing systems — trees, water, mining/placement, inventory, and crafting — all still work correctly against the new terrain. Trees must still root on valid ground, water must still fill only real water-body locations, and no existing-system regressions are accepted.
+
+### Definition of done
+New terrain generates with visible biome variation and blended borders, generation performance is measured and understood rather than described as "seems fine," and a real-device check confirms no regression in any existing system.
+
+### Stage 2 follow-on note
+Cave carving, ore placement changes, and river systems are deferred to a future Stage 2 session. They are not authorized for implementation during this session.
+
+### Step 1 gate evidence
+- Implementation commit: `9e59261d4bf327349f6b73ecf07b8983d8ad2f2f` — `[TEKNIK] step 1: measure four-noise generation baseline`.
+- Rejected run `31078507223`: strict parsing stopped before benchmarking because the first gate helper used a control-flow form Godot 4.3 reported as “Not all code paths return a value.” The helper was corrected without changing production behavior, and the failed commit was replaced rather than stacked.
+- Accepted run `31078709682`: strict parse, four-noise correctness and benchmark gate, standalone shipping-world proof, headless and graphical consolidated-world acceptance, mining, placement, 12-block boundaries, loaded-edge stress, inventory, crafting, and touch-control regressions all passed.
+- Accepted artifact `8958612477`, digest `sha256:939bb7f7ab06d96039abd274407b7df2e8a28fbf4baf0d32993295b721083261`, contains the raw 640-sample timing arrays, environment capture, logs, and screenshots.
+- GPT independently recalculated minimum, maximum, mean, median, p95, total time, checksum equality, and relative slowdown from the raw artifact data; the recalculated values matched the CI report exactly.
+- No domain warping, biome selection, biome blending, cave carving, river work, or ore changes were included in Step 1.
+
+### Report format
+Same evidence standard as always: commit log, Actions run IDs, and actual Step 1 performance numbers before any later step proceeds.
