@@ -16,21 +16,24 @@ const TREE_OFFSET := 3
 const TREE_TRUNK_HEIGHT := 4
 const TREE_CANOPY_RADIUS := 1
 const NOISE_SAMPLES_PER_COLUMN := 4
+const DOMAIN_WARPED_LAYER_COUNT := 4
+const DOMAIN_WARP_AMPLITUDE := 36.0
+const DOMAIN_WARP_FREQUENCY := 0.004
+const DOMAIN_WARP_FRACTAL_OCTAVES := 2
+const DOMAIN_WARP_FRACTAL_GAIN := 0.5
+const DOMAIN_WARP_FRACTAL_LACUNARITY := 2.0
 
 var overrides: Dictionary = {}
 var dirty := false
 var save_delay := 0.0
 
-# Stage 1 names the existing height channel "continentalness" and the
-# existing broad region channel "terrain shape". Their settings remain
-# unchanged so Step 1 adds measurement cost without changing terrain output.
 var continentalness_noise := FastNoiseLite.new()
 var terrain_shape_noise := FastNoiseLite.new()
 var temperature_noise := FastNoiseLite.new()
 var moisture_noise := FastNoiseLite.new()
 
-# Compatibility aliases for any existing diagnostic code that still refers to
-# the pre-Stage-1 names.
+# Compatibility aliases for existing diagnostics that still refer to the
+# pre-Stage-1 names.
 var height_noise: FastNoiseLite
 var region_noise: FastNoiseLite
 
@@ -41,26 +44,41 @@ func _init() -> void:
 	continentalness_noise.fractal_octaves = 4
 	continentalness_noise.fractal_gain = 0.48
 	continentalness_noise.fractal_lacunarity = 2.05
+	_configure_domain_warp(continentalness_noise)
 
 	terrain_shape_noise.seed = WORLD_SEED ^ 0x5f3759df
 	terrain_shape_noise.frequency = 0.0035
 	terrain_shape_noise.fractal_octaves = 2
+	_configure_domain_warp(terrain_shape_noise)
 
 	temperature_noise.seed = WORLD_SEED ^ 0x68bc21eb
 	temperature_noise.frequency = 0.0024
 	temperature_noise.fractal_octaves = 3
 	temperature_noise.fractal_gain = 0.5
 	temperature_noise.fractal_lacunarity = 2.0
+	_configure_domain_warp(temperature_noise)
 
 	moisture_noise.seed = WORLD_SEED ^ 0x02e5be93
 	moisture_noise.frequency = 0.0028
 	moisture_noise.fractal_octaves = 3
 	moisture_noise.fractal_gain = 0.5
 	moisture_noise.fractal_lacunarity = 2.0
+	_configure_domain_warp(moisture_noise)
 
 	height_noise = continentalness_noise
 	region_noise = terrain_shape_noise
 	load_save()
+
+
+func _configure_domain_warp(noise: FastNoiseLite) -> void:
+	noise.domain_warp_enabled = true
+	noise.domain_warp_type = FastNoiseLite.DOMAIN_WARP_SIMPLEX_REDUCED
+	noise.domain_warp_amplitude = DOMAIN_WARP_AMPLITUDE
+	noise.domain_warp_frequency = DOMAIN_WARP_FREQUENCY
+	noise.domain_warp_fractal_type = FastNoiseLite.DOMAIN_WARP_FRACTAL_PROGRESSIVE
+	noise.domain_warp_fractal_octaves = DOMAIN_WARP_FRACTAL_OCTAVES
+	noise.domain_warp_fractal_gain = DOMAIN_WARP_FRACTAL_GAIN
+	noise.domain_warp_fractal_lacunarity = DOMAIN_WARP_FRACTAL_LACUNARITY
 
 
 func sample_column_noise(x: int, z: int) -> Vector4:
