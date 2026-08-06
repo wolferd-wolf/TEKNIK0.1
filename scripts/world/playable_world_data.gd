@@ -7,10 +7,9 @@ const BLOCK_STONE := 3
 const BLOCK_SAND := 4
 const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
-const WORLD_HEIGHT := 30
+const WORLD_HEIGHT := 40
 const SEA_LEVEL := 7
 const WORLD_SEED := 734921
-const SAVE_PATH := "user://teknik_world_v1.json"
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
@@ -24,6 +23,13 @@ const DOMAIN_WARP_FREQUENCY := 0.004
 const DOMAIN_WARP_FRACTAL_OCTAVES := 2
 const DOMAIN_WARP_FRACTAL_GAIN := 0.5
 const DOMAIN_WARP_FRACTAL_LACUNARITY := 2.0
+const TERRAIN_BASE_HEIGHT := 10.0
+const CONTINENTALNESS_HEIGHT_SCALE := 6.4
+const TERRAIN_SHAPE_HEIGHT_SCALE := 3.0
+const ROCKY_MOUNTAIN_BASE_RISE := 4.0
+const ROCKY_MOUNTAIN_RUGGEDNESS := 11.0
+const ROCKY_MOUNTAIN_LAND_BLEND_START := 6.0
+const ROCKY_MOUNTAIN_LAND_BLEND_END := 9.0
 
 const BIOME_PLAINS := 0
 const BIOME_FOREST := 1
@@ -106,8 +112,38 @@ func sample_column_noise(x: int, z: int) -> Vector4:
 	)
 
 
+func rocky_mountain_weight_from_climate(temperature: float, moisture: float) -> float:
+	var cold := 1.0 - _smooth_range(
+		BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH,
+		BIOME_COLD_THRESHOLD + BIOME_BLEND_WIDTH,
+		temperature
+	)
+	var wet := _smooth_range(
+		BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH,
+		BIOME_WET_THRESHOLD + BIOME_BLEND_WIDTH,
+		moisture
+	)
+	return cold * (1.0 - wet)
+
+
 func terrain_height_from_samples(samples: Vector4) -> int:
-	return clampi(roundi(10.0 + samples.x * 6.4 + samples.y * 3.0), 3, WORLD_HEIGHT - 3)
+	var base_height := (
+		TERRAIN_BASE_HEIGHT
+		+ samples.x * CONTINENTALNESS_HEIGHT_SCALE
+		+ samples.y * TERRAIN_SHAPE_HEIGHT_SCALE
+	)
+	var rocky_weight := rocky_mountain_weight_from_climate(samples.z, samples.w)
+	var land_factor := _smooth_range(
+		ROCKY_MOUNTAIN_LAND_BLEND_START,
+		ROCKY_MOUNTAIN_LAND_BLEND_END,
+		base_height
+	)
+	var peak_strength := clampf((samples.y + 1.0) * 0.5, 0.0, 1.0)
+	peak_strength *= peak_strength
+	var mountain_rise := rocky_weight * land_factor * (
+		ROCKY_MOUNTAIN_BASE_RISE + peak_strength * ROCKY_MOUNTAIN_RUGGEDNESS
+	)
+	return clampi(roundi(base_height + mountain_rise), 3, WORLD_HEIGHT - 3)
 
 
 func terrain_height(x: int, z: int) -> int:
