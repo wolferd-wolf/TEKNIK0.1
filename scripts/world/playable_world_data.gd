@@ -13,6 +13,8 @@ const WORLD_SEED := 734921
 const SAVE_PATH := "user://teknik_world_v1.json"
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
+const FOREST_TREE_SPACING := 5
+const FOREST_TREE_OFFSET := 1
 const TREE_TRUNK_HEIGHT := 4
 const TREE_CANOPY_RADIUS := 1
 const NOISE_SAMPLES_PER_COLUMN := 4
@@ -22,6 +24,16 @@ const DOMAIN_WARP_FREQUENCY := 0.004
 const DOMAIN_WARP_FRACTAL_OCTAVES := 2
 const DOMAIN_WARP_FRACTAL_GAIN := 0.5
 const DOMAIN_WARP_FRACTAL_LACUNARITY := 2.0
+
+const BIOME_PLAINS := 0
+const BIOME_FOREST := 1
+const BIOME_DESERT := 2
+const BIOME_ROCKY := 3
+const BIOME_COUNT := 4
+const BIOME_HOT_THRESHOLD := 0.12
+const BIOME_COLD_THRESHOLD := -0.12
+const BIOME_DRY_THRESHOLD := -0.08
+const BIOME_WET_THRESHOLD := 0.10
 
 var overrides: Dictionary = {}
 var dirty := false
@@ -92,9 +104,60 @@ func sample_column_noise(x: int, z: int) -> Vector4:
 	)
 
 
-func terrain_height(x: int, z: int) -> int:
-	var samples := sample_column_noise(x, z)
+func terrain_height_from_samples(samples: Vector4) -> int:
 	return clampi(roundi(10.0 + samples.x * 6.4 + samples.y * 3.0), 3, WORLD_HEIGHT - 3)
+
+
+func terrain_height(x: int, z: int) -> int:
+	return terrain_height_from_samples(sample_column_noise(x, z))
+
+
+func select_biome_from_climate(temperature: float, moisture: float) -> int:
+	if temperature >= BIOME_HOT_THRESHOLD and moisture <= BIOME_DRY_THRESHOLD:
+		return BIOME_DESERT
+	if moisture >= BIOME_WET_THRESHOLD:
+		return BIOME_FOREST
+	if temperature <= BIOME_COLD_THRESHOLD:
+		return BIOME_ROCKY
+	return BIOME_PLAINS
+
+
+func select_biome_from_samples(samples: Vector4) -> int:
+	return select_biome_from_climate(samples.z, samples.w)
+
+
+func biome_at(x: int, z: int) -> int:
+	return select_biome_from_samples(sample_column_noise(x, z))
+
+
+func biome_name(biome: int) -> String:
+	match biome:
+		BIOME_PLAINS:
+			return "plains"
+		BIOME_FOREST:
+			return "forest"
+		BIOME_DESERT:
+			return "desert"
+		BIOME_ROCKY:
+			return "rocky"
+		_:
+			return "unknown"
+
+
+func terrain_block(y: int, height: int, biome: int) -> int:
+	if y == height:
+		if height <= SEA_LEVEL + 1 or biome == BIOME_DESERT:
+			return BLOCK_SAND
+		if biome == BIOME_ROCKY:
+			return BLOCK_STONE
+		return BLOCK_GRASS
+	if y >= height - 3:
+		if height <= SEA_LEVEL + 1 or biome == BIOME_DESERT:
+			return BLOCK_SAND
+		if biome == BIOME_ROCKY:
+			return BLOCK_STONE
+		return BLOCK_DIRT
+	return BLOCK_STONE
 
 
 func get_block(cell: Vector3i) -> int:
@@ -105,13 +168,11 @@ func get_block(cell: Vector3i) -> int:
 	var key := cell_key(cell)
 	if overrides.has(key):
 		return int(overrides[key])
-	var height := terrain_height(cell.x, cell.z)
+	var samples := sample_column_noise(cell.x, cell.z)
+	var height := terrain_height_from_samples(samples)
+	var biome := select_biome_from_samples(samples)
 	if cell.y <= height:
-		if cell.y == height:
-			return BLOCK_SAND if height <= SEA_LEVEL + 1 else BLOCK_GRASS
-		if cell.y >= height - 3:
-			return BLOCK_SAND if height <= SEA_LEVEL + 1 else BLOCK_DIRT
-		return BLOCK_STONE
+		return terrain_block(cell.y, height, biome)
 	return generated_tree_block(cell)
 
 
@@ -135,12 +196,31 @@ func generated_tree_block(cell: Vector3i) -> int:
 
 
 func is_tree_origin(x: int, z: int) -> bool:
-	if posmod(x, TREE_SPACING) != TREE_OFFSET or posmod(z, TREE_SPACING) != TREE_OFFSET:
+	var samples := sample_column_noise(x, z)
+	var surface := terrain_height_from_samples(samples)
+	var biome := select_biome_from_samples(samples)
+	return is_tree_origin_for_biome(x, z, surface, biome)
+
+
+func is_tree_origin_for_biome(x: int, z: int, surface: int, biome: int) -> bool:
+	if biome == BIOME_DESERT or biome == BIOME_ROCKY:
 		return false
-	var surface := terrain_height(x, z)
 	if surface <= SEA_LEVEL + 1 or surface + TREE_TRUNK_HEIGHT + 1 >= WORLD_HEIGHT:
 		return false
+	var baseline_grid := (
+		posmod(x, TREE_SPACING) == TREE_OFFSET
+		and posmod(z, TREE_SPACING) == TREE_OFFSET
+	)
+	var forest_grid := (
+		biome == BIOME_FOREST
+		and posmod(x, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET
+		and posmod(z, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET
+	)
+	if not baseline_grid and not forest_grid:
+		return false
 	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	if forest_grid and not baseline_grid:
+		return hash_value % 3 != 0
 	return hash_value % 4 != 0
 
 

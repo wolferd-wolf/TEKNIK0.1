@@ -10,8 +10,14 @@ const BLOCK_LEAVES := 6
 const WORLD_SEED := 734921
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
+const FOREST_TREE_SPACING := 5
+const FOREST_TREE_OFFSET := 1
 const TREE_TRUNK_HEIGHT := 4
 const TREE_CANOPY_RADIUS := 1
+const BIOME_PLAINS := 0
+const BIOME_FOREST := 1
+const BIOME_DESERT := 2
+const BIOME_ROCKY := 3
 const MAX_SKY_LIGHT := 15
 const MIN_SKY_BRIGHTNESS := 0.35
 
@@ -56,7 +62,8 @@ static func build(
 	overrides: Dictionary,
 	chunk_size: int,
 	world_height: int,
-	sea_level: int
+	sea_level: int,
+	biomes: PackedByteArray = PackedByteArray()
 ) -> Dictionary:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -75,7 +82,8 @@ static func build(
 		cache_width,
 		cache_padding,
 		world_height,
-		sea_level
+		sea_level,
+		biomes
 	)
 	var sky_light := _build_sky_light_from_blocks(block_cache, cache_width, world_height)
 
@@ -154,7 +162,8 @@ static func _build_block_cache(
 	cache_width: int,
 	cache_padding: int,
 	world_height: int,
-	sea_level: int
+	sea_level: int,
+	biomes: PackedByteArray = PackedByteArray()
 ) -> PackedByteArray:
 	var blocks := PackedByteArray()
 	blocks.resize(cache_width * cache_width * world_height)
@@ -171,7 +180,8 @@ static func _build_block_cache(
 					cache_width,
 					cache_padding,
 					world_height,
-					sea_level
+					sea_level,
+					biomes
 				)
 				blocks[_volume_index(cache_x, y, cache_z, cache_width, world_height)] = block
 	return blocks
@@ -196,6 +206,23 @@ static func _cached_block(
 	return int(blocks[_volume_index(cache_x, cell.y, cache_z, cache_width, world_height)])
 
 
+static func _cached_biome(
+	x: int,
+	z: int,
+	origin: Vector3i,
+	biomes: PackedByteArray,
+	cache_width: int,
+	cache_padding: int
+) -> int:
+	if biomes.size() != cache_width * cache_width:
+		return BIOME_PLAINS
+	var cache_x := x - origin.x + cache_padding
+	var cache_z := z - origin.z + cache_padding
+	if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
+		return BIOME_PLAINS
+	return int(biomes[cache_z * cache_width + cache_x])
+
+
 static func _get_block(
 	cell: Vector3i,
 	origin: Vector3i,
@@ -204,7 +231,8 @@ static func _get_block(
 	cache_width: int,
 	cache_padding: int,
 	world_height: int,
-	sea_level: int
+	sea_level: int,
+	biomes: PackedByteArray = PackedByteArray()
 ) -> int:
 	if cell.y < 0:
 		return BLOCK_STONE
@@ -218,8 +246,9 @@ static func _get_block(
 	if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
 		return BLOCK_AIR
 	var height := heights[cache_z * cache_width + cache_x]
+	var biome := _cached_biome(cell.x, cell.z, origin, biomes, cache_width, cache_padding)
 	if cell.y <= height:
-		return _terrain_block(cell.y, height, sea_level)
+		return _terrain_block(cell.y, height, sea_level, biome)
 	return _generated_tree_block(
 		cell,
 		origin,
@@ -227,15 +256,24 @@ static func _get_block(
 		cache_width,
 		cache_padding,
 		world_height,
-		sea_level
+		sea_level,
+		biomes
 	)
 
 
-static func _terrain_block(y: int, height: int, sea_level: int) -> int:
+static func _terrain_block(y: int, height: int, sea_level: int, biome: int = BIOME_PLAINS) -> int:
 	if y == height:
-		return BLOCK_SAND if height <= sea_level + 1 else BLOCK_GRASS
+		if height <= sea_level + 1 or biome == BIOME_DESERT:
+			return BLOCK_SAND
+		if biome == BIOME_ROCKY:
+			return BLOCK_STONE
+		return BLOCK_GRASS
 	if y >= height - 3:
-		return BLOCK_SAND if height <= sea_level + 1 else BLOCK_DIRT
+		if height <= sea_level + 1 or biome == BIOME_DESERT:
+			return BLOCK_SAND
+		if biome == BIOME_ROCKY:
+			return BLOCK_STONE
+		return BLOCK_DIRT
 	return BLOCK_STONE
 
 
@@ -246,7 +284,8 @@ static func _generated_tree_block(
 	cache_width: int,
 	cache_padding: int,
 	world_height: int,
-	sea_level: int
+	sea_level: int,
+	biomes: PackedByteArray = PackedByteArray()
 ) -> int:
 	for tree_z in range(cell.z - TREE_CANOPY_RADIUS, cell.z + TREE_CANOPY_RADIUS + 1):
 		for tree_x in range(cell.x - TREE_CANOPY_RADIUS, cell.x + TREE_CANOPY_RADIUS + 1):
@@ -255,7 +294,8 @@ static func _generated_tree_block(
 			if cache_x < 0 or cache_x >= cache_width or cache_z < 0 or cache_z >= cache_width:
 				continue
 			var surface := heights[cache_z * cache_width + cache_x]
-			if not _is_tree_origin(tree_x, tree_z, surface, world_height, sea_level):
+			var biome := _cached_biome(tree_x, tree_z, origin, biomes, cache_width, cache_padding)
+			if not _is_tree_origin(tree_x, tree_z, surface, world_height, sea_level, biome):
 				continue
 			var trunk_top := surface + TREE_TRUNK_HEIGHT
 			if cell.x == tree_x and cell.z == tree_z and cell.y > surface and cell.y <= trunk_top:
@@ -265,12 +305,32 @@ static func _generated_tree_block(
 	return BLOCK_AIR
 
 
-static func _is_tree_origin(x: int, z: int, surface: int, world_height: int, sea_level: int) -> bool:
-	if posmod(x, TREE_SPACING) != TREE_OFFSET or posmod(z, TREE_SPACING) != TREE_OFFSET:
+static func _is_tree_origin(
+	x: int,
+	z: int,
+	surface: int,
+	world_height: int,
+	sea_level: int,
+	biome: int = BIOME_PLAINS
+) -> bool:
+	if biome == BIOME_DESERT or biome == BIOME_ROCKY:
 		return false
 	if surface <= sea_level + 1 or surface + TREE_TRUNK_HEIGHT + 1 >= world_height:
 		return false
+	var baseline_grid := (
+		posmod(x, TREE_SPACING) == TREE_OFFSET
+		and posmod(z, TREE_SPACING) == TREE_OFFSET
+	)
+	var forest_grid := (
+		biome == BIOME_FOREST
+		and posmod(x, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET
+		and posmod(z, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET
+	)
+	if not baseline_grid and not forest_grid:
+		return false
 	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	if forest_grid and not baseline_grid:
+		return hash_value % 3 != 0
 	return hash_value % 4 != 0
 
 
@@ -281,7 +341,8 @@ static func _build_sky_light(
 	cache_width: int,
 	cache_padding: int,
 	world_height: int,
-	sea_level: int
+	sea_level: int,
+	biomes: PackedByteArray = PackedByteArray()
 ) -> PackedByteArray:
 	var blocks := _build_block_cache(
 		origin,
@@ -290,7 +351,8 @@ static func _build_sky_light(
 		cache_width,
 		cache_padding,
 		world_height,
-		sea_level
+		sea_level,
+		biomes
 	)
 	return _build_sky_light_from_blocks(blocks, cache_width, world_height)
 
@@ -326,7 +388,8 @@ static func _vertex_ao_level(
 	cache_width: int,
 	cache_padding: int,
 	world_height: int,
-	sea_level: int
+	sea_level: int,
+	biomes: PackedByteArray = PackedByteArray()
 ) -> int:
 	var blocks := _build_block_cache(
 		origin,
@@ -335,7 +398,8 @@ static func _vertex_ao_level(
 		cache_width,
 		cache_padding,
 		world_height,
-		sea_level
+		sea_level,
+		biomes
 	)
 	return _vertex_ao_level_cached(
 		cell,

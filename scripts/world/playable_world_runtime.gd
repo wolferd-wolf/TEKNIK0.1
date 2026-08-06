@@ -229,14 +229,17 @@ func _pump_builds() -> void:
 			pending_rebuilds.erase(coord)
 			continue
 		var build_start := Time.get_ticks_usec()
-		var heights := _build_height_cache(coord)
+		var column_caches := _build_column_caches(coord)
+		var heights: PackedInt32Array = column_caches.get("heights", PackedInt32Array())
+		var biomes: PackedByteArray = column_caches.get("biomes", PackedByteArray())
 		var mesh_data: Dictionary = WORLD_MESHER.build(
 			coord,
 			heights,
 			data.overrides,
 			CHUNK_SIZE,
 			WORLD_DATA.WORLD_HEIGHT,
-			WORLD_DATA.SEA_LEVEL
+			WORLD_DATA.SEA_LEVEL,
+			biomes
 		)
 		if replacing:
 			if _swap_chunk(coord, mesh_data):
@@ -252,17 +255,31 @@ func _pump_builds() -> void:
 			break
 
 
-func _build_height_cache(coord: Vector2i) -> PackedInt32Array:
+func _build_column_caches(coord: Vector2i) -> Dictionary:
 	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var heights := PackedInt32Array()
+	var biomes := PackedByteArray()
 	heights.resize(width * width)
+	biomes.resize(width * width)
 	var origin_x := coord.x * CHUNK_SIZE
 	var origin_z := coord.y * CHUNK_SIZE
 	for local_z in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
 		for local_x in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
 			var index := (local_z + MESH_CACHE_PADDING) * width + local_x + MESH_CACHE_PADDING
-			heights[index] = data.terrain_height(origin_x + local_x, origin_z + local_z)
-	return heights
+			var samples: Vector4 = data.sample_column_noise(origin_x + local_x, origin_z + local_z)
+			heights[index] = data.terrain_height_from_samples(samples)
+			biomes[index] = data.select_biome_from_samples(samples)
+	return {"heights": heights, "biomes": biomes}
+
+
+func _build_height_cache(coord: Vector2i) -> PackedInt32Array:
+	var caches := _build_column_caches(coord)
+	return caches.get("heights", PackedInt32Array())
+
+
+func _build_biome_cache(coord: Vector2i) -> PackedByteArray:
+	var caches := _build_column_caches(coord)
+	return caches.get("biomes", PackedByteArray())
 
 
 func _commit_chunk(coord: Vector2i, mesh_data: Dictionary, with_collision: bool) -> bool:
