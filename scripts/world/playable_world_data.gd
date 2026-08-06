@@ -15,30 +15,68 @@ const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const TREE_TRUNK_HEIGHT := 4
 const TREE_CANOPY_RADIUS := 1
+const NOISE_SAMPLES_PER_COLUMN := 4
 
 var overrides: Dictionary = {}
 var dirty := false
 var save_delay := 0.0
-var height_noise := FastNoiseLite.new()
-var region_noise := FastNoiseLite.new()
+
+# Stage 1 names the existing height channel "continentalness" and the
+# existing broad region channel "terrain shape". Their settings remain
+# unchanged so Step 1 adds measurement cost without changing terrain output.
+var continentalness_noise := FastNoiseLite.new()
+var terrain_shape_noise := FastNoiseLite.new()
+var temperature_noise := FastNoiseLite.new()
+var moisture_noise := FastNoiseLite.new()
+
+# Compatibility aliases for any existing diagnostic code that still refers to
+# the pre-Stage-1 names.
+var height_noise: FastNoiseLite
+var region_noise: FastNoiseLite
 
 
 func _init() -> void:
-	height_noise.seed = WORLD_SEED
-	height_noise.frequency = 0.011
-	height_noise.fractal_octaves = 4
-	height_noise.fractal_gain = 0.48
-	height_noise.fractal_lacunarity = 2.05
-	region_noise.seed = WORLD_SEED ^ 0x5f3759df
-	region_noise.frequency = 0.0035
-	region_noise.fractal_octaves = 2
+	continentalness_noise.seed = WORLD_SEED
+	continentalness_noise.frequency = 0.011
+	continentalness_noise.fractal_octaves = 4
+	continentalness_noise.fractal_gain = 0.48
+	continentalness_noise.fractal_lacunarity = 2.05
+
+	terrain_shape_noise.seed = WORLD_SEED ^ 0x5f3759df
+	terrain_shape_noise.frequency = 0.0035
+	terrain_shape_noise.fractal_octaves = 2
+
+	temperature_noise.seed = WORLD_SEED ^ 0x68bc21eb
+	temperature_noise.frequency = 0.0024
+	temperature_noise.fractal_octaves = 3
+	temperature_noise.fractal_gain = 0.5
+	temperature_noise.fractal_lacunarity = 2.0
+
+	moisture_noise.seed = WORLD_SEED ^ 0x02e5be93
+	moisture_noise.frequency = 0.0028
+	moisture_noise.fractal_octaves = 3
+	moisture_noise.fractal_gain = 0.5
+	moisture_noise.fractal_lacunarity = 2.0
+
+	height_noise = continentalness_noise
+	region_noise = terrain_shape_noise
 	load_save()
 
 
+func sample_column_noise(x: int, z: int) -> Vector4:
+	var world_x := float(x)
+	var world_z := float(z)
+	return Vector4(
+		continentalness_noise.get_noise_2d(world_x, world_z),
+		terrain_shape_noise.get_noise_2d(world_x, world_z),
+		temperature_noise.get_noise_2d(world_x, world_z),
+		moisture_noise.get_noise_2d(world_x, world_z)
+	)
+
+
 func terrain_height(x: int, z: int) -> int:
-	var continental := height_noise.get_noise_2d(float(x), float(z))
-	var region := region_noise.get_noise_2d(float(x), float(z))
-	return clampi(roundi(10.0 + continental * 6.4 + region * 3.0), 3, WORLD_HEIGHT - 3)
+	var samples := sample_column_noise(x, z)
+	return clampi(roundi(10.0 + samples.x * 6.4 + samples.y * 3.0), 3, WORLD_HEIGHT - 3)
 
 
 func get_block(cell: Vector3i) -> int:

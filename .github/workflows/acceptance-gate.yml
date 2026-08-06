@@ -91,6 +91,25 @@ jobs:
             exit 1
           fi
 
+      - name: Measure multi-noise Step 1 generation baseline
+        run: |
+          set -o pipefail
+          {
+            echo "runner_image=${ImageOS:-unknown}"
+            uname -a
+            cat /etc/os-release
+            lscpu
+          } 2>&1 | tee artifacts/multi-noise-step1-environment.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-multi-noise-step1" \
+            timeout 300 /tmp/godot/godot \
+              --headless \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/multi_noise_step1_gate.gd \
+              2>&1 | tee artifacts/multi-noise-step1-benchmark.log
+          grep -Fq 'MULTI_NOISE_STEP1_GATE_PASS' artifacts/multi-noise-step1-benchmark.log
+          grep -Fq 'MULTI_NOISE_STEP1_BENCHMARK_JSON=' artifacts/multi-noise-step1-benchmark.log
+
       - name: Prove desktop and headless use the shipping world
         run: |
           set -o pipefail
