@@ -10,6 +10,7 @@ const BLOCK_LEAVES := 6
 const WORLD_HEIGHT := 40
 const SEA_LEVEL := 7
 const WORLD_SEED := 734921
+const SAVE_PATH := "user://teknik_world_v1.json"
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
