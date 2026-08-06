@@ -237,3 +237,39 @@ One world system, no parallel/dead code, all CI gates test the actual system tha
 
 ### Report format
 Same evidence standard as every session — commit log, Actions run IDs, explicit list of what was removed vs. kept.
+
+## Session: Multi-Noise Biome Generation (Stage 1 — Heightmap and Climate)
+
+### Decision required before starting
+- **Current architecture status: pending measured evidence.** Step 1 is authorized only as a GDScript performance baseline; it is not a commitment to keep the final generator in GDScript.
+- After Step 1 reports real per-chunk generation timings from the CI runner, this section must be updated with one explicit decision: **stay in GDScript** or **move generation to native code**, including the measured evidence and threshold/rationale.
+- **Hard stop:** do not proceed to Step 2 until that evidence-backed decision is written into this plan and committed.
+
+### Scope
+This session covers heightmap + climate-based biome selection ONLY, replacing the current single-noise terrain generator in the ported world system. Domain warping is included because it is needed to avoid round-blob biome shapes. Cave carving, ore placement changes, and river systems are explicitly OUT of scope — future sessions, not this one.
+
+### Rules (in addition to all standing rules)
+1. This integrates into the single consolidated ported world system (12x12 chunks) — not a new or parallel generator.
+2. One step per commit, gate before marking complete.
+3. Do not implement caves, rivers, or ore changes in this session even if partially related — write them as a follow-on "Stage 2" note instead.
+4. Kimi implements each step. GPT independently reviews the actual diff, repository state, tests, logs, and evidence before any step can be marked gated-complete.
+5. Kimi's self-reported completion is provisional until GPT review accepts it.
+
+### Steps
+1. Performance baseline: implement continentalness + terrain-shape + temperature/moisture noise layers (4 noise samples per column instead of the current 1), measure actual per-chunk generation time in GDScript on the CI runner. Report real numbers, using the same evidence standard as the remesh-timing step from the threaded-remeshing session. This determines the GDScript-vs-native decision above.
+2. Domain warping on the new noise layers, to avoid visible round noise-blob shapes.
+3. Biome selection from temperature/moisture. Start with 3-4 biomes: plains, forest, desert, and one new biome. Do not add more than that this session.
+4. Biome-weight blending at borders, producing gradual transitions instead of hard edges. This is expected to be the most complex step and must be budgeted and gated accordingly.
+5. Integration: confirm existing systems — trees, water, mining/placement, inventory, and crafting — all still work correctly against the new terrain. Trees must still root on valid ground, water must still fill only real water-body locations, and no existing-system regressions are accepted.
+
+### Definition of done
+New terrain generates with visible biome variation and blended borders, generation performance is measured and understood rather than described as "seems fine," and a real-device check confirms no regression in any existing system.
+
+### Stage 2 follow-on note
+Cave carving, ore placement changes, and river systems are deferred to a future Stage 2 session. They are not authorized for implementation during this session.
+
+### Pending Decisions
+- GDScript versus native generation: unresolved until Step 1 CI timing evidence is recorded. No architecture-level implementation beyond the GDScript measurement baseline is authorized before this decision is committed.
+
+### Report format
+Same evidence standard as always: commit log, Actions run IDs, and actual Step 1 performance numbers before any later step proceeds.
