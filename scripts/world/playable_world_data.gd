@@ -114,17 +114,21 @@ func sample_column_noise(x: int, z: int) -> Vector4:
 
 
 func rocky_mountain_weight_from_climate(temperature: float, moisture: float) -> float:
-	var cold := 1.0 - _smooth_range(
-		BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_COLD_THRESHOLD + BIOME_BLEND_WIDTH,
-		temperature
+	var cold_t := clampf(
+		(temperature - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
 	)
-	var wet := _smooth_range(
-		BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_WET_THRESHOLD + BIOME_BLEND_WIDTH,
-		moisture
+	cold_t = cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var wet_t := clampf(
+		(moisture - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
 	)
-	return cold * (1.0 - wet)
+	wet_t = wet_t * wet_t * (3.0 - 2.0 * wet_t)
+	return (1.0 - cold_t) * (1.0 - wet_t)
 
 
 func terrain_height_from_samples(samples: Vector4) -> int:
@@ -133,12 +137,33 @@ func terrain_height_from_samples(samples: Vector4) -> int:
 		+ samples.x * CONTINENTALNESS_HEIGHT_SCALE
 		+ samples.y * TERRAIN_SHAPE_HEIGHT_SCALE
 	)
-	var rocky_weight := rocky_mountain_weight_from_climate(samples.z, samples.w)
-	var land_factor := _smooth_range(
-		ROCKY_MOUNTAIN_LAND_BLEND_START,
-		ROCKY_MOUNTAIN_LAND_BLEND_END,
-		base_height
+
+	# Keep the hot column path allocation-free and avoid hundreds of nested
+	# GDScript helper calls per chunk. These are the same smooth ranges used by
+	# rocky_mountain_weight_from_climate(), inlined for the accepted p95 budget.
+	var cold_t := clampf(
+		(samples.z - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
 	)
+	cold_t = cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var wet_t := clampf(
+		(samples.w - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
+	)
+	wet_t = wet_t * wet_t * (3.0 - 2.0 * wet_t)
+	var rocky_weight := (1.0 - cold_t) * (1.0 - wet_t)
+
+	var land_factor := clampf(
+		(base_height - ROCKY_MOUNTAIN_LAND_BLEND_START)
+		/ (ROCKY_MOUNTAIN_LAND_BLEND_END - ROCKY_MOUNTAIN_LAND_BLEND_START),
+		0.0,
+		1.0
+	)
+	land_factor = land_factor * land_factor * (3.0 - 2.0 * land_factor)
 	var peak_strength := clampf((samples.y + 1.0) * 0.5, 0.0, 1.0)
 	peak_strength *= peak_strength
 	var mountain_rise := rocky_weight * land_factor * (
