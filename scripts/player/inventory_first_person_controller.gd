@@ -146,7 +146,7 @@ func mine_targeted_block() -> bool:
 		return false
 
 	if not _inventory.add_item(mined_block_id, 1):
-		var restored := _chunk_manager.set_block_world(mined_coord, mined_block_id)
+		var restored: bool = bool(_chunk_manager.set_block_world(mined_coord, mined_block_id))
 		if not restored:
 			push_error("Inventory mining rollback failed at %s" % mined_coord)
 		return false
@@ -170,7 +170,7 @@ func place_block_at(world_block_coord: Vector3i) -> bool:
 		return false
 
 	if not _inventory.remove_from_slot(_selected_inventory_slot, 1):
-		var rolled_back := _chunk_manager.set_block_world(world_block_coord, BLOCK_AIR)
+		var rolled_back: bool = bool(_chunk_manager.set_block_world(world_block_coord, BLOCK_AIR))
 		if not rolled_back:
 			push_error("Inventory placement rollback failed at %s" % world_block_coord)
 		return false

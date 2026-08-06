@@ -33,8 +33,6 @@ func _init() -> void:
 	var main := MAIN_SCENE.instantiate()
 	var chunk_manager := main.get_node_or_null("ChunkManager")
 	_expect(chunk_manager != null, "Main scene must contain ChunkManager", failures)
-	if chunk_manager != null:
-		chunk_manager.force_playable_world_port = true
 	root.add_child(main)
 	await process_frame
 	_assert_runtime_contract(main, failures)
@@ -179,7 +177,7 @@ func _assert_runtime_contract(main: Node, failures: PackedStringArray) -> void:
 		_expect(not sun.shadow_enabled, "Classic vanilla lighting must not allocate real sun shadow maps", failures)
 
 	var runtime = main.get_node_or_null("ChunkManager/PlayableWorldRuntime")
-	_expect(runtime != null, "Forced playable-world port must create its runtime", failures)
+	_expect(runtime != null, "Standalone playable-world adapter must create its runtime", failures)
 	if runtime == null:
 		return
 	var material := runtime.material as StandardMaterial3D

@@ -12,12 +12,60 @@ permissions:
 
 jobs:
   acceptance-gate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout
+      - name: Checkout exact revision
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove retired world code is absent and unreferenced
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          roots = [Path("scripts"), Path("scenes"), Path("tests"), Path(".github/workflows"), Path("project.godot")]
+          retired = [
+              "scripts/world/" + "biome" + "_probe.gd",
+              "scripts/world/" + "chunk.gd",
+              "scripts/world/" + "chunk" + "_manager.gd",
+              "scripts/world/" + "chunk" + "_mesher.gd",
+              "scripts/world/" + "threaded" + "_chunk_mesher.gd",
+              "tests/" + "null_mesh" + "_remesh_gate.gd",
+              "tests/" + "boundary_remesh" + "_spread_gate.gd",
+              "tests/" + "dummy_mesh" + "_teardown_diagnostic.gd",
+              "tests/" + "face_winding" + "_diagnostic.gd",
+              "tests/" + "threaded_remesh" + "_step2_gate.gd",
+              "tests/" + "threaded_remesh" + "_step3_concurrency_gate.gd",
+              "tests/" + "threaded_remesh" + "_step5_playthrough_gate.gd",
+          ]
+          for item in retired:
+              if Path(item).exists():
+                  raise SystemExit(f"Retired path still exists: {item}")
+
+          files = []
+          for root in roots:
+              if root.is_file():
+                  files.append(root)
+              elif root.exists():
+                  files.extend(path for path in root.rglob("*") if path.is_file())
+          stale = []
+          for path in files:
+              try:
+                  text = path.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+              for item in retired:
+                  if item in text or ("res://" + item) in text:
+                      stale.append(f"{path}: {item}")
+          if stale:
+              raise SystemExit("Retired references remain:\n" + "\n".join(stale))
+          print("RETIRED_WORLD_REFERENCE_SCAN_PASS")
+          PY
 
       - name: Install runtime dependencies
         run: |
@@ -32,175 +80,129 @@ jobs:
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 
-      - name: Parse project
+      - name: Parse consolidated project strictly
         run: |
           mkdir -p artifacts
           set -o pipefail
-          timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/headless-parse.log
-
-      - name: Validate empty remesh runtime window headlessly
-        run: |
-          set -o pipefail
-          timeout 300 /tmp/godot/godot \
-            --headless \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/null_mesh_remesh_gate.gd \
-            2>&1 | tee artifacts/null-mesh-remesh-gate.log
-          awk '/NULL_MESH_REMESH_GATE_PASS/{exit} {print}' artifacts/null-mesh-remesh-gate.log > artifacts/null-mesh-remesh-runtime-window.log
-          if grep -F 'Parameter "m" is null.' artifacts/null-mesh-remesh-runtime-window.log; then
-            echo "Null mesh renderer error occurred during remesh cycles"
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-acceptance-parse" \
+            timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/headless-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/headless-parse.log; then
             exit 1
           fi
 
-      - name: Validate boundary remesh spread headlessly
+      - name: Prove desktop and headless use the shipping world
         run: |
           set -o pipefail
-          timeout 300 /tmp/godot/godot \
-            --headless \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/boundary_remesh_spread_gate.gd \
-            2>&1 | tee artifacts/boundary-remesh-spread.log
-          awk '/BOUNDARY_REMESH_SPREAD_GATE_PASS/{exit} {print}' artifacts/boundary-remesh-spread.log > artifacts/boundary-remesh-spread-runtime-window.log
-          if grep -F 'Parameter "m" is null.' artifacts/boundary-remesh-spread-runtime-window.log; then
-            echo "Null mesh renderer error occurred during boundary remesh spread"
-            exit 1
-          fi
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-acceptance-standalone" \
+            timeout 300 /tmp/godot/godot \
+              --headless \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/playable_world_mining_port_gate.gd \
+              2>&1 | tee artifacts/playable-world-standalone.log
+          grep -Fq 'PLAYABLE_WORLD_STANDALONE_GATE_PASS' artifacts/playable-world-standalone.log
 
-      - name: Launch actual scene headlessly
+      - name: Launch and validate consolidated scene headlessly
         run: |
           set -o pipefail
-          timeout 300 /tmp/godot/godot \
-            --headless \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/acceptance_gate.gd \
-            -- --headless-only \
-            2>&1 | tee artifacts/headless-runtime.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-acceptance-headless" \
+            timeout 300 /tmp/godot/godot \
+              --headless \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/acceptance_gate.gd \
+              -- --headless-only \
+              2>&1 | tee artifacts/headless-runtime.log
+          grep -Fq 'TEKNIK_ACCEPTANCE_GATE_PASS' artifacts/headless-runtime.log
 
-      - name: Run graphical gates and capture screenshot
+      - name: Run graphical consolidated-world acceptance
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/acceptance_gate.gd \
-            2>&1 | tee artifacts/acceptance-gate.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-acceptance-graphical" \
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/acceptance_gate.gd \
+              2>&1 | tee artifacts/acceptance-gate.log
+          grep -Fq 'TEKNIK_ACCEPTANCE_GATE_PASS' artifacts/acceptance-gate.log
 
-      - name: Validate all voxel face windings visually
+      - name: Validate mining targeting on playable world
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/face_winding_diagnostic.gd \
-            2>&1 | tee artifacts/face-winding-diagnostic.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-mining-targeting" \
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy --path . \
+              --script res://tests/mining_targeting_gate.gd \
+              2>&1 | tee artifacts/mining-targeting.log
 
-      - name: Validate mining targeting and capture screenshot
+      - name: Validate mining and 12-block boundary rebuilds
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/mining_targeting_gate.gd \
-            2>&1 | tee artifacts/mining-targeting-step1.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-mining-step2" \
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy --path . \
+              --script res://tests/mining_step2_gate.gd \
+              2>&1 | tee artifacts/mining-step2.log
+          grep -Fq 'MINING_STEP_2_GATE_PASS' artifacts/mining-step2.log
 
-      - name: Validate mining removal, collision, and boundary remesh
+      - name: Validate placement collision and rejection behavior
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/mining_step2_gate.gd \
-            2>&1 | tee artifacts/mining-step2.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-placement-step3" \
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy --path . \
+              --script res://tests/placement_step3_gate.gd \
+              2>&1 | tee artifacts/placement-step3.log
+          grep -Fq 'PLACEMENT_STEP_3_GATE_PASS' artifacts/placement-step3.log
 
-      - name: Validate placement, collision, and player overlap rejection
+      - name: Validate playable-world boundary and loaded-edge cases
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/placement_step3_gate.gd \
-            2>&1 | tee artifacts/placement-step3.log
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-edge-cases-step5" \
+            timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy --path . \
+              --script res://tests/edge_cases_step5_gate.gd \
+              2>&1 | tee artifacts/edge-cases.log
+          grep -Fq 'EDGE_CASES_STEP_5_GATE_PASS' artifacts/edge-cases.log
 
-      - name: Validate final mining and placement edge cases
+      - name: Validate inventory model and playable-world transactions
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/edge_cases_step5_gate.gd \
-            2>&1 | tee artifacts/edge-cases-step5.log
+          for gate in \
+            inventory_step1_gate.gd \
+            inventory_mining_step2_gate.gd \
+            inventory_placement_step3_gate.gd \
+            inventory_hotbar_step4_gate.gd \
+            inventory_crafting_step5_gate.gd \
+            inventory_vanilla_baseline_gate.gd
+          do
+            name="${gate%.gd}"
+            XDG_DATA_HOME="$RUNNER_TEMP/teknik-${name}" \
+              timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+                --audio-driver Dummy --path . \
+                --script "res://tests/${gate}" \
+                2>&1 | tee "artifacts/${name}.log"
+          done
 
-      - name: Validate inventory data structure and capture screenshot
+      - name: Validate touch controls against consolidated main scene
         run: |
           set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_step1_gate.gd \
-            2>&1 | tee artifacts/inventory-step1.log
-
-      - name: Validate inventory-backed mining and full-inventory fallback
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_mining_step2_gate.gd \
-            2>&1 | tee artifacts/inventory-mining-step2.log
-
-      - name: Validate inventory-backed placement and selected-empty-slot fallback
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_placement_step3_gate.gd \
-            2>&1 | tee artifacts/inventory-placement-step3.log
-
-      - name: Validate rendered hotbar contents and InputMap selection
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_hotbar_step4_gate.gd \
-            2>&1 | tee artifacts/inventory-hotbar-step4.log
-
-      - name: Validate inventory crafting action and atomic failure
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/inventory_crafting_step5_gate.gd \
-            2>&1 | tee artifacts/inventory-crafting-step5.log
-
-      - name: Validate virtual joystick simulated touch InputMap states
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/touch_joystick_step1_gate.gd \
-            2>&1 | tee artifacts/touch-joystick-step1.log
-
-      - name: Validate right-side drag-look simulated touch InputMap states
-        run: |
-          set -o pipefail
-          timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
-            --audio-driver Dummy \
-            --path . \
-            --script res://tests/touch_drag_look_step2_gate.gd \
-            2>&1 | tee artifacts/touch-drag-look-step2.log
+          for gate in touch_joystick_step1_gate.gd touch_drag_look_step2_gate.gd
+          do
+            name="${gate%.gd}"
+            XDG_DATA_HOME="$RUNNER_TEMP/teknik-${name}" \
+              timeout 300 xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+                --audio-driver Dummy --path . \
+                --script "res://tests/${gate}" \
+                2>&1 | tee "artifacts/${name}.log"
+          done
 
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-acceptance-gate
+          name: teknik-consolidated-acceptance
           path: artifacts/
           if-no-files-found: error
 
@@ -211,10 +213,10 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           state="failure"
-          description="Acceptance gate failed"
+          description="Consolidated acceptance gate failed"
           if [ "$JOB_STATUS" = "success" ]; then
             state="success"
-            description="All acceptance gates passed"
+            description="All single-world acceptance gates passed"
           fi
           curl --fail-with-body \
             --request POST \

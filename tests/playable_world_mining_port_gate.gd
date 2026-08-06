@@ -1,7 +1,11 @@
 extends SceneTree
 
 const WORLD_PORT_SCRIPT := preload("res://scripts/world/playable_world_port.gd")
+const MAIN_SCENE := "res://scenes/main.tscn"
+const SOURCE_PATH := "res://scripts/world/playable_world_port.gd"
 const FRAME_LIMIT := 600
+const BLOCK_AIR := 0
+const BLOCK_STONE := 3
 
 var failures: Array[String] = []
 
@@ -20,23 +24,38 @@ func _wait_for_collision_ring(manager) -> bool:
 		await process_frame
 		if manager.is_playable_world_collision_ring_ready():
 			return true
-	_fail("Imported 3x3 collision-first startup ring did not become ready")
+	_fail("Standalone playable-world collision ring did not become ready")
 	return false
 
 
-func _wait_for_atomic_swap(manager, previous_swap_count: int) -> bool:
+func _wait_for_atomic_swap(manager, previous_swap_count: int, context: String) -> bool:
 	for _frame in range(FRAME_LIMIT):
 		await process_frame
 		var diagnostics: Dictionary = manager.get_remesh_diagnostics()
 		if int(diagnostics.get("atomic_swaps", 0)) > previous_swap_count:
 			return true
-	_fail("Imported mining rebuild did not complete an atomic chunk swap")
+	_fail("Standalone playable-world atomic swap did not complete during %s" % context)
 	return false
 
 
+func _validate_standalone_source() -> void:
+	var source := FileAccess.get_file_as_string(SOURCE_PATH)
+	if source.is_empty():
+		_fail("Could not read standalone adapter source")
+		return
+	for forbidden in ["chunk_manager.gd", "super.", "OS.has_feature", "force_playable_world_port"]:
+		if source.contains(forbidden):
+			_fail("Standalone adapter still contains forbidden fallback dependency: %s" % forbidden)
+
+
 func _run_gate() -> void:
+	_validate_standalone_source()
+	if not failures.is_empty():
+		_finish()
+		return
+
 	var test_root := Node3D.new()
-	test_root.name = "PlayableWorldMiningPortGate"
+	test_root.name = "PlayableWorldStandaloneGate"
 	root.add_child(test_root)
 
 	var target := Node3D.new()
@@ -46,81 +65,104 @@ func _run_gate() -> void:
 
 	var manager = WORLD_PORT_SCRIPT.new()
 	manager.name = "ChunkManager"
-	manager.force_playable_world_port = true
 	manager.streaming_target_path = NodePath("../Target")
 	test_root.add_child(manager)
 
 	await process_frame
 	if not manager.is_playable_world_port_active():
-		_fail("Forced playable-world port did not activate")
+		_fail("Standalone playable-world adapter did not report active")
 		_finish()
 		return
 	if manager.expected_chunk_count() != 49:
-		_fail("Imported world no longer targets the original 7x7 visual radius")
+		_fail("Standalone world no longer targets the 7x7 visual radius")
 
 	if not await _wait_for_collision_ring(manager):
 		_finish()
 		return
 	if manager.chunk_count() < 9:
-		_fail("Collision-first startup loaded fewer than nine nearby chunks")
+		_fail("Standalone startup loaded fewer than nine collision-ring chunks")
 
 	var height_samples: Dictionary = {}
 	for sample in [Vector2i(2, 2), Vector2i(28, 7), Vector2i(-19, 31), Vector2i(47, -23)]:
 		height_samples[manager.get_playable_world_height(sample.x, sample.y)] = true
 	if height_samples.size() < 2:
-		_fail("Imported deterministic terrain did not produce varied heights")
+		_fail("Standalone deterministic terrain did not produce varied heights")
 
-	var surface_y: int = manager.get_playable_world_height(2, 2)
-	var mine_coord := Vector3i(2, surface_y, 2)
-	var original_block: int = manager.get_block_world(mine_coord)
-	if original_block == 0:
-		_fail("Imported terrain surface was unexpectedly air at %s" % mine_coord)
-		_finish()
-		return
+	var edit_y: int = manager.get_playable_world_height(2, 2) + 2
+	var edit_coord := Vector3i(2, edit_y, 2)
+	if manager.get_block_world(edit_coord) != BLOCK_AIR:
+		var clear_swaps := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
+		if not manager.set_block_world(edit_coord, BLOCK_AIR):
+			_fail("Could not clear standalone edit fixture")
+		elif not await _wait_for_atomic_swap(manager, clear_swaps, "fixture clear"):
+			_finish()
+			return
 
 	var chunk_coord := Vector2i(0, 0)
-	var old_entry: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
-	var old_root := old_entry.get("root") as Node3D
-	if not is_instance_valid(old_root):
-		_fail("Imported origin chunk root was missing before mining")
+	var entry_before: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
+	var root_before := entry_before.get("root") as Node3D
+	var place_swaps := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
+	if not manager.place_block_world(edit_coord, BLOCK_STONE):
+		_fail("Standalone placement rejected a valid air cell")
 		_finish()
 		return
-	if not is_instance_valid(old_entry.get("collision")):
-		_fail("Imported origin collision was not ready before mining")
+	if not await _wait_for_atomic_swap(manager, place_swaps, "placement"):
 		_finish()
 		return
+	if manager.get_block_world(edit_coord) != BLOCK_STONE:
+		_fail("Standalone placement did not update block data")
+	var entry_after_place: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
+	var root_after_place := entry_after_place.get("root") as Node3D
+	if not is_instance_valid(root_after_place) or root_after_place == root_before:
+		_fail("Standalone placement did not atomically replace the chunk root")
+	if not is_instance_valid(entry_after_place.get("collision")):
+		_fail("Standalone placement replacement lost collision")
 
-	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
-	if not manager.mine_block_world(mine_coord):
-		_fail("Imported mining system rejected a valid surface block")
+	var mine_swaps := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
+	if not manager.mine_block_world(edit_coord):
+		_fail("Standalone mining rejected the placed block")
 		_finish()
 		return
-	if manager.get_block_world(mine_coord) != 0:
-		_fail("Mined block data did not become air immediately")
-
-	if not await _wait_for_atomic_swap(manager, swaps_before):
+	if manager.get_block_world(edit_coord) != BLOCK_AIR:
+		_fail("Standalone mining did not update block data immediately")
+	if not await _wait_for_atomic_swap(manager, mine_swaps, "mining"):
 		_finish()
 		return
+	var entry_after_mine: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
+	var root_after_mine := entry_after_mine.get("root") as Node3D
+	if not is_instance_valid(root_after_mine) or root_after_mine == root_after_place:
+		_fail("Standalone mining did not atomically replace the chunk root")
+	if not is_instance_valid(entry_after_mine.get("collision")):
+		_fail("Standalone mining replacement lost collision")
 
-	var new_entry: Dictionary = manager.get_playable_world_chunk_entry(chunk_coord)
-	var new_root := new_entry.get("root") as Node3D
-	if not is_instance_valid(new_root):
-		_fail("Imported origin chunk root was missing after mining")
-	elif new_root == old_root:
-		_fail("Mining did not atomically replace the affected chunk")
-	if not is_instance_valid(new_entry.get("collision")):
-		_fail("Mining replacement did not preserve nearby collision")
+	var packed_main := load(MAIN_SCENE) as PackedScene
+	if packed_main == null:
+		_fail("Main scene failed to load with standalone adapter")
+		_finish()
+		return
+	var main := packed_main.instantiate()
+	root.add_child(main)
+	for _frame in range(32):
+		await process_frame
+	var scene_manager = main.get_node_or_null("ChunkManager")
+	var player = main.get_node_or_null("Player")
+	if scene_manager == null or player == null:
+		_fail("Main scene is missing standalone manager or player")
+	elif not scene_manager.is_playable_world_port_active():
+		_fail("Main scene did not activate standalone playable world on desktop")
+	elif player.get("_chunk_manager") != scene_manager:
+		_fail("Player did not bind to the standalone world contract")
 
 	var diagnostics: Dictionary = manager.get_remesh_diagnostics()
 	if int(diagnostics.get("atomic_swap_failures", 0)) != 0:
-		_fail("Mining atomic replacement reported a failure")
+		_fail("Standalone adapter reported an atomic swap failure")
 
 	if failures.is_empty():
-		print("PLAYABLE_WORLD_MINING_PORT_GATE_PASS")
-		print("PLAYABLE_WORLD_STARTUP_CHUNKS=%d" % manager.chunk_count())
-		print("PLAYABLE_WORLD_TARGET_CHUNKS=%d" % manager.expected_chunk_count())
-		print("PLAYABLE_WORLD_MINED_BLOCK=%d" % original_block)
-		print("PLAYABLE_WORLD_ATOMIC_SWAPS=%d" % int(diagnostics.get("atomic_swaps", 0)))
+		print("PLAYABLE_WORLD_STANDALONE_GATE_PASS")
+		print("STANDALONE_INHERITANCE=Node3D only; no legacy fallback")
+		print("STANDALONE_STARTUP_CHUNKS=%d" % manager.chunk_count())
+		print("STANDALONE_PLACE_MINE=%s -> stone -> air" % edit_coord)
+		print("STANDALONE_MAIN_SCENE_BINDING=player uses ChunkManager node contract")
 
 	_finish()
 
