@@ -37,6 +37,107 @@ static func _base_tree_candidate(
 	return hash_value % 4 != 0
 
 
+static func _mark_grid_candidates(
+	markers: PackedByteArray,
+	min_x: int,
+	min_z: int,
+	width: int,
+	spacing: int,
+	offset: int
+) -> void:
+	var first_x: int = min_x + posmod(offset - min_x, spacing)
+	var first_z: int = min_z + posmod(offset - min_z, spacing)
+	var max_x: int = min_x + width - 1
+	var max_z: int = min_z + width - 1
+	for world_z in range(first_z, max_z + 1, spacing):
+		var row: int = (world_z - min_z) * width
+		for world_x in range(first_x, max_x + 1, spacing):
+			markers[row + world_x - min_x] = 1
+
+
+static func _feature_is_water_at(feature: Dictionary, world_x: int, world_z: int) -> bool:
+	var radius_x: float = float(feature["radius_x"])
+	var radius_z: float = float(feature["radius_z"])
+	var normalized_x: float = float(world_x - int(feature["center_x"])) / radius_x
+	var normalized_z: float = float(world_z - int(feature["center_z"])) / radius_z
+	var water_radius: float = float(feature["water_radius"])
+	return normalized_x * normalized_x + normalized_z * normalized_z <= water_radius * water_radius
+
+
+static func _collect_blocked_tree_columns(
+	min_x: int,
+	min_z: int,
+	width: int,
+	heights: PackedInt32Array,
+	biomes: PackedByteArray,
+	world_fields: PackedFloat32Array,
+	features: Array[Dictionary],
+	sampler
+) -> PackedInt32Array:
+	# Tree origins live on two sparse deterministic grids. Enumerate those grids
+	# directly instead of scanning every padded column (and every lake-core cell).
+	# The marker array preserves stable ascending cache-index order for evidence.
+	var markers := PackedByteArray()
+	markers.resize(width * width)
+	_mark_grid_candidates(
+		markers,
+		min_x,
+		min_z,
+		width,
+		int(sampler.TREE_SPACING),
+		int(sampler.TREE_OFFSET)
+	)
+	_mark_grid_candidates(
+		markers,
+		min_x,
+		min_z,
+		width,
+		int(sampler.FOREST_TREE_SPACING),
+		int(sampler.FOREST_TREE_OFFSET)
+	)
+
+	var blocked := PackedInt32Array()
+	for index in range(markers.size()):
+		if markers[index] == 0:
+			continue
+		var cache_x: int = index % width
+		var cache_z: int = int(index / width)
+		var world_x: int = min_x + cache_x
+		var world_z: int = min_z + cache_z
+		var biome: int = int(biomes[index]) if index < biomes.size() else int(sampler.BIOME_PLAINS)
+		if not _base_tree_candidate(
+			world_x,
+			world_z,
+			int(heights[index]),
+			biome,
+			sampler
+		):
+			continue
+
+		var field_index: int = index * FIELD_STRIDE
+		if field_index >= world_fields.size():
+			continue
+		var continentalness: float = float(world_fields[field_index])
+		if continentalness <= float(sampler.STAGE4_OCEAN_WATER_START):
+			blocked.append(index)
+			continue
+
+		var river_value: float = float(sampler.stage5_river_signal(world_x, world_z))
+		var strengths: Vector2 = sampler.stage5_river_strengths_from_signal(
+			continentalness,
+			river_value
+		)
+		if strengths.x >= float(sampler.STAGE5_CHANNEL_WATER_CUTOFF):
+			blocked.append(index)
+			continue
+
+		for feature: Dictionary in features:
+			if _feature_is_water_at(feature, world_x, world_z):
+				blocked.append(index)
+				break
+	return blocked
+
+
 static func build(coord: Vector2i, sampler) -> Dictionary:
 	# Stage 5 remains the dense hot path. Stage 6 is intentionally sparse: first
 	# build the accepted Stage 5 cache, then touch only columns inside accepted
@@ -48,7 +149,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		return result
 	var world_fields: PackedFloat32Array = result.get("world_fields", PackedFloat32Array())
 	var biomes: PackedByteArray = result.get("biomes", PackedByteArray())
-	var blocked_tree_columns := PackedInt32Array()
 
 	var width: int = CHUNK_SIZE + PADDING * 2
 	var origin_x: int = coord.x * CHUNK_SIZE
@@ -57,34 +157,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var min_z: int = origin_z - PADDING
 	var max_x: int = origin_x + CHUNK_SIZE + PADDING - 1
 	var max_z: int = origin_z + CHUNK_SIZE + PADDING - 1
-
-	# Stage 5 water already exists in the base cache. Only evaluate river status
-	# for columns that the mesher would otherwise consider tree origins; this is
-	# sparse (grid/hash gated) and avoids a second dense river pass.
-	for cache_z in range(width):
-		var world_z: int = min_z + cache_z
-		var row: int = cache_z * width
-		for cache_x in range(width):
-			var index: int = row + cache_x
-			var surface: int = int(heights[index])
-			var biome: int = int(biomes[index]) if index < biomes.size() else int(sampler.BIOME_PLAINS)
-			var world_x: int = min_x + cache_x
-			if not _base_tree_candidate(world_x, world_z, surface, biome, sampler):
-				continue
-			var field_index: int = index * FIELD_STRIDE
-			if field_index >= world_fields.size():
-				continue
-			var continentalness: float = float(world_fields[field_index])
-			if continentalness <= float(sampler.STAGE4_OCEAN_WATER_START):
-				blocked_tree_columns.append(index)
-				continue
-			var river_value: float = float(sampler.stage5_river_signal(world_x, world_z))
-			var strengths: Vector2 = sampler.stage5_river_strengths_from_signal(
-				continentalness,
-				river_value
-			)
-			if strengths.x >= float(sampler.STAGE5_CHANNEL_WATER_CUTOFF):
-				blocked_tree_columns.append(index)
 
 	var features: Array[Dictionary] = sampler.stage6_collect_features_for_cached_bounds(
 		min_x,
@@ -95,9 +167,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		world_fields,
 		heights
 	)
-	if features.is_empty():
-		result["blocked_tree_columns"] = blocked_tree_columns
-		return result
 
 	for feature: Dictionary in features:
 		var center_x: int = int(feature["center_x"])
@@ -149,9 +218,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 						3,
 						safe_top
 					)
-					var biome: int = int(biomes[index]) if index < biomes.size() else int(sampler.BIOME_PLAINS)
-					if _base_tree_candidate(world_x, world_z, int(heights[index]), biome, sampler):
-						blocked_tree_columns.append(index)
 					continue
 				if distance_squared <= hard_rim_squared:
 					heights[index] = clampi(
@@ -180,5 +246,14 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				)
 
 	result["heights"] = heights
-	result["blocked_tree_columns"] = blocked_tree_columns
+	result["blocked_tree_columns"] = _collect_blocked_tree_columns(
+		min_x,
+		min_z,
+		width,
+		heights,
+		biomes,
+		world_fields,
+		features,
+		sampler
+	)
 	return result
