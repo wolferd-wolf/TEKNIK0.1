@@ -3,8 +3,9 @@ extends "res://scripts/world/playable_world_stage6_generation_data.gd"
 # Shipping-only Stage 6 lookup optimization. The accepted Stage 6 topology stays
 # in playable_world_stage6_generation_data.gd; this subclass preserves that
 # exact behavior while rejecting impossible feature cells before terrain/noise
-# sampling, reusing candidate-center terrain samples, and avoiding full lake
-# evaluation for geometrically distant ponds.
+# sampling, reusing candidate-center terrain samples, avoiding full lake
+# evaluation for geometrically distant ponds, and skipping feature cells whose
+# maximum possible footprint cannot reach the current padded chunk.
 
 func stage6_lake_candidate(cell_x: int, cell_z: int) -> Dictionary:
 	# Moisture can raise the accepted probability only as high as base+bonus.
@@ -75,6 +76,93 @@ func _stage6_candidate_common_ok(
 		"structure": structure,
 		"center_height": center_height,
 	}
+
+
+func _stage6_center_can_reach_bounds(
+	center: Vector2i,
+	maximum_radius: float,
+	min_x: int,
+	min_z: int,
+	max_x: int,
+	max_z: int
+) -> bool:
+	return not (
+		float(center.x) + maximum_radius < float(min_x)
+		or float(center.x) - maximum_radius > float(max_x)
+		or float(center.y) + maximum_radius < float(min_z)
+		or float(center.y) - maximum_radius > float(max_z)
+	)
+
+
+func stage6_collect_features_for_bounds(
+	min_x: int,
+	min_z: int,
+	max_x: int,
+	max_z: int
+) -> Array[Dictionary]:
+	var features: Array[Dictionary] = []
+	var lake_min_x := floori(float(min_x) * STAGE6_LAKE_CELL_RECIPROCAL)
+	var lake_max_x := floori(float(max_x) * STAGE6_LAKE_CELL_RECIPROCAL)
+	var lake_min_z := floori(float(min_z) * STAGE6_LAKE_CELL_RECIPROCAL)
+	var lake_max_z := floori(float(max_z) * STAGE6_LAKE_CELL_RECIPROCAL)
+	var lake_probability_ceiling := STAGE6_LAKE_BASE_CHANCE + STAGE6_LAKE_MOISTURE_BONUS
+	for cell_z in range(lake_min_z, lake_max_z + 1):
+		for cell_x in range(lake_min_x, lake_max_x + 1):
+			if _stage3_hash01(cell_x, cell_z, STAGE6_LAKE_SALT_ACCEPT) >= lake_probability_ceiling:
+				continue
+			var center := _stage6_candidate_center(
+				cell_x,
+				cell_z,
+				STAGE6_LAKE_CELL_SPACING,
+				STAGE6_LAKE_CELL_HALF,
+				STAGE6_LAKE_JITTER,
+				STAGE6_LAKE_SALT_X,
+				STAGE6_LAKE_SALT_Z
+			)
+			if not _stage6_center_can_reach_bounds(
+				center,
+				STAGE6_LAKE_RADIUS_MAX,
+				min_x,
+				min_z,
+				max_x,
+				max_z
+			):
+				continue
+			var lake := stage6_lake_candidate(cell_x, cell_z)
+			if not lake.is_empty():
+				features.append(lake)
+
+	var pond_min_x := floori(float(min_x) * STAGE6_POND_CELL_RECIPROCAL)
+	var pond_max_x := floori(float(max_x) * STAGE6_POND_CELL_RECIPROCAL)
+	var pond_min_z := floori(float(min_z) * STAGE6_POND_CELL_RECIPROCAL)
+	var pond_max_z := floori(float(max_z) * STAGE6_POND_CELL_RECIPROCAL)
+	var pond_probability_ceiling := STAGE6_POND_BASE_CHANCE + STAGE6_POND_MOISTURE_BONUS
+	for cell_z in range(pond_min_z, pond_max_z + 1):
+		for cell_x in range(pond_min_x, pond_max_x + 1):
+			if _stage3_hash01(cell_x, cell_z, STAGE6_POND_SALT_ACCEPT) >= pond_probability_ceiling:
+				continue
+			var center := _stage6_candidate_center(
+				cell_x,
+				cell_z,
+				STAGE6_POND_CELL_SPACING,
+				STAGE6_POND_CELL_HALF,
+				STAGE6_POND_JITTER,
+				STAGE6_POND_SALT_X,
+				STAGE6_POND_SALT_Z
+			)
+			if not _stage6_center_can_reach_bounds(
+				center,
+				STAGE6_POND_RADIUS_MAX,
+				min_x,
+				min_z,
+				max_x,
+				max_z
+			):
+				continue
+			var pond := stage6_pond_candidate(cell_x, cell_z)
+			if not pond.is_empty():
+				features.append(pond)
+	return features
 
 
 func _stage6_pond_overlaps_lake(
