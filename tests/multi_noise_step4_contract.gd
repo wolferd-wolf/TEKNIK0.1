@@ -10,10 +10,13 @@ const DEVICE_MAP_HALF_SPAN := 48
 
 
 static func run(data, failures: Array[String]) -> void:
+	# The accepted terrain sampler remains four-noise. This scoped biome-zone
+	# change adds two dedicated biome-climate samples so lowering biome climate
+	# frequency cannot alter the terrain-height climate field.
 	if WORLD_DATA.NOISE_SAMPLES_PER_COLUMN != 4 or WORLD_DATA.DOMAIN_WARPED_LAYER_COUNT != 4:
-		_fail(failures, "Step 4 changed the accepted four-noise/domain-warp contract")
+		_fail(failures, "Terrain sampler changed the accepted four-noise/domain-warp contract")
 	if WORLD_DATA.BIOME_COUNT != 4:
-		_fail(failures, "Step 4 must retain exactly four biomes")
+		_fail(failures, "Biome system must retain exactly four biomes")
 	if WORLD_DATA.BIOME_BLEND_WIDTH <= 0.0 or WORLD_DATA.BIOME_BLEND_WIDTH >= 0.25:
 		_fail(failures, "Biome blend width is outside the bounded Stage 1 range")
 	var minimum_region := WORLD_MAP_OVERLAY.MAP_SAMPLE_SPACING * 6
@@ -136,37 +139,53 @@ static func _validate_weights(weights: Vector4, failures: Array[String], context
 
 static func _validate_sources(failures: Array[String]) -> void:
 	var data_source := FileAccess.get_file_as_string("res://scripts/world/playable_world_data.gd")
-	for required in ["biome_weights_from_climate", "blended_biome_from_samples", "BIOME_BLEND_PATCH_SIZE", "rocky_mountain_weight_from_climate"]:
+	for required in [
+		"sample_biome_climate",
+		"biome_temperature_noise",
+		"biome_moisture_noise",
+		"biome_weights_from_climate",
+		"blended_biome_from_samples",
+		"BIOME_BLEND_PATCH_SIZE",
+		"rocky_mountain_weight_from_climate",
+	]:
 		if not data_source.contains(required):
 			_fail(failures, "Production source is missing %s" % required)
-	var sample_start := data_source.find("func sample_column_noise")
-	var height_start := data_source.find("func rocky_mountain_weight_from_climate", sample_start)
-	if sample_start < 0 or height_start < 0:
-		_fail(failures, "Unable to isolate the production four-noise sampler")
+
+	var terrain_sample_start := data_source.find("func sample_column_noise")
+	var biome_sample_start := data_source.find("func sample_biome_climate", terrain_sample_start)
+	var mountain_start := data_source.find("func rocky_mountain_weight_from_climate", biome_sample_start)
+	if terrain_sample_start < 0 or biome_sample_start < 0 or mountain_start < 0:
+		_fail(failures, "Unable to isolate terrain and biome climate samplers")
 	else:
-		var sample_body := data_source.substr(sample_start, height_start - sample_start)
-		if _count(sample_body, ".get_noise_2d(") != 4:
-			_fail(failures, "Production sampler must retain exactly four get_noise_2d calls")
-	var weights_start := data_source.find("func biome_weights_from_climate")
-	var biome_at_start := data_source.find("func biome_at", weights_start)
-	if weights_start < 0 or biome_at_start < 0:
-		_fail(failures, "Unable to isolate the blend implementation")
+		var terrain_sample_body := data_source.substr(terrain_sample_start, biome_sample_start - terrain_sample_start)
+		var biome_sample_body := data_source.substr(biome_sample_start, mountain_start - biome_sample_start)
+		if _count(terrain_sample_body, ".get_noise_2d(") != 4:
+			_fail(failures, "Terrain sampler must retain exactly four get_noise_2d calls")
+		if _count(biome_sample_body, ".get_noise_2d(") != 2:
+			_fail(failures, "Biome zone resolver must use exactly two dedicated climate samples")
+		if not biome_sample_body.contains("biome_temperature_noise") or not biome_sample_body.contains("biome_moisture_noise"):
+			_fail(failures, "Biome climate sampler is not isolated from terrain climate")
+
+	var blend_start := data_source.find("func blended_biome_from_samples")
+	var biome_at_start := data_source.find("func biome_at", blend_start)
+	if blend_start < 0 or biome_at_start < 0:
+		_fail(failures, "Unable to isolate production biome resolution")
 	else:
-		var blend_body := data_source.substr(weights_start, biome_at_start - weights_start)
-		if blend_body.contains(".get_noise_2d(") or blend_body.contains("sample_column_noise("):
-			_fail(failures, "Biome blending added extra noise samples instead of reusing climate values")
+		var blend_body := data_source.substr(blend_start, biome_at_start - blend_start)
+		if not blend_body.contains("sample_biome_climate("):
+			_fail(failures, "Shipping blended biome does not use the dedicated slower climate field")
 
 	var runtime_source := FileAccess.get_file_as_string("res://scripts/world/playable_world_runtime.gd")
-	var cache_start := runtime_source.find("func _build_column_caches")
-	var old_cache_start := runtime_source.find("func _build_height_cache", cache_start)
-	if cache_start < 0 or old_cache_start < 0:
-		_fail(failures, "Shipping runtime is missing the shared blended column cache")
+	var cache_start := runtime_source.find("static func _build_column_caches_for_sampler")
+	var collect_start := runtime_source.find("func _collect_completed_build_tasks", cache_start)
+	if cache_start < 0 or collect_start < 0:
+		_fail(failures, "Shipping runtime is missing the shared column cache")
 	else:
-		var cache_body := runtime_source.substr(cache_start, old_cache_start - cache_start)
+		var cache_body := runtime_source.substr(cache_start, collect_start - cache_start)
 		if _count(cache_body, "sample_column_noise(") != 1:
-			_fail(failures, "Shipping runtime must sample once per column")
+			_fail(failures, "Shipping runtime must retain one four-noise terrain sample vector per column")
 		if not cache_body.contains("terrain_height_from_samples") or not cache_body.contains("blended_biome_from_samples"):
-			_fail(failures, "Shipping runtime does not derive height and biome from one sample vector")
+			_fail(failures, "Shipping runtime does not build both height and biome caches through the scoped samplers")
 
 
 static func _validate_determinism_and_continuity(data, failures: Array[String]) -> void:
