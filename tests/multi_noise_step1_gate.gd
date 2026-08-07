@@ -283,7 +283,9 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 
 	player.set_physics_process(false)
 	player.set_process(true)
-	await _wait_frames(12)
+	if not await _wait_for_world(manager, "shipping startup spawn"):
+		return
+	await _wait_frames(2)
 	if not bool(localized_water.get("_active")):
 		_fail("Localized water did not activate in the shipping scene")
 	if is_instance_valid(runtime.get_node_or_null("Water")):
