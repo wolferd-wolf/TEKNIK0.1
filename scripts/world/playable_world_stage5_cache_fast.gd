@@ -16,11 +16,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var fields := PackedFloat32Array()
 	var heights := PackedInt32Array()
 	var biomes := PackedByteArray()
-	var river_signal := PackedFloat32Array()
 	fields.resize(count * FIELD_STRIDE)
 	heights.resize(count)
 	biomes.resize(count)
-	river_signal.resize(count)
 
 	var min_x := coord.x * CHUNK_SIZE - PADDING
 	var min_z := coord.y * CHUNK_SIZE - PADDING
@@ -111,10 +109,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
 
-	# Stage 5 constants. The river centerline is direct, so there are no river
-	# lattice arrays or a second padded-column pass. One row phase is evaluated
-	# per Z row and each column needs only one native sin() call for corridor
-	# distance.
+	# Stage 5 constants. River values are consumed immediately by terrain shaping
+	# and are intentionally not persisted in every chunk cache. Public/debug river
+	# queries reproduce the same deterministic field directly when needed.
 	var pi_over_spacing: float = sampler.STAGE5_RIVER_PI_OVER_SPACING
 	var channel_inner: float = sampler.STAGE5_CHANNEL_INNER
 	var channel_outer: float = sampler.STAGE5_CHANNEL_OUTER
@@ -131,6 +128,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 
 	for cz in range(width):
 		var world_z: int = z_world[cz]
+		var zf := float(world_z)
 		var river_row_phase: float = sampler.stage5_river_row_phase(world_z)
 		var nz: int = z_node[cz]
 		var tz: float = z_weight[cz]
@@ -139,6 +137,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		var row := cz * width
 		for cx in range(width):
 			var world_x: int = x_world[cx]
+			var xf := float(world_x)
 			var nx: int = x_node[cx]
 			var tx: float = x_weight[cx]
 			var nw := structure_nodes[north_base + nx]
@@ -148,12 +147,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			var north := nw + (ne - nw) * tx
 			var south := sw + (se - sw) * tx
 			var structure := north + (south - north) * tz
-			var river_value := absf(
-				sin((float(world_x) + river_row_phase) * pi_over_spacing)
-			)
 
-			var xf := float(world_x)
-			var zf := float(world_z)
 			var continentalness: float = sampler.continentalness_noise.get_noise_2d(xf, zf)
 			var temperature: float = sampler.biome_temperature_noise.get_noise_2d(xf, zf)
 			var moisture: float = sampler.biome_moisture_noise.get_noise_2d(xf, zf)
@@ -165,7 +159,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			fields[field + 3] = moisture
 			fields[field + 4] = temperature
 			fields[field + 5] = moisture
-			river_signal[column] = river_value
 
 			var terrain_fields := Vector4(continentalness, structure, 0.0, 0.0)
 			var height: int = sampler.build_provisional_terrain(terrain_fields)
@@ -178,12 +171,16 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 					+ float(ocean_core_floor - ocean_edge_floor) * ocean_t
 				)
 				height = mini(height, ocean_floor)
+				heights[column] = height
+				biomes[column] = sampler.classify_biome(Vector2(temperature, moisture), world_x, world_z)
+				continue
 			elif continentalness < coast_end:
 				var inland_t := (continentalness - ocean_start) * coast_reciprocal
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			if continentalness > ocean_start and river_value < river_early_out:
+			var river_value := absf(sin((xf + river_row_phase) * pi_over_spacing))
+			if river_value < river_early_out:
 				var width_t := clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
 				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
 				var width_scale := coast_width + (inland_width - coast_width) * width_t
@@ -227,5 +224,4 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		"world_fields": fields,
 		"heights": heights,
 		"biomes": biomes,
-		"river_signal": river_signal,
 	}
