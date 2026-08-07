@@ -1,25 +1,17 @@
 extends "res://scripts/world/playable_world_stage3_generation_runtime.gd"
 
 const SHIPPING_STAGE3_DATA := preload("res://scripts/world/playable_world_generation_data.gd")
-const SHIPPING_STAGE3_CACHE := preload("res://scripts/world/playable_world_stage3_cache.gd")
+const SHIPPING_STAGE3_CACHE := preload("res://scripts/world/playable_world_stage3_cache_fast.gd")
 const SHIPPING_STAGE3_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
-# Stable public runtime path. Stage 2's compatibility contract remains present
-# through the inherited `_stage2_build_column_caches_for_sampler` entry point,
-# while Stage 3 keeps Stage 2's `sampler.build_provisional_terrain(terrain_fields)`
-# formula after warped-structure interpolation.
-#
-# The shipping wrapper uses the optimized cache builder for both synchronous
-# diagnostics and threaded workers. Terrain-only climate became unused in Stage
-# 2, so its reserved slots reuse the already-sampled biome climate values rather
-# than paying for a duplicate pair of noise calls. Biome classification itself is
-# unchanged.
-
+# Stable public runtime path. The shipping cache preserves Stage 2 terrain
+# shaping and Stage 3 warped structure while precomputing fixed 16x16 lattice
+# lookup/weight data. Terrain-only climate is unused by Stage 2 height shaping,
+# so its reserved cache slots reuse the already-sampled biome climate pair.
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
 	return SHIPPING_STAGE3_CACHE.build(coord, data)
-
 
 static func _stage3_worker_build_chunk(
 	coord: Vector2i,
@@ -36,11 +28,7 @@ static func _stage3_worker_build_chunk(
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
-	var mesh_height := STAGE2_RUNTIME_BASE._effective_mesh_height(
-		coord,
-		heights,
-		overrides_snapshot
-	)
+	var mesh_height := STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot)
 	var mesh_started_usec := Time.get_ticks_usec()
 	var mesh_data: Dictionary = SHIPPING_STAGE3_MESHER.build(
 		coord,
