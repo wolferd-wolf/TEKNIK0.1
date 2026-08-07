@@ -4,13 +4,14 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "scripts/world/playable_world_generation_data.gd"
-      - "scripts/world/playable_world_stage2_generation_data.gd"
-      - "scripts/world/playable_world_generation_runtime.gd"
-      - "scripts/world/playable_world_stage2_generation_runtime.gd"
+      - "scripts/world/playable_world_stage3_generation_data.gd"
       - "scripts/world/playable_world_stage3_generation_runtime.gd"
       - "scripts/world/playable_world_stage3_cache.gd"
       - "scripts/world/playable_world_stage3_cache_fast.gd"
+      - "scripts/world/playable_world_stage2_generation_data.gd"
+      - "scripts/world/playable_world_stage2_generation_runtime.gd"
+      - "scripts/world/playable_world_generation_data.gd"
+      - "scripts/world/playable_world_generation_runtime.gd"
       - "tests/world_overhaul_stage3_warp_gate.gd"
       - ".github/workflows/world-overhaul-stage3-warp-gate.yml"
   workflow_dispatch:
@@ -55,9 +56,14 @@ jobs:
       - name: Verify macro warp, lattice equivalence, seams and performance
         run: |
           set -o pipefail
+          cp tests/world_overhaul_stage3_warp_gate.gd tests/_ci_world_overhaul_stage3_warp_gate.gd
+          sed -i \
+            -e 's#playable_world_generation_data.gd#playable_world_stage3_generation_data.gd#g' \
+            -e 's#playable_world_generation_runtime.gd#playable_world_stage3_generation_runtime.gd#g' \
+            tests/_ci_world_overhaul_stage3_warp_gate.gd
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage3-warp" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage3_warp_gate.gd \
+              --script res://tests/_ci_world_overhaul_stage3_warp_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage3-warp.log
           grep -Fq 'WORLD_OVERHAUL_STAGE3_PASS' artifacts/world-overhaul-stage3-warp.log
 
