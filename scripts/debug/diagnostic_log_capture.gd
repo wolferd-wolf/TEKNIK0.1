@@ -8,6 +8,9 @@ const LATEST_LOG_PATH := "user://diagnostics/runtime_latest.log"
 const PREVIOUS_LOG_PATH := "user://diagnostics/runtime_previous.log"
 const MAX_BUFFER_CHARS := 262144
 const PREVIOUS_IMPORT_CHARS := 98304
+const ENGINE_POLL_MAX_BYTES := 65536
+const CLIPBOARD_MAX_CHARS := 49152
+const CLIPBOARD_RETRY_CHARS := 16384
 const POLL_INTERVAL_SEC := 0.5
 const FLUSH_INTERVAL_SEC := 2.0
 
@@ -18,6 +21,8 @@ var _source_position := 0
 var _poll_elapsed := 0.0
 var _flush_elapsed := 0.0
 var _dirty := false
+var _last_clipboard_copy_chars := 0
+var _last_clipboard_verified := false
 
 
 func _ready() -> void:
@@ -57,7 +62,11 @@ func record_event(category: String, message: String) -> void:
 		"[%s][%s] %s\n"
 		% [Time.get_datetime_string_from_system(), category, message]
 	)
-	if category.begins_with("WORKER_") or category == "ERROR" or category == "WARNING":
+	if category.begins_with("WORKER_"):
+		# Worker failures are rare and are exactly the evidence we cannot afford
+		# to lose if Android kills the process immediately afterward.
+		_flush_snapshot()
+	elif category == "ERROR" or category == "WARNING":
 		_flush_elapsed = FLUSH_INTERVAL_SEC
 
 
@@ -71,11 +80,49 @@ func get_buffer_text() -> String:
 
 func copy_to_clipboard() -> bool:
 	var snapshot := get_buffer_text()
+	_last_clipboard_copy_chars = 0
+	_last_clipboard_verified = false
 	if snapshot.is_empty():
 		return false
-	DisplayServer.clipboard_set(snapshot)
+	if not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+		record_event("CLIPBOARD_UNAVAILABLE", "DisplayServer reports no clipboard feature")
+		return false
+
+	var payload := _build_clipboard_payload(snapshot, CLIPBOARD_MAX_CHARS)
+	DisplayServer.clipboard_set(payload)
+	var readback := DisplayServer.clipboard_get()
+	if readback == payload:
+		_last_clipboard_copy_chars = payload.length()
+		_last_clipboard_verified = true
+	else:
+		# Some Android/OEM clipboard implementations are less reliable with large
+		# text. Retry with a much smaller tail that still contains the failure.
+		payload = _build_clipboard_payload(snapshot, CLIPBOARD_RETRY_CHARS)
+		DisplayServer.clipboard_set(payload)
+		readback = DisplayServer.clipboard_get()
+		_last_clipboard_verified = readback == payload
+		if _last_clipboard_verified:
+			_last_clipboard_copy_chars = payload.length()
+
+	_append_raw(
+		"[%s][CLIPBOARD_COPY] requested=%d copied=%d verified=%s\n"
+		% [
+			Time.get_datetime_string_from_system(),
+			snapshot.length(),
+			_last_clipboard_copy_chars,
+			_last_clipboard_verified,
+		]
+	)
 	_flush_snapshot()
-	return true
+	return _last_clipboard_verified
+
+
+func get_last_clipboard_copy_chars() -> int:
+	return _last_clipboard_copy_chars
+
+
+func was_last_clipboard_verified() -> bool:
+	return _last_clipboard_verified
 
 
 func flush_now() -> void:
@@ -137,11 +184,22 @@ func _poll_source_log() -> void:
 		_source_position = 0
 	if _source_position == source_length:
 		return
-	source.seek(_source_position)
-	var appended := ""
-	while source.get_position() < source_length:
-		appended += source.get_line() + "\n"
-	_source_position = source.get_position()
+
+	var read_start := _source_position
+	var skipped_bytes := 0
+	var unread_bytes := source_length - read_start
+	if unread_bytes > ENGINE_POLL_MAX_BYTES:
+		read_start = source_length - ENGINE_POLL_MAX_BYTES
+		skipped_bytes = read_start - _source_position
+
+	source.seek(read_start)
+	var appended := source.get_buffer(source_length - read_start).get_string_from_utf8()
+	_source_position = source_length
+	if skipped_bytes > 0:
+		appended = (
+			"=== ENGINE LOG BURST TRIMMED: %d BYTES SKIPPED ===\n" % skipped_bytes
+			+ appended
+		)
 	if appended.is_empty():
 		return
 	_append_raw(appended)
@@ -152,6 +210,14 @@ func _poll_source_log() -> void:
 		or appended.contains("WORKER_")
 	):
 		_flush_elapsed = FLUSH_INTERVAL_SEC
+
+
+func _build_clipboard_payload(snapshot: String, limit_chars: int) -> String:
+	if snapshot.length() <= limit_chars:
+		return snapshot
+	var marker := "=== TEKNIK LOG TAIL; OLDER TEXT OMITTED FOR ANDROID CLIPBOARD ===\n"
+	var keep_chars := maxi(limit_chars - marker.length(), 0)
+	return marker + snapshot.substr(snapshot.length() - keep_chars)
 
 
 func _append_raw(text: String) -> void:
@@ -187,7 +253,7 @@ func _write_text(path: String, text: String) -> void:
 	file.flush()
 
 
-# Test-only source redirect used by the permanent gate. Production never calls it.
+# Test-only helpers used by the permanent gate. Production never calls them.
 func _test_set_source_log_path(path: String) -> void:
 	_source_log_path = path
 	_source_position = 0
@@ -195,3 +261,7 @@ func _test_set_source_log_path(path: String) -> void:
 
 func _test_poll_now() -> void:
 	_poll_source_log()
+
+
+func _test_build_clipboard_payload(snapshot: String, limit_chars: int) -> String:
+	return _build_clipboard_payload(snapshot, limit_chars)
