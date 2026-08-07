@@ -35,10 +35,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var node_width := int((node_max_x - node_min_x) / spacing) + 1
 	var node_height := int((node_max_z - node_min_z) / spacing) + 1
 
-	# Reuse the exact Stage 3 macro-warp lattice for both terrain structure and
-	# Stage 5 river nodes. This is the key Stage 5 hot-path optimization: river
-	# generation does not recalculate warp vectors and does not do a second
-	# 16x16 post-pass over the completed Stage 4 cache.
+	# Preserve the accepted Stage 3 terrain-structure warp path unchanged.
 	var warp_reciprocal: float = sampler.STAGE3_WARP_LATTICE_RECIPROCAL
 	var warp_spacing: int = sampler.STAGE3_WARP_LATTICE_SPACING
 	var warp_min_x := floori(float(node_min_x) * warp_reciprocal)
@@ -57,9 +54,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			)
 
 	var structure_nodes := PackedFloat32Array()
-	var river_nodes := PackedFloat32Array()
 	structure_nodes.resize(node_width * node_height)
-	river_nodes.resize(node_width * node_height)
 	for nz in range(node_height):
 		var world_z := node_min_z + nz * spacing
 		var lattice_z := floori(float(world_z) * warp_reciprocal)
@@ -77,15 +72,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			var north := nw + (ne - nw) * tx
 			var south := sw + (se - sw) * tx
 			var warp := north + (south - north) * tz
-			var node_index := nz * node_width + nx
-			structure_nodes[node_index] = sampler.terrain_shape_noise.get_noise_2d(
+			structure_nodes[nz * node_width + nx] = sampler.terrain_shape_noise.get_noise_2d(
 				float(world_x) + warp.x,
 				float(world_z) + warp.y
-			)
-			river_nodes[node_index] = sampler.stage5_river_raw_at_with_warp(
-				world_x,
-				world_z,
-				warp
 			)
 
 	var x_node := PackedInt32Array()
@@ -122,7 +111,11 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
 
-	# Stage 5 constants cached once per chunk.
+	# Stage 5 constants. The river centerline is direct, so there are no river
+	# lattice arrays or a second padded-column pass. One row phase is evaluated
+	# per Z row and each column needs only one native sin() call for corridor
+	# distance.
+	var pi_over_spacing: float = sampler.STAGE5_RIVER_PI_OVER_SPACING
 	var channel_inner: float = sampler.STAGE5_CHANNEL_INNER
 	var channel_outer: float = sampler.STAGE5_CHANNEL_OUTER
 	var valley_inner: float = sampler.STAGE5_VALLEY_INNER
@@ -132,19 +125,13 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var width_range: float = sampler.STAGE5_WIDTH_CONTINENTAL_RANGE
 	var max_carve: int = sampler.STAGE5_MAX_VALLEY_CARVE
 	var channel_depth: int = sampler.STAGE5_CHANNEL_DEPTH
+	var relief_fraction: float = sampler.STAGE5_VALLEY_RELIEF_FRACTION
 	var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
 	var river_early_out := valley_outer * coast_width
 
-	# Stage 2 continental-base constants are used only for valley-active columns.
-	var continental_base_height: float = sampler.STAGE2_CONTINENTAL_BASE_HEIGHT
-	var continental_height_scale: float = sampler.STAGE2_CONTINENTAL_HEIGHT_SCALE
-	var shelf_start: float = sampler.STAGE2_OCEAN_SHELF_START
-	var basin_full: float = sampler.STAGE2_OCEAN_BASIN_FULL
-	var basin_depth: float = sampler.STAGE2_OCEAN_BASIN_DEPTH
-	var basin_reciprocal := 1.0 / (shelf_start - basin_full)
-
 	for cz in range(width):
 		var world_z: int = z_world[cz]
+		var river_row_phase: float = sampler.stage5_river_row_phase(world_z)
 		var nz: int = z_node[cz]
 		var tz: float = z_weight[cz]
 		var north_base := nz * node_width
@@ -154,21 +141,16 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			var world_x: int = x_world[cx]
 			var nx: int = x_node[cx]
 			var tx: float = x_weight[cx]
-			var structure_nw := structure_nodes[north_base + nx]
-			var structure_ne := structure_nodes[north_base + nx + 1]
-			var structure_sw := structure_nodes[south_base + nx]
-			var structure_se := structure_nodes[south_base + nx + 1]
-			var structure_north := structure_nw + (structure_ne - structure_nw) * tx
-			var structure_south := structure_sw + (structure_se - structure_sw) * tx
-			var structure := structure_north + (structure_south - structure_north) * tz
-
-			var river_nw := river_nodes[north_base + nx]
-			var river_ne := river_nodes[north_base + nx + 1]
-			var river_sw := river_nodes[south_base + nx]
-			var river_se := river_nodes[south_base + nx + 1]
-			var river_north := river_nw + (river_ne - river_nw) * tx
-			var river_south := river_sw + (river_se - river_sw) * tx
-			var river_value := river_north + (river_south - river_north) * tz
+			var nw := structure_nodes[north_base + nx]
+			var ne := structure_nodes[north_base + nx + 1]
+			var sw := structure_nodes[south_base + nx]
+			var se := structure_nodes[south_base + nx + 1]
+			var north := nw + (ne - nw) * tx
+			var south := sw + (se - sw) * tx
+			var structure := north + (south - north) * tz
+			var river_value := absf(
+				sin((float(world_x) + river_row_phase) * pi_over_spacing)
+			)
 
 			var xf := float(world_x)
 			var zf := float(world_z)
@@ -201,7 +183,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			# Most columns are not near a river. Early-out before width/valley math.
 			if continentalness > ocean_start and river_value < river_early_out:
 				var width_t := clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
 				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
@@ -215,21 +196,12 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 					)
 					valley_t = valley_t * valley_t * (3.0 - 2.0 * valley_t)
 					var valley_strength := 1.0 - valley_t
-
-					var c := clampf(continentalness, -1.0, 1.0)
-					var shaped_c := c * 0.35 + c * c * c * 0.65
-					var continental_target := continental_base_height + shaped_c * continental_height_scale
-					if c < shelf_start:
-						var basin_t := clampf((shelf_start - c) * basin_reciprocal, 0.0, 1.0)
-						basin_t = basin_t * basin_t * (3.0 - 2.0 * basin_t)
-						continental_target -= basin_t * basin_depth
-					var valley_floor := mini(
-						height,
-						maxi(
-							sea_level,
-							maxi(roundi(continental_target + 1.0), height - max_carve)
-						)
+					var relief := maxi(0, height - sea_level)
+					var valley_drop := mini(
+						max_carve,
+						maxi(2, roundi(float(relief) * relief_fraction))
 					)
+					var valley_floor := maxi(sea_level, height - valley_drop)
 					height = roundi(
 						float(height) + float(valley_floor - height) * valley_strength
 					)
