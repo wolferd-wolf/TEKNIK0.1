@@ -2,6 +2,7 @@ extends Node
 class_name DiagnosticLogCaptureService
 
 const ENGINE_LOG_PATH := "user://logs/godot.log"
+const ENGINE_LOG_DIR := "user://logs"
 const DIAGNOSTIC_DIR := "user://diagnostics"
 const LATEST_LOG_PATH := "user://diagnostics/runtime_latest.log"
 const PREVIOUS_LOG_PATH := "user://diagnostics/runtime_previous.log"
@@ -56,8 +57,6 @@ func record_event(category: String, message: String) -> void:
 		"[%s][%s] %s\n"
 		% [Time.get_datetime_string_from_system(), category, message]
 	)
-	# Worker failures are rare and important. Request a backup on the next frame
-	# instead of waiting for the normal periodic flush interval.
 	if category.begins_with("WORKER_") or category == "ERROR" or category == "WARNING":
 		_flush_elapsed = FLUSH_INTERVAL_SEC
 
@@ -94,18 +93,39 @@ func get_previous_log_path() -> String:
 
 func _prepare_storage() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIAGNOSTIC_DIR))
-	if not FileAccess.file_exists(LATEST_LOG_PATH):
+	if FileAccess.file_exists(LATEST_LOG_PATH):
+		var previous := FileAccess.get_file_as_string(LATEST_LOG_PATH)
+		if not previous.is_empty():
+			_write_text(PREVIOUS_LOG_PATH, previous)
+			_append_tail("=== PREVIOUS DIAGNOSTIC SNAPSHOT ===", previous)
+	_import_previous_engine_log()
+
+
+func _import_previous_engine_log() -> void:
+	var logs := DirAccess.open(ENGINE_LOG_DIR)
+	if logs == null:
 		return
-	var previous := FileAccess.get_file_as_string(LATEST_LOG_PATH)
-	if previous.is_empty():
+	var newest_path := ""
+	var newest_modified := 0
+	for filename in logs.get_files():
+		if filename == "godot.log" or not filename.to_lower().ends_with(".log"):
+			continue
+		var candidate := ENGINE_LOG_DIR.path_join(filename)
+		var modified := int(FileAccess.get_modified_time(candidate))
+		if modified >= newest_modified:
+			newest_modified = modified
+			newest_path = candidate
+	if newest_path.is_empty():
 		return
-	_write_text(PREVIOUS_LOG_PATH, previous)
-	var import_start := maxi(previous.length() - PREVIOUS_IMPORT_CHARS, 0)
-	_append_raw(
-		"=== PREVIOUS SESSION BACKUP ===\n"
-		+ previous.substr(import_start)
-		+ "\n=== CURRENT SESSION ===\n"
-	)
+	var previous_engine_log := FileAccess.get_file_as_string(newest_path)
+	if previous_engine_log.is_empty():
+		return
+	_append_tail("=== PREVIOUS GODOT ENGINE LOG: %s ===" % newest_path, previous_engine_log)
+
+
+func _append_tail(marker: String, text: String) -> void:
+	var import_start := maxi(text.length() - PREVIOUS_IMPORT_CHARS, 0)
+	_append_raw(marker + "\n" + text.substr(import_start) + "\n")
 
 
 func _poll_source_log() -> void:
@@ -125,8 +145,6 @@ func _poll_source_log() -> void:
 	if appended.is_empty():
 		return
 	_append_raw(appended)
-	# Error/warning streams are the highest-value crash evidence. Once one is
-	# observed in Godot's engine log, request a snapshot on the next frame.
 	if (
 		appended.contains("ERROR:")
 		or appended.contains("WARNING:")
