@@ -1,9 +1,12 @@
 extends RefCounted
 
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
+const WORLD_MAP_OVERLAY := preload("res://scripts/ui/world_map_overlay.gd")
 const CHUNK_SIZE := 12
 const PADDING := 2
 const WIDTH := CHUNK_SIZE + PADDING * 2
+const DEVICE_MAP_CENTER := Vector2i(157, -16)
+const DEVICE_MAP_HALF_SPAN := 48
 
 
 static func run(data, failures: Array[String]) -> void:
@@ -16,6 +19,7 @@ static func run(data, failures: Array[String]) -> void:
 	if WORLD_DATA.BIOME_BLEND_PATCH_SIZE < 2 or WORLD_DATA.BIOME_BLEND_PATCH_SIZE > 4:
 		_fail(failures, "Biome blend patch size must prevent single-cell speckle without creating large tiles")
 	_validate_weight_contract(data, failures)
+	_validate_mountain_contract(data, failures)
 	_validate_sources(failures)
 	_validate_determinism_and_continuity(data, failures)
 
@@ -74,6 +78,74 @@ static func _validate_weight_contract(data, failures: Array[String]) -> void:
 			_fail(failures, "Biome blending broke the sandy shoreline contract")
 
 
+static func _validate_mountain_contract(data, failures: Array[String]) -> void:
+	if WORLD_DATA.WORLD_HEIGHT < 40:
+		_fail(failures, "World height still lacks headroom for the rocky mountain profile")
+	if WORLD_DATA.ROCKY_MOUNTAIN_BASE_RISE <= 0.0 or WORLD_DATA.ROCKY_MOUNTAIN_RUGGEDNESS <= 0.0:
+		_fail(failures, "Rocky biome has no positive mountain elevation parameters")
+
+	var plains_samples := Vector4(0.35, 0.45, 0.0, 0.0)
+	var rocky_samples := Vector4(0.35, 0.45, -0.8, -0.4)
+	var desert_samples := Vector4(0.35, 0.45, 0.8, -0.8)
+	var plains_height: int = data.terrain_height_from_samples(plains_samples)
+	var rocky_height: int = data.terrain_height_from_samples(rocky_samples)
+	var desert_height: int = data.terrain_height_from_samples(desert_samples)
+	if rocky_height < plains_height + 8:
+		_fail(failures, "Rocky climate still changes only material instead of producing mountain elevation")
+	if absi(desert_height - plains_height) > 1:
+		_fail(failures, "Mountain elevation leaked into non-rocky climate")
+	if data.rocky_mountain_weight_from_climate(-0.8, -0.4) < 0.99:
+		_fail(failures, "Pure rocky climate does not produce a full mountain weight")
+	if data.rocky_mountain_weight_from_climate(0.0, 0.0) > 0.01:
+		_fail(failures, "Neutral plains climate incorrectly receives mountain elevation")
+
+	var ocean_height: int = data.terrain_height_from_samples(Vector4(-1.0, -1.0, -1.0, -1.0))
+	if ocean_height > WORLD_DATA.SEA_LEVEL:
+		_fail(failures, "Cold ocean basins were lifted into mountains")
+	var peak_height: int = data.terrain_height_from_samples(Vector4(1.0, 1.0, -1.0, -1.0))
+	if peak_height < WORLD_DATA.SEA_LEVEL + 20:
+		_fail(failures, "Synthetic rocky peak remains too low to read as a mountain")
+	if peak_height > WORLD_DATA.WORLD_HEIGHT - 3:
+		_fail(failures, "Synthetic rocky peak clips the world-height safety margin")
+
+	var rocky_columns := 0
+	var elevated_rocky_columns := 0
+	var local_peak := 0
+	for z in range(
+		DEVICE_MAP_CENTER.y - DEVICE_MAP_HALF_SPAN,
+		DEVICE_MAP_CENTER.y + DEVICE_MAP_HALF_SPAN + 1,
+		2
+	):
+		for x in range(
+			DEVICE_MAP_CENTER.x - DEVICE_MAP_HALF_SPAN,
+			DEVICE_MAP_CENTER.x + DEVICE_MAP_HALF_SPAN + 1,
+			2
+		):
+			var samples: Vector4 = data.sample_column_noise(x, z)
+			var height: int = data.terrain_height_from_samples(samples)
+			local_peak = maxi(local_peak, height)
+			if data.blended_biome_from_samples(samples, x, z) != WORLD_DATA.BIOME_ROCKY:
+				continue
+			rocky_columns += 1
+			if height >= WORLD_DATA.SEA_LEVEL + 8:
+				elevated_rocky_columns += 1
+	if rocky_columns < 200:
+		_fail(failures, "Device-reported map area no longer contains the visible rocky region")
+	if elevated_rocky_columns * 3 < rocky_columns:
+		_fail(failures, "Most of the device-reported rocky region remains ordinary-height terrain")
+	if local_peak < WORLD_DATA.SEA_LEVEL + 10:
+		_fail(failures, "Device-reported map area still contains no meaningful mountain peak")
+
+	var overlay = WORLD_MAP_OVERLAY.new()
+	var low_color: Color = overlay._map_color(WORLD_DATA.BLOCK_STONE, WORLD_DATA.SEA_LEVEL + 2)
+	var high_color: Color = overlay._map_color(WORLD_DATA.BLOCK_STONE, WORLD_DATA.WORLD_HEIGHT - 3)
+	var low_brightness := low_color.r + low_color.g + low_color.b
+	var high_brightness := high_color.r + high_color.g + high_color.b
+	if high_brightness <= low_brightness + 0.25:
+		_fail(failures, "Map stone color does not visibly distinguish low rocky ground from high mountains")
+	overlay.free()
+
+
 static func _validate_weights(weights: Vector4, failures: Array[String], context: String) -> void:
 	var total := weights.x + weights.y + weights.z + weights.w
 	if absf(total - 1.0) > 0.0001:
@@ -85,11 +157,17 @@ static func _validate_weights(weights: Vector4, failures: Array[String], context
 
 static func _validate_sources(failures: Array[String]) -> void:
 	var data_source := FileAccess.get_file_as_string("res://scripts/world/playable_world_data.gd")
-	for required in ["biome_weights_from_climate", "blended_biome_from_samples", "BIOME_BLEND_PATCH_SIZE"]:
+	for required in [
+		"biome_weights_from_climate",
+		"blended_biome_from_samples",
+		"BIOME_BLEND_PATCH_SIZE",
+		"rocky_mountain_weight_from_climate",
+		"ROCKY_MOUNTAIN_RUGGEDNESS",
+	]:
 		if not data_source.contains(required):
 			_fail(failures, "Step 4 production source is missing %s" % required)
 	var sample_start := data_source.find("func sample_column_noise")
-	var height_start := data_source.find("func terrain_height_from_samples", sample_start)
+	var height_start := data_source.find("func rocky_mountain_weight_from_climate", sample_start)
 	if sample_start < 0 or height_start < 0:
 		_fail(failures, "Unable to isolate the production four-noise sampler")
 	else:
@@ -104,6 +182,12 @@ static func _validate_sources(failures: Array[String]) -> void:
 		var blend_body := data_source.substr(weights_start, biome_at_start - weights_start)
 		if blend_body.contains(".get_noise_2d(") or blend_body.contains("sample_column_noise("):
 			_fail(failures, "Biome blending added extra noise samples instead of reusing climate values")
+
+	var map_source := FileAccess.get_file_as_string("res://scripts/ui/world_map_overlay.gd")
+	if not map_source.contains("BRIGHTER = HIGHER"):
+		_fail(failures, "Map legend does not explain that brightness represents elevation")
+	if not map_source.contains("WORLD_HEIGHT - WORLD_DATA.SEA_LEVEL"):
+		_fail(failures, "Map elevation shading is not normalized to the actual world height")
 
 	var runtime_source := FileAccess.get_file_as_string("res://scripts/world/playable_world_runtime.gd")
 	var cache_start := runtime_source.find("func _build_column_caches")

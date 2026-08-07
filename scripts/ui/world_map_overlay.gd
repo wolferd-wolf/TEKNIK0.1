@@ -188,7 +188,7 @@ func _build_screen() -> void:
 
 	var legend := Label.new()
 	legend.name = "Legend"
-	legend.text = "NORTH UP   •   YELLOW = PLAYER"
+	legend.text = "NORTH UP   •   YELLOW = PLAYER   •   BRIGHTER = HIGHER"
 	legend.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	legend.add_theme_font_size_override("font_size", 14)
 	column.add_child(legend)
@@ -248,7 +248,16 @@ func _map_color(block_id: int, height: int) -> Color:
 			base = Color(0.32, 0.18, 0.08, 1.0)
 		WORLD_DATA.BLOCK_LEAVES:
 			base = Color(0.12, 0.48, 0.10, 1.0)
-	var shade := clampf(0.78 + float(height - WORLD_DATA.SEA_LEVEL) * 0.025, 0.72, 1.08)
+	var usable_height := maxf(
+		1.0,
+		float(WORLD_DATA.WORLD_HEIGHT - WORLD_DATA.SEA_LEVEL - 3)
+	)
+	var elevation := clampf(
+		float(height - WORLD_DATA.SEA_LEVEL) / usable_height,
+		0.0,
+		1.0
+	)
+	var shade := lerpf(0.78, 1.12, elevation)
 	return Color(
 		clampf(base.r * shade, 0.0, 1.0),
 		clampf(base.g * shade, 0.0, 1.0),
