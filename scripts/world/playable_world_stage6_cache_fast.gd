@@ -36,23 +36,76 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		var center_z := int(feature["center_z"])
 		var radius_x := float(feature["radius_x"])
 		var radius_z := float(feature["radius_z"])
+		var reciprocal_radius_x := 1.0 / radius_x
+		var reciprocal_radius_z := 1.0 / radius_z
+		var water_radius := float(feature["water_radius"])
+		var water_radius_squared := water_radius * water_radius
+		var hard_rim_radius := float(feature["hard_rim_radius"])
+		var hard_rim_squared := hard_rim_radius * hard_rim_radius
+		var inverse_outer_rim_range := 1.0 / (1.0 - hard_rim_squared)
+		var water_level := int(feature["water_level"])
+		var water_level_plus_one := water_level + 1
+		var depth := int(feature["depth"])
+		var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
 		var feature_min_x := maxi(min_x, floori(float(center_x) - radius_x))
 		var feature_max_x := mini(max_x, ceili(float(center_x) + radius_x))
 		var feature_min_z := maxi(min_z, floori(float(center_z) - radius_z))
 		var feature_max_z := mini(max_z, ceili(float(center_z) + radius_z))
 		for world_z in range(feature_min_z, feature_max_z + 1):
+			var normalized_z := float(world_z - center_z) * reciprocal_radius_z
+			var normalized_z_squared := normalized_z * normalized_z
 			var cache_z := world_z - min_z
 			var row := cache_z * width
 			for world_x in range(feature_min_x, feature_max_x + 1):
-				if sampler.stage6_feature_distance_squared(world_x, world_z, feature) >= 1.0:
+				var normalized_x := float(world_x - center_x) * reciprocal_radius_x
+				var distance_squared := normalized_x * normalized_x + normalized_z_squared
+				if distance_squared >= 1.0:
 					continue
 				var cache_x := world_x - min_x
 				var index := row + cache_x
-				heights[index] = sampler.stage6_shape_height_for_feature(
-					heights[index],
-					world_x,
-					world_z,
-					feature
+				var stage5_height := heights[index]
+				if distance_squared <= water_radius_squared:
+					var core_t := clampf(
+						distance_squared / water_radius_squared,
+						0.0,
+						1.0
+					)
+					core_t = core_t * core_t * (3.0 - 2.0 * core_t)
+					var floor_height := (
+						water_level
+						- 1
+						- roundi(float(depth) * (1.0 - core_t))
+					)
+					heights[index] = clampi(
+						mini(stage5_height, floor_height),
+						3,
+						safe_top
+					)
+					continue
+				if distance_squared <= hard_rim_squared:
+					heights[index] = clampi(
+						maxi(stage5_height, water_level_plus_one),
+						3,
+						safe_top
+					)
+					continue
+				if stage5_height >= water_level_plus_one:
+					continue
+				var rim_t := clampf(
+					(distance_squared - hard_rim_squared) * inverse_outer_rim_range,
+					0.0,
+					1.0
+				)
+				rim_t = rim_t * rim_t * (3.0 - 2.0 * rim_t)
+				var blended_rim := roundi(lerpf(
+					float(water_level_plus_one),
+					float(stage5_height),
+					rim_t
+				))
+				heights[index] = clampi(
+					maxi(stage5_height, blended_rim),
+					3,
+					safe_top
 				)
 
 	result["heights"] = heights
