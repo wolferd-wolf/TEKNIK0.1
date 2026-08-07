@@ -8,12 +8,13 @@ const PADDING := 2
 static func build(coord: Vector2i, sampler) -> Dictionary:
 	# Stage 5 remains the dense hot path. Stage 6 is intentionally sparse: first
 	# build the accepted Stage 5 cache, then touch only columns inside accepted
-	# lake/pond feature bounds. Chunks without a basin do no per-column Stage 6
-	# work at all.
+	# lake/pond feature bounds. When a basin center is already in that cache, the
+	# sampler reuses its fields/height instead of resampling the center.
 	var result: Dictionary = STAGE5_CACHE.build(coord, sampler)
 	var heights: PackedInt32Array = result.get("heights", PackedInt32Array())
 	if heights.is_empty():
 		return result
+	var world_fields: PackedFloat32Array = result.get("world_fields", PackedFloat32Array())
 
 	var width := CHUNK_SIZE + PADDING * 2
 	var origin_x := coord.x * CHUNK_SIZE
@@ -22,11 +23,14 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var min_z := origin_z - PADDING
 	var max_x := origin_x + CHUNK_SIZE + PADDING - 1
 	var max_z := origin_z + CHUNK_SIZE + PADDING - 1
-	var features: Array[Dictionary] = sampler.stage6_collect_features_for_bounds(
+	var features: Array[Dictionary] = sampler.stage6_collect_features_for_cached_bounds(
 		min_x,
 		min_z,
 		max_x,
-		max_z
+		max_z,
+		width,
+		world_fields,
+		heights
 	)
 	if features.is_empty():
 		return result
