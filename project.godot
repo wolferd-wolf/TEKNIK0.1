@@ -8,6 +8,16 @@ config/name="TEKNIK 0.1"
 config/icon="res://assets/icon.svg"
 run/main_scene="res://scenes/main.tscn"
 
+[autoload]
+
+DiagnosticLogCapture="*res://scripts/debug/diagnostic_log_capture.gd"
+
+[debug]
+
+file_logging/enable_file_logging=true
+file_logging/log_path="user://logs/godot.log"
+file_logging/max_log_files=3
+
 [display]
 
 window/size/viewport_width=1280
