@@ -293,21 +293,71 @@ func blended_biome_from_weights(weights: Vector4, x: int, z: int) -> int:
 
 
 func blended_biome_from_samples(_samples: Vector4, x: int, z: int) -> int:
-	var climate := sample_biome_climate(x, z)
-	return blended_biome_from_weights(
-		biome_weights_from_climate(climate.x, climate.y),
-		x,
-		z
-	)
+	return _resolve_large_zone_biome(x, z)
 
 
 func biome_at(x: int, z: int) -> int:
-	var climate := sample_biome_climate(x, z)
-	return blended_biome_from_weights(
-		biome_weights_from_climate(climate.x, climate.y),
-		x,
-		z
+	return _resolve_large_zone_biome(x, z)
+
+
+func _resolve_large_zone_biome(x: int, z: int) -> int:
+	# This is the chunk-generation hot path. Keep it scalar and inline the
+	# existing weight/selector math so the two added climate samples do not
+	# pay repeated GDScript helper calls or Vector2/Vector4 allocations.
+	var world_x := float(x)
+	var world_z := float(z)
+	var temperature := biome_temperature_noise.get_noise_2d(world_x, world_z)
+	var moisture := biome_moisture_noise.get_noise_2d(world_x, world_z)
+
+	var hot_t := clampf(
+		(temperature - (BIOME_HOT_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
+	var hot := hot_t * hot_t * (3.0 - 2.0 * hot_t)
+	var cold_t := clampf(
+		(temperature - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var cold := 1.0 - cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var dry_t := clampf(
+		(moisture - (BIOME_DRY_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var dry := 1.0 - dry_t * dry_t * (3.0 - 2.0 * dry_t)
+	var wet_t := clampf(
+		(moisture - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var wet := wet_t * wet_t * (3.0 - 2.0 * wet_t)
+
+	var desert := hot * dry
+	var forest := wet * (1.0 - desert)
+	var rocky := cold * (1.0 - wet) * (1.0 - desert)
+	var plains := maxf(0.0, 1.0 - maxf(desert, maxf(forest, rocky)))
+	var total := plains + forest + desert + rocky
+	if total <= 0.000001:
+		return BIOME_PLAINS
+	var reciprocal_total := 1.0 / total
+	plains *= reciprocal_total
+	forest *= reciprocal_total
+	desert *= reciprocal_total
+
+	var patch_x := floori(world_x * BIOME_BLEND_PATCH_RECIPROCAL)
+	var patch_z := floori(world_z * BIOME_BLEND_PATCH_RECIPROCAL)
+	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (WORLD_SEED * 83492791)
+	hash_value = absi(hash_value)
+	var selector := float(hash_value % 1000003) / 1000003.0
+	if selector < plains:
+		return BIOME_PLAINS
+	if selector < plains + forest:
+		return BIOME_FOREST
+	if selector < plains + forest + desert:
+		return BIOME_DESERT
+	return BIOME_ROCKY
 
 
 func biome_name(biome: int) -> String:
