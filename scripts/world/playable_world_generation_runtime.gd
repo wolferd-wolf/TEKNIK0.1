@@ -1,13 +1,14 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
-const SHIPPING_STAGE6_DATA := preload("res://scripts/world/playable_world_stage6_generation_data.gd")
+const SHIPPING_STAGE6_DATA := preload("res://scripts/world/playable_world_stage6_optimized_data.gd")
 const SHIPPING_STAGE6_CACHE := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 const SHIPPING_STAGE6_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 
 # Stable public runtime path. Stage 6 keeps the accepted Stage 5 terrain/ocean/
 # river path and adds sparse contained lake/pond basins before final meshing.
 # Streaming, remeshing and the 150-block active-content mesh ceiling remain the
-# proven inherited implementations.
+# proven inherited implementations. The shipping Stage 6 data subclass only
+# adds a topology-equivalent pond/lake candidate prefilter for performance.
 
 func _init() -> void:
 	data = SHIPPING_STAGE6_DATA.new()
