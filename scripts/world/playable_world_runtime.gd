@@ -10,6 +10,8 @@ const UNLOAD_RADIUS := 4
 const BUILD_BUDGET_USEC := 5500
 const EDIT_DEBOUNCE_MSEC := 75
 const MESH_CACHE_PADDING := 2
+const MAX_ACTIVE_BUILD_TASKS := 2
+const MAX_BUILD_APPLIES_PER_FRAME := 1
 
 var target: Node3D
 var target_physics_enabled := false
@@ -29,12 +31,24 @@ var collision_remove_queued: Dictionary = {}
 var pending_rebuilds: Dictionary = {}
 var rebuild_deadlines: Dictionary = {}
 
+var build_revisions: Dictionary = {}
+var active_build_tasks: Dictionary = {}
+var build_apply_queue: Array[Dictionary] = []
+var completed_worker_results: Dictionary = {}
+var worker_result_mutex := Mutex.new()
+
 var last_build_usec := 0
+var last_apply_usec := 0
 var last_collision_usec := 0
 var last_face_count := 0
 var atomic_swaps := 0
 var atomic_failures := 0
 var coalesced_edits := 0
+var build_tasks_started := 0
+var build_results_applied := 0
+var stale_results_discarded := 0
+var max_background_compute_usec := 0
+var max_pump_usec := 0
 
 
 func configure(streaming_target: Node3D) -> void:
@@ -69,6 +83,16 @@ func tick(delta: float) -> void:
 
 
 func shutdown() -> void:
+	for task_value: Variant in active_build_tasks.values():
+		var task_data: Dictionary = task_value
+		var task_id := int(task_data.get("task_id", -1))
+		if task_id >= 0:
+			WorkerThreadPool.wait_for_task_completion(task_id)
+	active_build_tasks.clear()
+	build_apply_queue.clear()
+	worker_result_mutex.lock()
+	completed_worker_results.clear()
+	worker_result_mutex.unlock()
 	if data.dirty:
 		data.save_world()
 
@@ -90,12 +114,16 @@ func cell_to_chunk(cell: Vector3i) -> Vector2i:
 func set_center(next_center: Vector2i) -> void:
 	center = next_center
 	_prune_queue()
+	_invalidate_outside_active_builds()
 	for z in range(center.y - RENDER_RADIUS, center.y + RENDER_RADIUS + 1):
 		for x in range(center.x - RENDER_RADIUS, center.x + RENDER_RADIUS + 1):
 			var coord := Vector2i(x, z)
-			if not loaded.has(coord) and not build_queued.has(coord):
-				build_queue.append(coord)
-				build_queued[coord] = true
+			if (
+				not loaded.has(coord)
+				and not build_queued.has(coord)
+				and not active_build_tasks.has(coord)
+			):
+				_queue_initial_build(coord)
 	_sort_queue()
 	_unload_far_chunks()
 
@@ -110,6 +138,9 @@ func get_chunk_entry(coord: Vector2i) -> Dictionary:
 
 
 func clear_world() -> void:
+	for coord_value: Variant in active_build_tasks.keys():
+		var coord: Vector2i = coord_value
+		build_revisions[coord] = int(build_revisions.get(coord, 0)) + 1
 	for entry_value: Variant in loaded.values():
 		var entry: Dictionary = entry_value
 		var root_node := entry.get("root") as Node3D
@@ -118,6 +149,7 @@ func clear_world() -> void:
 	loaded.clear()
 	build_queue.clear()
 	build_queued.clear()
+	build_apply_queue.clear()
 	collision_add_queue.clear()
 	collision_remove_queue.clear()
 	collision_add_queued.clear()
@@ -164,21 +196,28 @@ func collision_ring_ready() -> bool:
 
 
 func remesh_idle() -> bool:
-	return build_queue.is_empty() and pending_rebuilds.is_empty()
+	return (
+		build_queue.is_empty()
+		and pending_rebuilds.is_empty()
+		and rebuild_deadlines.is_empty()
+		and active_build_tasks.is_empty()
+		and build_apply_queue.is_empty()
+	)
 
 
 func diagnostics() -> Dictionary:
 	return {
-		"tasks_started": loaded.size() + atomic_swaps,
-		"results_applied": loaded.size() + atomic_swaps,
-		"stale_results_discarded": 0,
+		"tasks_started": build_tasks_started,
+		"results_applied": build_results_applied,
+		"stale_results_discarded": stale_results_discarded,
 		"coalesced_requests": coalesced_edits,
-		"active_tasks": 0,
-		"pending_applies": build_queue.size() + pending_rebuilds.size(),
+		"active_tasks": active_build_tasks.size(),
+		"pending_applies": build_apply_queue.size() + build_queue.size() + pending_rebuilds.size(),
 		"max_queue_ms": last_build_usec / 1000.0,
-		"max_apply_ms": last_collision_usec / 1000.0,
-		"max_background_compute_ms": 0.0,
-		"max_pump_ms": last_build_usec / 1000.0,
+		"max_apply_ms": last_apply_usec / 1000.0,
+		"max_background_compute_ms": max_background_compute_usec / 1000.0,
+		"max_pump_ms": max_pump_usec / 1000.0,
+		"max_collision_ms": last_collision_usec / 1000.0,
 		"atomic_swaps": atomic_swaps,
 		"atomic_swap_failures": atomic_failures,
 	}
@@ -188,11 +227,33 @@ func reset_diagnostics() -> bool:
 	if not remesh_idle():
 		return false
 	last_build_usec = 0
+	last_apply_usec = 0
 	last_collision_usec = 0
 	atomic_swaps = 0
 	atomic_failures = 0
 	coalesced_edits = 0
+	build_tasks_started = 0
+	build_results_applied = 0
+	stale_results_discarded = 0
+	max_background_compute_usec = 0
+	max_pump_usec = 0
 	return true
+
+
+func _queue_initial_build(coord: Vector2i) -> void:
+	build_revisions[coord] = int(build_revisions.get(coord, 0)) + 1
+	build_queue.append(coord)
+	build_queued[coord] = true
+
+
+func _queue_latest_revision(coord: Vector2i, front: bool) -> void:
+	if build_queued.has(coord) or active_build_tasks.has(coord):
+		return
+	if front:
+		build_queue.push_front(coord)
+	else:
+		build_queue.append(coord)
+	build_queued[coord] = true
 
 
 func _prune_queue() -> void:
@@ -203,6 +264,13 @@ func _prune_queue() -> void:
 			kept.append(coord)
 			build_queued[coord] = true
 	build_queue = kept
+
+
+func _invalidate_outside_active_builds() -> void:
+	for coord_value: Variant in active_build_tasks.keys():
+		var coord: Vector2i = coord_value
+		if distance(coord, center) > RENDER_RADIUS:
+			build_revisions[coord] = int(build_revisions.get(coord, 0)) + 1
 
 
 func _sort_queue() -> void:
@@ -216,10 +284,16 @@ func _sort_queue() -> void:
 
 
 func _pump_builds() -> void:
-	if build_queue.is_empty():
-		return
-	var frame_start := Time.get_ticks_usec()
-	while not build_queue.is_empty():
+	var pump_start := Time.get_ticks_usec()
+	_collect_completed_build_tasks()
+	_apply_completed_builds(MAX_BUILD_APPLIES_PER_FRAME)
+	_dispatch_build_tasks()
+	max_pump_usec = maxi(max_pump_usec, Time.get_ticks_usec() - pump_start)
+
+
+func _dispatch_build_tasks() -> void:
+	var dispatch_start := Time.get_ticks_usec()
+	while active_build_tasks.size() < MAX_ACTIVE_BUILD_TASKS and not build_queue.is_empty():
 		var coord: Vector2i = build_queue.pop_front()
 		build_queued.erase(coord)
 		var replacing := pending_rebuilds.has(coord)
@@ -228,34 +302,91 @@ func _pump_builds() -> void:
 		if distance(coord, center) > RENDER_RADIUS:
 			pending_rebuilds.erase(coord)
 			continue
-		var build_start := Time.get_ticks_usec()
-		var column_caches := _build_column_caches(coord)
-		var heights: PackedInt32Array = column_caches.get("heights", PackedInt32Array())
-		var biomes: PackedByteArray = column_caches.get("biomes", PackedByteArray())
-		var mesh_data: Dictionary = WORLD_MESHER.build(
-			coord,
-			heights,
-			data.overrides,
-			CHUNK_SIZE,
-			WORLD_DATA.WORLD_HEIGHT,
-			WORLD_DATA.SEA_LEVEL,
-			biomes
-		)
-		if replacing:
-			if _swap_chunk(coord, mesh_data):
-				pending_rebuilds.erase(coord)
-			else:
-				atomic_failures += 1
-				rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_DEBOUNCE_MSEC
-		else:
-			_commit_chunk(coord, mesh_data, false)
-		last_build_usec = Time.get_ticks_usec() - build_start
-		last_face_count = int(mesh_data.get("face_count", 0))
-		if Time.get_ticks_usec() - frame_start >= BUILD_BUDGET_USEC:
+		if active_build_tasks.has(coord):
+			continue
+		var revision := int(build_revisions.get(coord, 0))
+		if revision <= 0:
+			revision = 1
+			build_revisions[coord] = revision
+		_start_build_task(coord, revision, replacing)
+		if Time.get_ticks_usec() - dispatch_start >= BUILD_BUDGET_USEC:
 			break
 
 
-func _build_column_caches(coord: Vector2i) -> Dictionary:
+func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
+	var queue_start := Time.get_ticks_usec()
+	var result_key := _result_key(coord, revision)
+	var overrides_snapshot: Dictionary = data.overrides.duplicate(true)
+	var task_callable := Callable(get_script(), "_worker_build_chunk").bind(
+		coord,
+		overrides_snapshot,
+		revision,
+		completed_worker_results,
+		worker_result_mutex,
+		result_key
+	)
+	var task_id := WorkerThreadPool.add_task(
+		task_callable,
+		false,
+		"TEKNIK initial chunk %s r%d" % [coord, revision]
+	)
+	if task_id < 0:
+		push_error("Failed to submit chunk build task for %s revision %d" % [coord, revision])
+		_queue_latest_revision(coord, true)
+		return
+	active_build_tasks[coord] = {
+		"task_id": task_id,
+		"revision": revision,
+		"result_key": result_key,
+		"replacing": replacing,
+		"queued_at_usec": Time.get_ticks_usec(),
+	}
+	build_tasks_started += 1
+	last_build_usec = maxi(last_build_usec, Time.get_ticks_usec() - queue_start)
+
+
+static func _worker_build_chunk(
+	coord: Vector2i,
+	overrides_snapshot: Dictionary,
+	revision: int,
+	result_sink: Dictionary,
+	result_mutex: Mutex,
+	result_key: String
+) -> void:
+	var started_usec := Time.get_ticks_usec()
+	# Each task owns its sampler instance. Its loaded save data is intentionally
+	# ignored; voxel overrides come only from the immutable main-thread snapshot.
+	var sampler = WORLD_DATA.new()
+	var cache_started_usec := Time.get_ticks_usec()
+	var caches := _build_column_caches_for_sampler(coord, sampler)
+	var cache_usec := Time.get_ticks_usec() - cache_started_usec
+	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
+	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
+	var mesh_started_usec := Time.get_ticks_usec()
+	var mesh_data: Dictionary = WORLD_MESHER.build(
+		coord,
+		heights,
+		overrides_snapshot,
+		CHUNK_SIZE,
+		WORLD_DATA.WORLD_HEIGHT,
+		WORLD_DATA.SEA_LEVEL,
+		biomes
+	)
+	var mesh_usec := Time.get_ticks_usec() - mesh_started_usec
+	var result := {
+		"coord": coord,
+		"revision": revision,
+		"mesh_data": mesh_data,
+		"cache_usec": cache_usec,
+		"mesh_usec": mesh_usec,
+		"compute_usec": Time.get_ticks_usec() - started_usec,
+	}
+	result_mutex.lock()
+	result_sink[result_key] = result
+	result_mutex.unlock()
+
+
+static func _build_column_caches_for_sampler(coord: Vector2i, sampler) -> Dictionary:
 	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var heights := PackedInt32Array()
 	var biomes := PackedByteArray()
@@ -268,10 +399,120 @@ func _build_column_caches(coord: Vector2i) -> Dictionary:
 			var index := (local_z + MESH_CACHE_PADDING) * width + local_x + MESH_CACHE_PADDING
 			var world_x := origin_x + local_x
 			var world_z := origin_z + local_z
-			var samples: Vector4 = data.sample_column_noise(world_x, world_z)
-			heights[index] = data.terrain_height_from_samples(samples)
-			biomes[index] = data.blended_biome_from_samples(samples, world_x, world_z)
+			var samples: Vector4 = sampler.sample_column_noise(world_x, world_z)
+			heights[index] = sampler.terrain_height_from_samples(samples)
+			biomes[index] = sampler.blended_biome_from_samples(samples, world_x, world_z)
 	return {"heights": heights, "biomes": biomes}
+
+
+func _collect_completed_build_tasks() -> void:
+	for coord_value: Variant in active_build_tasks.keys():
+		var coord: Vector2i = coord_value
+		var task_data: Dictionary = active_build_tasks.get(coord, {})
+		var task_id := int(task_data.get("task_id", -1))
+		if task_id < 0 or not WorkerThreadPool.is_task_completed(task_id):
+			continue
+		WorkerThreadPool.wait_for_task_completion(task_id)
+		var result_key := String(task_data.get("result_key", ""))
+		var result := _take_worker_result(result_key)
+		var completed_revision := int(task_data.get("revision", 0))
+		var latest_revision := int(build_revisions.get(coord, 0))
+		var replacing := bool(task_data.get("replacing", false))
+		active_build_tasks.erase(coord)
+		max_background_compute_usec = maxi(
+			max_background_compute_usec,
+			int(result.get("compute_usec", 0))
+		)
+		var still_wanted := distance(coord, center) <= RENDER_RADIUS
+		var target_state_valid := loaded.has(coord) if replacing else not loaded.has(coord)
+		if (
+			result.is_empty()
+			or completed_revision != latest_revision
+			or not still_wanted
+			or not target_state_valid
+		):
+			stale_results_discarded += 1
+			if completed_revision != latest_revision and still_wanted:
+				if pending_rebuilds.has(coord) or not loaded.has(coord):
+					_queue_latest_revision(coord, true)
+			continue
+		build_apply_queue.append({
+			"coord": coord,
+			"revision": completed_revision,
+			"replacing": replacing,
+			"queued_at_usec": int(task_data.get("queued_at_usec", 0)),
+			"result": result,
+		})
+
+
+func _take_worker_result(result_key: String) -> Dictionary:
+	var result: Dictionary = {}
+	worker_result_mutex.lock()
+	if completed_worker_results.has(result_key):
+		result = completed_worker_results[result_key]
+		completed_worker_results.erase(result_key)
+	worker_result_mutex.unlock()
+	return result
+
+
+func _apply_completed_builds(max_applies: int) -> void:
+	var applies := 0
+	while applies < max_applies and not build_apply_queue.is_empty():
+		var apply_data: Dictionary = build_apply_queue.pop_front()
+		var coord: Vector2i = apply_data.get("coord", Vector2i.ZERO)
+		var revision := int(apply_data.get("revision", 0))
+		var latest_revision := int(build_revisions.get(coord, 0))
+		var replacing := bool(apply_data.get("replacing", false))
+		var still_wanted := distance(coord, center) <= RENDER_RADIUS
+		var target_state_valid := loaded.has(coord) if replacing else not loaded.has(coord)
+		if revision != latest_revision or not still_wanted or not target_state_valid:
+			stale_results_discarded += 1
+			if revision != latest_revision and still_wanted:
+				if pending_rebuilds.has(coord) or not loaded.has(coord):
+					_queue_latest_revision(coord, true)
+			continue
+		var result: Dictionary = apply_data.get("result", {})
+		var mesh_data: Dictionary = result.get("mesh_data", {})
+		var apply_started_usec := Time.get_ticks_usec()
+		var applied := false
+		if replacing:
+			if _swap_chunk(coord, mesh_data):
+				pending_rebuilds.erase(coord)
+				rebuild_deadlines.erase(coord)
+				applied = true
+			else:
+				atomic_failures += 1
+				rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_DEBOUNCE_MSEC
+		else:
+			applied = _commit_chunk(coord, mesh_data, false)
+		last_apply_usec = maxi(last_apply_usec, Time.get_ticks_usec() - apply_started_usec)
+		if not applied:
+			if not replacing:
+				_queue_latest_revision(coord, true)
+			continue
+		last_face_count = int(mesh_data.get("face_count", 0))
+		build_results_applied += 1
+		applies += 1
+		print(
+			"THREADED_CHUNK_STREAM_COMPLETE coord=%s revision=%d cache_ms=%.3f mesh_ms=%.3f background_ms=%.3f apply_ms=%.3f latency_ms=%.3f"
+			% [
+				coord,
+				revision,
+				int(result.get("cache_usec", 0)) / 1000.0,
+				int(result.get("mesh_usec", 0)) / 1000.0,
+				int(result.get("compute_usec", 0)) / 1000.0,
+				last_apply_usec / 1000.0,
+				(Time.get_ticks_usec() - int(apply_data.get("queued_at_usec", 0))) / 1000.0,
+			]
+		)
+
+
+func _result_key(coord: Vector2i, revision: int) -> String:
+	return "%d:%d:%d" % [coord.x, coord.y, revision]
+
+
+func _build_column_caches(coord: Vector2i) -> Dictionary:
+	return _build_column_caches_for_sampler(coord, data)
 
 
 func _build_height_cache(coord: Vector2i) -> PackedInt32Array:
@@ -389,7 +630,7 @@ func _pump_collisions() -> void:
 				root_node.add_child(collision)
 				entry["collision"] = collision
 				loaded[coord] = entry
-			last_collision_usec = Time.get_ticks_usec() - start
+			last_collision_usec = maxi(last_collision_usec, Time.get_ticks_usec() - start)
 	for _index in range(2):
 		if collision_remove_queue.is_empty():
 			break
@@ -435,6 +676,13 @@ func _unload_far_chunks() -> void:
 		var coord: Vector2i = coord_value
 		if distance(coord, center) <= UNLOAD_RADIUS:
 			continue
+		build_revisions[coord] = int(build_revisions.get(coord, 0)) + 1
+		pending_rebuilds.erase(coord)
+		rebuild_deadlines.erase(coord)
+		collision_add_queue.erase(coord)
+		collision_remove_queue.erase(coord)
+		collision_add_queued.erase(coord)
+		collision_remove_queued.erase(coord)
 		var entry: Dictionary = loaded[coord]
 		var root_node := entry.get("root") as Node3D
 		if is_instance_valid(root_node):
@@ -474,9 +722,14 @@ func _promote_rebuilds() -> void:
 		if int(rebuild_deadlines[coord]) > now:
 			continue
 		rebuild_deadlines.erase(coord)
-		if loaded.has(coord) and not build_queued.has(coord):
-			build_queue.push_front(coord)
-			build_queued[coord] = true
+		if not loaded.has(coord):
+			pending_rebuilds.erase(coord)
+			continue
+		build_revisions[coord] = int(build_revisions.get(coord, 0)) + 1
+		if active_build_tasks.has(coord) or build_queued.has(coord):
+			coalesced_edits += 1
+			continue
+		_queue_latest_revision(coord, true)
 
 
 func _create_water() -> void:

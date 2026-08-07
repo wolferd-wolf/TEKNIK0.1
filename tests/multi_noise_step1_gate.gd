@@ -18,7 +18,7 @@ const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
 const CHUNK_SIZE := 12
 const SCAN_RADIUS := 128
-const FRAME_LIMIT := 900
+const WAIT_TIMEOUT_MSEC := 30000
 const INVALID_FIXTURE := Vector2i(2147483647, 2147483647)
 
 var failures: Array[String] = []
@@ -283,7 +283,9 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 
 	player.set_physics_process(false)
 	player.set_process(true)
-	await _wait_frames(12)
+	if not await _wait_for_world(manager, "shipping startup spawn"):
+		return
+	await _wait_frames(2)
 	if not bool(localized_water.get("_active")):
 		_fail("Localized water did not activate in the shipping scene")
 	if is_instance_valid(runtime.get_node_or_null("Water")):
@@ -424,7 +426,8 @@ func _find_hotbar_slot(inventory: Variant, block_id: int) -> int:
 
 
 func _wait_for_world(manager: Variant, context: String) -> bool:
-	for _frame in range(FRAME_LIMIT):
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
 		await process_frame
 		if manager.chunk_count() >= manager.expected_chunk_count() and manager.is_playable_world_collision_ring_ready() and manager.is_remesh_idle():
 			return true
@@ -433,7 +436,8 @@ func _wait_for_world(manager: Variant, context: String) -> bool:
 
 
 func _wait_for_swap(manager: Variant, previous: int, context: String) -> bool:
-	for _frame in range(FRAME_LIMIT):
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
 		await process_frame
 		if int(manager.get_remesh_diagnostics().get("atomic_swaps", 0)) > previous and manager.is_remesh_idle():
 			return true

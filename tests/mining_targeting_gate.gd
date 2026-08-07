@@ -2,6 +2,7 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SCREENSHOT_PATH := "res://artifacts/mining-targeting-step1.png"
+const WAIT_TIMEOUT_MSEC := 30000
 
 var failures: Array[String] = []
 
@@ -20,6 +21,20 @@ func _wait_frames(count: int) -> void:
 		await process_frame
 
 
+func _wait_for_world_ready(manager, context: String) -> bool:
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
+		await process_frame
+		if (
+			manager.chunk_count() >= manager.expected_chunk_count()
+			and manager.is_playable_world_collision_ring_ready()
+			and manager.is_remesh_idle()
+		):
+			return true
+	_fail("Playable world did not become ready during %s" % context)
+	return false
+
+
 func _run_gate() -> void:
 	var packed_scene := load(MAIN_SCENE) as PackedScene
 	if packed_scene == null:
@@ -29,7 +44,7 @@ func _run_gate() -> void:
 
 	var main := packed_scene.instantiate()
 	root.add_child(main)
-	await _wait_frames(20)
+	await _wait_frames(2)
 
 	var manager := main.get_node_or_null("ChunkManager")
 	var player := main.get_node_or_null("Player")
@@ -48,7 +63,9 @@ func _run_gate() -> void:
 	player.set_process(true)
 	var inspection_position := Vector3(0.5, 20.0, 0.5)
 	manager.refresh_streaming(inspection_position)
-	await _wait_frames(12)
+	if not await _wait_for_world_ready(manager, "mining targeting fixture"):
+		_finish()
+		return
 
 	var surface_y := _find_surface_y(manager, 0, 0)
 	if surface_y == -2147483648:
