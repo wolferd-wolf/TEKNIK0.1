@@ -33,7 +33,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var node_width := int((node_max_x - node_min_x) / spacing) + 1
 	var node_height := int((node_max_z - node_min_z) / spacing) + 1
 
-	# Preserve the accepted Stage 3 terrain-structure warp path unchanged.
 	var warp_reciprocal: float = sampler.STAGE3_WARP_LATTICE_RECIPROCAL
 	var warp_spacing: int = sampler.STAGE3_WARP_LATTICE_SPACING
 	var warp_min_x := floori(float(node_min_x) * warp_reciprocal)
@@ -99,6 +98,30 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		z_node[i] = nz
 		z_weight[i] = _smooth(float(world_z - (node_min_z + nz * spacing)) * reciprocal)
 
+	# Stage 2 terrain constants are cached once so the accepted provisional-height
+	# formula can run directly in this hot loop without 256 Vector4 allocations or
+	# dynamic sampler method dispatches.
+	var continental_base: float = sampler.STAGE2_CONTINENTAL_BASE_HEIGHT
+	var continental_scale: float = sampler.STAGE2_CONTINENTAL_HEIGHT_SCALE
+	var shelf_start: float = sampler.STAGE2_OCEAN_SHELF_START
+	var basin_full: float = sampler.STAGE2_OCEAN_BASIN_FULL
+	var basin_depth: float = sampler.STAGE2_OCEAN_BASIN_DEPTH
+	var rolling_start: float = sampler.STAGE2_ROLLING_START
+	var plains_end: float = sampler.STAGE2_PLAINS_END
+	var rolling_end: float = sampler.STAGE2_ROLLING_END
+	var mountain_start: float = sampler.STAGE2_MOUNTAIN_START
+	var mountain_full: float = sampler.STAGE2_MOUNTAIN_FULL
+	var rolling_rise: float = sampler.STAGE2_ROLLING_RISE
+	var upland_rise: float = sampler.STAGE2_UPLAND_RISE
+	var mountain_base_rise: float = sampler.STAGE2_MOUNTAIN_BASE_RISE
+	var mountain_ridge_rise: float = sampler.STAGE2_MOUNTAIN_RIDGE_RISE
+	var valley_cut: float = sampler.STAGE2_VALLEY_CUT
+	var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
+	var basin_reciprocal := 1.0 / (shelf_start - basin_full)
+	var plains_blend_reciprocal := 1.0 / (plains_end - rolling_start)
+	var upland_blend_reciprocal := 1.0 / (mountain_start - rolling_end)
+	var mountain_blend_reciprocal := 1.0 / (mountain_full - mountain_start)
+
 	# Stage 4 constants.
 	var ocean_start: float = sampler.STAGE4_OCEAN_WATER_START
 	var ocean_full: float = sampler.STAGE4_OCEAN_BASIN_FULL
@@ -109,10 +132,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
 
-	# Stage 5 constants and tiny meander cache. A padded chunk spans only 16 Z
-	# rows while the meander lattice spans 192 blocks, so only 2-3 hash nodes are
-	# ever required. This replaces 32 hash evaluations and 16 sampler calls per
-	# chunk with a tiny once-per-chunk node cache.
+	# Stage 5 constants and tiny meander cache.
 	var river_spacing: float = sampler.STAGE5_RIVER_SPACING
 	var river_half_spacing: float = sampler.STAGE5_RIVER_HALF_SPACING
 	var river_lattice_spacing: int = sampler.STAGE5_RIVER_LATTICE_SPACING
@@ -129,8 +149,21 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var max_carve: int = sampler.STAGE5_MAX_VALLEY_CARVE
 	var channel_depth: int = sampler.STAGE5_CHANNEL_DEPTH
 	var relief_fraction: float = sampler.STAGE5_VALLEY_RELIEF_FRACTION
-	var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
 	var river_early_out := valley_outer * coast_width
+
+	# Accepted Stage 1 biome classifier constants. The classifier is also inlined
+	# exactly, eliminating 256 Vector2 allocations and dynamic calls per cache.
+	var hot_start: float = sampler.BIOME_HOT_THRESHOLD - sampler.BIOME_BLEND_WIDTH
+	var cold_start: float = sampler.BIOME_COLD_THRESHOLD - sampler.BIOME_BLEND_WIDTH
+	var dry_start: float = sampler.BIOME_DRY_THRESHOLD - sampler.BIOME_BLEND_WIDTH
+	var wet_start: float = sampler.BIOME_WET_THRESHOLD - sampler.BIOME_BLEND_WIDTH
+	var biome_blend_reciprocal: float = sampler.BIOME_BLEND_RANGE_RECIPROCAL
+	var biome_patch_reciprocal: float = sampler.BIOME_BLEND_PATCH_RECIPROCAL
+	var world_seed: int = sampler.WORLD_SEED
+	var biome_plains: int = sampler.BIOME_PLAINS
+	var biome_forest: int = sampler.BIOME_FOREST
+	var biome_desert: int = sampler.BIOME_DESERT
+	var biome_rocky: int = sampler.BIOME_ROCKY
 
 	var river_lattice_min := floori(float(min_z) * river_lattice_reciprocal)
 	var river_lattice_max := floori(float(max_z) * river_lattice_reciprocal) + 1
@@ -141,34 +174,32 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			river_lattice_min + river_node
 		)
 
+	# X patch coordinates repeat across rows, so precompute them once.
+	var biome_patch_x := PackedInt32Array()
+	biome_patch_x.resize(width)
+	for cx in range(width):
+		biome_patch_x[cx] = floori(float(x_world[cx]) * biome_patch_reciprocal)
+
 	for cz in range(width):
 		var world_z: int = z_world[cz]
 		var zf := float(world_z)
 		var river_lattice_index := floori(zf * river_lattice_reciprocal)
 		var river_node_offset := river_lattice_index - river_lattice_min
 		var river_lattice_origin := river_lattice_index * river_lattice_spacing
-		var river_t := _smooth(
-			float(world_z - river_lattice_origin) * river_lattice_reciprocal
-		)
+		var river_t := _smooth(float(world_z - river_lattice_origin) * river_lattice_reciprocal)
 		var river_meander := lerpf(
 			river_lattice_values[river_node_offset],
 			river_lattice_values[river_node_offset + 1],
 			river_t
 		)
-		var river_row_phase := (
-			zf * river_diagonal_slope
-			+ river_meander * river_meander_amplitude
-		)
+		var river_row_phase := zf * river_diagonal_slope + river_meander * river_meander_amplitude
 		var river_signed_start := (
 			fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
 			- river_half_spacing
 		)
-		# Because the padded row is only 16 blocks wide versus 224-block river
-		# spacing, at most one near-centerline interval can intersect this row.
-		# Precompute that interval so ~85-90% of columns skip all river-distance and
-		# shaping arithmetic entirely.
 		var river_active_min := maxi(0, ceili(-river_early_out - river_signed_start))
 		var river_active_max := mini(width - 1, floori(river_early_out - river_signed_start))
+		var patch_z := floori(zf * biome_patch_reciprocal)
 
 		var nz: int = z_node[cz]
 		var tz: float = z_weight[cz]
@@ -200,26 +231,63 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			fields[field + 4] = temperature
 			fields[field + 5] = moisture
 
-			var terrain_fields := Vector4(continentalness, structure, 0.0, 0.0)
-			var height: int = sampler.build_provisional_terrain(terrain_fields)
+			# Exact Stage 2 provisional terrain formula, scalar/inlined.
+			var c := clampf(continentalness, -1.0, 1.0)
+			var s := clampf(structure, -1.0, 1.0)
+			var shaped_continent := c * 0.35 + c * c * c * 0.65
+			var base_height := continental_base + shaped_continent * continental_scale
+			if c < shelf_start:
+				var basin_t := clampf((shelf_start - c) * basin_reciprocal, 0.0, 1.0)
+				basin_t = basin_t * basin_t * (3.0 - 2.0 * basin_t)
+				base_height -= basin_t * basin_depth
+			var rolling_target := base_height + 2.0 + absf(c) * rolling_rise
+			var height: int
+			if s <= rolling_start:
+				height = clampi(roundi(base_height), 3, safe_top)
+			elif s < plains_end:
+				var terrain_t := (s - rolling_start) * plains_blend_reciprocal
+				terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+				height = clampi(roundi(lerpf(base_height, rolling_target, terrain_t)), 3, safe_top)
+			elif s <= rolling_end:
+				height = clampi(roundi(rolling_target), 3, safe_top)
+			else:
+				var upland_target := base_height + 6.0 + upland_rise
+				if s < mountain_start:
+					var terrain_t := (s - rolling_end) * upland_blend_reciprocal
+					terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+					height = clampi(roundi(lerpf(rolling_target, upland_target, terrain_t)), 3, safe_top)
+				else:
+					var ridge_base := 1.0 - absf(c)
+					var ridge := ridge_base * ridge_base
+					var mountain_target := (
+						base_height
+						+ mountain_base_rise
+						+ ridge * mountain_ridge_rise
+						- (1.0 - ridge) * valley_cut
+					)
+					if s < mountain_full:
+						var terrain_t := (s - mountain_start) * mountain_blend_reciprocal
+						terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+						height = clampi(roundi(lerpf(upland_target, mountain_target, terrain_t)), 3, safe_top)
+					else:
+						height = clampi(roundi(mountain_target), 3, safe_top)
+
+			# Stage 4 ocean/coast shaping.
 			if continentalness <= ocean_start:
-				var ocean_t := (ocean_start - continentalness) * ocean_reciprocal
-				ocean_t = clampf(ocean_t, 0.0, 1.0)
+				var ocean_t := clampf((ocean_start - continentalness) * ocean_reciprocal, 0.0, 1.0)
 				ocean_t = ocean_t * ocean_t * (3.0 - 2.0 * ocean_t)
 				var ocean_floor := roundi(
 					float(ocean_edge_floor)
 					+ float(ocean_core_floor - ocean_edge_floor) * ocean_t
 				)
 				height = mini(height, ocean_floor)
-				heights[column] = height
-				biomes[column] = sampler.classify_biome(Vector2(temperature, moisture), world_x, world_z)
-				continue
 			elif continentalness < coast_end:
 				var inland_t := (continentalness - ocean_start) * coast_reciprocal
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			if cx >= river_active_min and cx <= river_active_max:
+			# Stage 5 river shaping, only inside the precomputed active row interval.
+			if continentalness > ocean_start and cx >= river_active_min and cx <= river_active_max:
 				var river_value := absf(river_signed_start + float(cx))
 				var width_t := clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
 				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
@@ -234,15 +302,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 					valley_t = valley_t * valley_t * (3.0 - 2.0 * valley_t)
 					var valley_strength := 1.0 - valley_t
 					var relief := maxi(0, height - sea_level)
-					var valley_drop := mini(
-						max_carve,
-						maxi(2, roundi(float(relief) * relief_fraction))
-					)
+					var valley_drop := mini(max_carve, maxi(2, roundi(float(relief) * relief_fraction)))
 					var valley_floor := maxi(sea_level, height - valley_drop)
-					height = roundi(
-						float(height) + float(valley_floor - height) * valley_strength
-					)
-
+					height = roundi(float(height) + float(valley_floor - height) * valley_strength)
 					if scaled_distance < channel_outer:
 						var channel_t := clampf(
 							(scaled_distance - channel_inner) / (channel_outer - channel_inner),
@@ -252,13 +314,46 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 						channel_t = channel_t * channel_t * (3.0 - 2.0 * channel_t)
 						var channel_strength := 1.0 - channel_t
 						var channel_floor := maxi(sea_level - 1, height - channel_depth)
-						height = roundi(
-							float(height) + float(channel_floor - height) * channel_strength
-						)
+						height = roundi(float(height) + float(channel_floor - height) * channel_strength)
 				height = clampi(height, 3, safe_top)
-
 			heights[column] = height
-			biomes[column] = sampler.classify_biome(Vector2(temperature, moisture), world_x, world_z)
+
+			# Exact accepted biome classifier, scalar/inlined.
+			var hot_t := clampf((temperature - hot_start) * biome_blend_reciprocal, 0.0, 1.0)
+			var hot := hot_t * hot_t * (3.0 - 2.0 * hot_t)
+			var cold_t := clampf((temperature - cold_start) * biome_blend_reciprocal, 0.0, 1.0)
+			var cold := 1.0 - cold_t * cold_t * (3.0 - 2.0 * cold_t)
+			var dry_t := clampf((moisture - dry_start) * biome_blend_reciprocal, 0.0, 1.0)
+			var dry := 1.0 - dry_t * dry_t * (3.0 - 2.0 * dry_t)
+			var wet_t := clampf((moisture - wet_start) * biome_blend_reciprocal, 0.0, 1.0)
+			var wet := wet_t * wet_t * (3.0 - 2.0 * wet_t)
+			var desert := hot * dry
+			var forest := wet * (1.0 - desert)
+			var rocky := cold * (1.0 - wet) * (1.0 - desert)
+			var plains := maxf(0.0, 1.0 - maxf(desert, maxf(forest, rocky)))
+			var total := plains + forest + desert + rocky
+			var biome := biome_plains
+			if total > 0.000001:
+				var reciprocal_total := 1.0 / total
+				plains *= reciprocal_total
+				forest *= reciprocal_total
+				desert *= reciprocal_total
+				var hash_value := (
+					(biome_patch_x[cx] * 73856093)
+					^ (patch_z * 19349663)
+					^ (world_seed * 83492791)
+				)
+				hash_value = absi(hash_value)
+				var selector := float(hash_value % 1000003) / 1000003.0
+				if selector < plains:
+					biome = biome_plains
+				elif selector < plains + forest:
+					biome = biome_forest
+				elif selector < plains + forest + desert:
+					biome = biome_desert
+				else:
+					biome = biome_rocky
+			biomes[column] = biome
 
 	return {
 		"world_fields": fields,
