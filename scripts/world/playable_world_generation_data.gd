@@ -1,20 +1,101 @@
 extends "res://scripts/world/playable_world_data.gd"
 
-# Stage 1 compatibility layer.
+# Stage 2 terrain architecture.
 #
-# The inherited sampler remains the accepted 60-block world-generation oracle.
-# The overhaul owns a 150-block legal vertical range while Stage 1 deliberately
-# preserves today's generated terrain/biome output. Later terrain stages can use
-# the new headroom without another architecture migration.
+# The overhaul keeps the accepted deterministic samplers and 150-block legal
+# vertical range, but terrain height is now derived from geography instead of
+# the legacy climate-coupled mountain formula. No extra noise layer is sampled
+# here: existing fields are remapped into macro elevation, terrain regimes and
+# ridged mountain structure so the Android hot path remains column-based.
 const OVERHAUL_WORLD_HEIGHT := 150
+
+const STAGE2_CONTINENTAL_BASE_HEIGHT := 18.0
+const STAGE2_CONTINENTAL_HEIGHT_SCALE := 14.0
+const STAGE2_PLAINS_END := -0.28
+const STAGE2_ROLLING_START := -0.38
+const STAGE2_ROLLING_END := 0.22
+const STAGE2_UPLAND_START := 0.04
+const STAGE2_UPLAND_END := 0.48
+const STAGE2_MOUNTAIN_START := 0.34
+const STAGE2_MOUNTAIN_FULL := 0.68
+const STAGE2_ROLLING_RISE := 8.0
+const STAGE2_UPLAND_RISE := 16.0
+const STAGE2_MOUNTAIN_BASE_RISE := 18.0
+const STAGE2_MOUNTAIN_RIDGE_RISE := 50.0
+const STAGE2_VALLEY_CUT := 7.0
+const STAGE2_RIDGE_POWER := 2.4
+const STAGE2_SAFE_TERRAIN_TOP := OVERHAUL_WORLD_HEIGHT - 12
 
 
 func sample_world_fields(x: int, z: int) -> Vector4:
 	return sample_column_noise(x, z)
 
 
+func _smooth01(value: float) -> float:
+	var t := clampf(value, 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+func _smooth_range(value: float, start: float, finish: float) -> float:
+	return _smooth01((value - start) / (finish - start))
+
+
+func continental_base_elevation(continentalness: float) -> float:
+	# A linear continental field makes ordinary country unnecessarily bumpy.
+	# Blend a small linear term with a cubic term so the middle of the field is
+	# broad and calm while strong continental extremes still move elevation.
+	var c := clampf(continentalness, -1.0, 1.0)
+	var shaped := c * 0.35 + c * c * c * 0.65
+	return STAGE2_CONTINENTAL_BASE_HEIGHT + shaped * STAGE2_CONTINENTAL_HEIGHT_SCALE
+
+
+func terrain_regime_weights(terrain_structure: float) -> Vector4:
+	# x=plains, y=rolling, z=upland/plateau, w=mountain.
+	var structure := clampf(terrain_structure, -1.0, 1.0)
+	var rolling_in := _smooth_range(structure, STAGE2_ROLLING_START, STAGE2_PLAINS_END)
+	var rolling_out := 1.0 - _smooth_range(structure, STAGE2_ROLLING_END, STAGE2_UPLAND_END)
+	var rolling := rolling_in * rolling_out
+	var upland_in := _smooth_range(structure, STAGE2_UPLAND_START, STAGE2_UPLAND_END)
+	var mountain := _smooth_range(structure, STAGE2_MOUNTAIN_START, STAGE2_MOUNTAIN_FULL)
+	var upland := upland_in * (1.0 - mountain)
+	var plains := 1.0 - _smooth_range(structure, STAGE2_PLAINS_END, STAGE2_ROLLING_END)
+	return Vector4(
+		clampf(plains, 0.0, 1.0),
+		clampf(rolling, 0.0, 1.0),
+		clampf(upland, 0.0, 1.0),
+		clampf(mountain, 0.0, 1.0)
+	)
+
+
+func ridge_strength(continentalness: float) -> float:
+	# Classic ridged transform: zero crossings become narrow ridge spines. The
+	# broad terrain field decides where mountains are allowed, so this transform
+	# does not make the whole world rough.
+	var ridge := 1.0 - absf(clampf(continentalness, -1.0, 1.0))
+	return pow(clampf(ridge, 0.0, 1.0), STAGE2_RIDGE_POWER)
+
+
 func build_provisional_terrain(fields: Vector4) -> int:
-	return terrain_height_from_samples(fields)
+	var base_height := continental_base_elevation(fields.x)
+	var regimes := terrain_regime_weights(fields.y)
+	var ridge := ridge_strength(fields.x)
+
+	# Rolling country stays low-amplitude. Upland is a broad continuous lift,
+	# not a quantized terrace. Mountain rise is separately masked and receives
+	# the ridged spine signal. Climate fields (z/w) intentionally do not appear:
+	# Stage 2 makes mountain terrain independent from ecological classification.
+	var rolling_detail := absf(clampf(fields.x, -1.0, 1.0))
+	var rolling_rise := regimes.y * (2.0 + rolling_detail * STAGE2_ROLLING_RISE)
+	var upland_rise := regimes.z * (
+		6.0 + _smooth_range(fields.y, STAGE2_UPLAND_START, STAGE2_UPLAND_END)
+		* STAGE2_UPLAND_RISE
+	)
+	var mountain_rise := regimes.w * (
+		STAGE2_MOUNTAIN_BASE_RISE + ridge * STAGE2_MOUNTAIN_RIDGE_RISE
+	)
+	var valley_cut := regimes.w * (1.0 - ridge) * STAGE2_VALLEY_CUT
+	var height := base_height + rolling_rise + upland_rise + mountain_rise - valley_cut
+	return clampi(roundi(height), 3, STAGE2_SAFE_TERRAIN_TOP)
 
 
 func apply_water_topology(
@@ -23,18 +104,17 @@ func apply_water_topology(
 	_x: int,
 	_z: int
 ) -> int:
-	# Stage 1 is deliberately a no-op. Water topology starts in Stage 4.
+	# Stage 2 changes landform only. Water topology begins in Stage 4.
 	return provisional_height
 
 
 func finalize_height(water_shaped_height: int) -> int:
-	return clampi(water_shaped_height, 3, OVERHAUL_WORLD_HEIGHT - 3)
+	return clampi(water_shaped_height, 3, STAGE2_SAFE_TERRAIN_TOP)
 
 
 func classify_biome(climate: Vector2, x: int, z: int) -> int:
-	# Keep this scalar selector mathematically identical to the accepted
-	# _resolve_large_zone_biome() hot path, but accept already-sampled climate
-	# so a per-chunk field cache can own the noise work.
+	# Biome behavior remains the accepted Stage 1 classifier. Stage 7 replaces
+	# biome classification after terrain and hydrology context are complete.
 	var temperature := climate.x
 	var moisture := climate.y
 
@@ -90,8 +170,6 @@ func classify_biome(climate: Vector2, x: int, z: int) -> int:
 
 
 func decorate_surface(y: int, height: int, biome: int) -> int:
-	# The mesher remains the bulk surface/decorations consumer in Stage 1.
-	# This stage keeps direct block queries on the same explicit pipeline.
 	return terrain_block(y, height, biome)
 
 
