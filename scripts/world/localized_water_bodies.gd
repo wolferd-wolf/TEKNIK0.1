@@ -9,7 +9,7 @@ const WATER_SURFACE_OFFSET := 0.54
 @export var streaming_target_path := NodePath("../../Player")
 
 var _active := false
-var _center := Vector2i(2147483647, 2147483647)
+var _center := Vector2i(2147483647, 0, 2147483647)
 var _data = WORLD_DATA.new()
 var _material := StandardMaterial3D.new()
 var _chunks: Dictionary = {}
@@ -46,6 +46,11 @@ func _activate_for_mobile_world() -> void:
 	if runtime == null:
 		call_deferred("_activate_for_mobile_world")
 		return
+	# Water classification must use the exact generation facade the playable
+	# runtime uses. Stage 1 matched the legacy terrain, so the old local data
+	# instance happened to work; Stage 2 intentionally changes terrain shape.
+	# Sharing runtime.data here keeps rendered water aligned with the blocks.
+	_data = runtime.data
 	var global_plane := runtime.get_node_or_null("Water")
 	if is_instance_valid(global_plane):
 		global_plane.queue_free()
