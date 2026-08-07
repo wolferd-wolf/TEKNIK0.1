@@ -6,9 +6,8 @@ extends "res://scripts/world/playable_world_stage2_generation_data.gd"
 # hashes, so it does not add another FastNoiseLite stack.
 #
 # Terrain structure is evaluated on a 4-block lattice and smoothly interpolated.
-# The shipping chunk cache also reuses terrain-only temperature/moisture on an
-# 8-block lattice for headroom; direct field queries preserve exact climate
-# samples. Biome climate is unchanged and remains full-resolution.
+# The shipping chunk cache reuses those structure nodes and keeps biome climate
+# full-resolution.
 const STAGE3_FIELD_LATTICE_SPACING := 4
 const STAGE3_FIELD_LATTICE_RECIPROCAL := 1.0 / 4.0
 const STAGE3_TERRAIN_CLIMATE_LATTICE_SPACING := 8
@@ -18,6 +17,18 @@ const STAGE3_WARP_LATTICE_RECIPROCAL := 1.0 / 64.0
 const STAGE3_WARP_AMPLITUDE := 24.0
 const STAGE3_HASH_MODULUS := 1000003
 const STAGE3_HASH_RECIPROCAL := 1.0 / 1000003.0
+
+# Stage 4 makes water topology explicit. Oceans are physical low-
+# continentalness geography rather than an inferred biome or any low terrain
+# patch. The coast band smoothly reconnects the ocean edge to the unchanged
+# Stage 3 inland surface. Rivers and lakes intentionally remain absent here.
+const WATER_NONE := 0
+const WATER_OCEAN := 1
+const STAGE4_OCEAN_WATER_START := -0.34
+const STAGE4_OCEAN_BASIN_FULL := -0.48
+const STAGE4_COAST_INLAND_END := -0.08
+const STAGE4_OCEAN_EDGE_FLOOR := 6
+const STAGE4_OCEAN_CORE_FLOOR := 3
 
 
 func _stage3_smooth01(value: float) -> float:
@@ -139,4 +150,71 @@ func sample_world_fields(x: int, z: int) -> Vector4:
 		stage3_terrain_structure(x, z),
 		temperature_noise.get_noise_2d(world_x, world_z),
 		moisture_noise.get_noise_2d(world_x, world_z)
+	)
+
+
+func stage4_ocean_strength(continentalness: float) -> float:
+	if continentalness >= STAGE4_OCEAN_WATER_START:
+		return 0.0
+	return _stage3_smooth01(
+		(STAGE4_OCEAN_WATER_START - continentalness)
+		/ (STAGE4_OCEAN_WATER_START - STAGE4_OCEAN_BASIN_FULL)
+	)
+
+
+func stage4_coast_inland_weight(continentalness: float) -> float:
+	if continentalness <= STAGE4_OCEAN_WATER_START:
+		return 0.0
+	if continentalness >= STAGE4_COAST_INLAND_END:
+		return 1.0
+	return _stage3_smooth01(
+		(continentalness - STAGE4_OCEAN_WATER_START)
+		/ (STAGE4_COAST_INLAND_END - STAGE4_OCEAN_WATER_START)
+	)
+
+
+func apply_water_topology(
+	fields: Vector4,
+	provisional_height: int,
+	_x: int,
+	_z: int
+) -> int:
+	var continentalness := clampf(fields.x, -1.0, 1.0)
+	if continentalness <= STAGE4_OCEAN_WATER_START:
+		var ocean_strength := stage4_ocean_strength(continentalness)
+		var ocean_floor := roundi(lerpf(
+			float(STAGE4_OCEAN_EDGE_FLOOR),
+			float(STAGE4_OCEAN_CORE_FLOOR),
+			ocean_strength
+		))
+		return mini(provisional_height, ocean_floor)
+	if continentalness < STAGE4_COAST_INLAND_END:
+		var inland_weight := stage4_coast_inland_weight(continentalness)
+		return roundi(lerpf(float(SEA_LEVEL), float(provisional_height), inland_weight))
+	return provisional_height
+
+
+func water_type_from_fields(fields: Vector4, final_height: int) -> int:
+	if fields.x <= STAGE4_OCEAN_WATER_START and final_height < SEA_LEVEL:
+		return WATER_OCEAN
+	return WATER_NONE
+
+
+func water_type_at(x: int, z: int) -> int:
+	var fields := sample_world_fields(x, z)
+	var provisional_height := build_provisional_terrain(fields)
+	var water_shaped_height := apply_water_topology(fields, provisional_height, x, z)
+	var final_height := finalize_height(water_shaped_height)
+	return water_type_from_fields(fields, final_height)
+
+
+func is_ocean_column(x: int, z: int) -> bool:
+	return water_type_at(x, z) == WATER_OCEAN
+
+
+func is_coast_column(x: int, z: int) -> bool:
+	var continentalness := continentalness_noise.get_noise_2d(float(x), float(z))
+	return (
+		continentalness > STAGE4_OCEAN_WATER_START
+		and continentalness < STAGE4_COAST_INLAND_END
 	)
