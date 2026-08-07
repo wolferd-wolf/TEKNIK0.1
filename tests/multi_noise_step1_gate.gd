@@ -429,3 +429,8 @@ func _finish() -> void:
 	for failure in failures:
 		print("FAILURE=%s" % failure)
 	quit(1)
+
+
+func _fail(message: String) -> void:
+	if not failures.has(message):
+		failures.append(message)
