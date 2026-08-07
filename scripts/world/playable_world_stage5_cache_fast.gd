@@ -109,10 +109,12 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
 
-	# Stage 5 constants. River values are consumed immediately by terrain shaping
-	# and are intentionally not persisted in every chunk cache. Public/debug river
-	# queries reproduce the same deterministic field directly when needed.
-	var pi_over_spacing: float = sampler.STAGE5_RIVER_PI_OVER_SPACING
+	# Stage 5 constants. The nearest periodic centerline is resolved once at the
+	# first X column of each row. Across the 16-column padded chunk the signed
+	# distance advances by exactly one block per column, with at most one wrap.
+	# This eliminates all per-column trigonometry/modulo from the shipping path.
+	var river_spacing: float = sampler.STAGE5_RIVER_SPACING
+	var river_half_spacing: float = sampler.STAGE5_RIVER_HALF_SPACING
 	var channel_inner: float = sampler.STAGE5_CHANNEL_INNER
 	var channel_outer: float = sampler.STAGE5_CHANNEL_OUTER
 	var valley_inner: float = sampler.STAGE5_VALLEY_INNER
@@ -130,6 +132,10 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		var world_z: int = z_world[cz]
 		var zf := float(world_z)
 		var river_row_phase: float = sampler.stage5_river_row_phase(world_z)
+		var river_signed_start := (
+			fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
+			- river_half_spacing
+		)
 		var nz: int = z_node[cz]
 		var tz: float = z_weight[cz]
 		var north_base := nz * node_width
@@ -179,7 +185,10 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			var river_value := absf(sin((xf + river_row_phase) * pi_over_spacing))
+			var river_signed := river_signed_start + float(cx)
+			if river_signed > river_half_spacing:
+				river_signed -= river_spacing
+			var river_value := absf(river_signed)
 			if river_value < river_early_out:
 				var width_t := clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
 				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
