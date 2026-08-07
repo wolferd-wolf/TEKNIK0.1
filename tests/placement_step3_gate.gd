@@ -122,7 +122,13 @@ func _run_gate() -> void:
 	var root_before := entry_before.get("root") as Node3D
 	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 	Input.action_press("place_block", 1.0)
-	await process_frame
+	# Keep the synthetic action pressed across two process-frame boundaries.
+	# A SceneTree coroutine waiting on `process_frame` can resume before node
+	# `_process()` callbacks in that frame; releasing after only one boundary can
+	# therefore erase `is_action_just_pressed()` before the shipping controller
+	# observes it. This exercises the real InputMap path without changing the
+	# placement contract or calling placement directly.
+	await _wait_frames(2)
 	Input.action_release("place_block")
 	if manager.get_block_world(placement_coord) != BLOCK_STONE:
 		_fail("place_block action did not write stone to the playable world")
