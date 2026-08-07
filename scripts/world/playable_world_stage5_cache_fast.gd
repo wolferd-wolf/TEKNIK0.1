@@ -78,16 +78,16 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			var se := river_nodes[south_base + nx + 1]
 			var north := nw + (ne - nw) * tx
 			var south := sw + (se - sw) * tx
-			var signal := north + (south - north) * tz
+			var river_value := north + (south - north) * tz
 			var column := row + cx
-			river_signal[column] = signal
+			river_signal[column] = river_value
 
 			var c: float = fields[column * FIELD_STRIDE]
 			if c <= ocean_start:
 				continue
 			var inland_t := _smooth((c - ocean_start) / width_range)
 			var width_scale := coast_width + (inland_width - coast_width) * inland_t
-			var scaled_distance := absf(signal) / width_scale
+			var scaled_distance := absf(river_value) / width_scale
 			var valley_t := clampf(
 				(scaled_distance - valley_inner) / (valley_outer - valley_inner),
 				0.0,
