@@ -120,13 +120,13 @@ func _field_stats(data) -> Dictionary:
 			var east := float(data.stage5_river_signal(x + 1, z))
 			var south := float(data.stage5_river_signal(x, z + 1))
 			max_neighbor_delta = maxf(max_neighbor_delta, maxf(absf(east - value), absf(south - value)))
-			var c := data.continentalness_noise.get_noise_2d(float(x), float(z))
+			var c: float = data.continentalness_noise.get_noise_2d(float(x), float(z))
 			var strengths: Vector2 = data.stage5_river_strengths_from_signal(c, value)
 			if strengths.x >= DATA.STAGE5_CHANNEL_WATER_CUTOFF:
 				channel_samples += 1
 			if strengths.y > 0.10:
 				valley_samples += 1
-			var east_c := data.continentalness_noise.get_noise_2d(float(x + 1), float(z))
+			var east_c: float = data.continentalness_noise.get_noise_2d(float(x + 1), float(z))
 			max_width_delta = maxf(max_width_delta, absf(float(data.stage5_river_width_scale(east_c)) - float(data.stage5_river_width_scale(c))))
 			samples += 1
 	if max_neighbor_delta > 0.08:
