@@ -6,6 +6,8 @@ on:
     paths:
       - "scripts/world/playable_world_stage3_generation_data.gd"
       - "scripts/world/playable_world_stage3_generation_runtime.gd"
+      - "scripts/world/playable_world_stage3_frozen_runtime.gd"
+      - "scripts/world/playable_world_stage3_frozen_cache_fast.gd"
       - "scripts/world/playable_world_stage3_cache.gd"
       - "scripts/world/playable_world_stage3_cache_fast.gd"
       - "scripts/world/playable_world_stage2_generation_data.gd"
@@ -56,16 +58,10 @@ jobs:
       - name: Verify macro warp, lattice equivalence, seams and performance
         run: |
           set -o pipefail
-          # Stage 3 predates the Stage 4 extraction, so its runtime originally
-          # pointed at the shared public data path. Rebind a checkout-local copy
-          # to the frozen Stage 3 data class while preserving the proven test.
-          sed -i \
-            's#playable_world_generation_data.gd#playable_world_stage3_generation_data.gd#g' \
-            scripts/world/playable_world_stage3_generation_runtime.gd
           cp tests/world_overhaul_stage3_warp_gate.gd tests/_ci_world_overhaul_stage3_warp_gate.gd
           sed -i \
             -e 's#playable_world_generation_data.gd#playable_world_stage3_generation_data.gd#g' \
-            -e 's#playable_world_generation_runtime.gd#playable_world_stage3_generation_runtime.gd#g' \
+            -e 's#playable_world_generation_runtime.gd#playable_world_stage3_frozen_runtime.gd#g' \
             tests/_ci_world_overhaul_stage3_warp_gate.gd
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage3-warp" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
