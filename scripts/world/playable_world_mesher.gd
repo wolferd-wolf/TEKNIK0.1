@@ -21,6 +21,8 @@ const BIOME_ROCKY := 3
 const MAX_SKY_LIGHT := 15
 const MIN_SKY_BRIGHTNESS := 0.35
 
+# Compatibility tables are kept for existing validation code only. The threaded
+# meshing path below never reads these shared Array containers.
 const FACE_DIRECTIONS: Array[Vector3i] = [
 	Vector3i.UP,
 	Vector3i.DOWN,
@@ -102,7 +104,10 @@ static func build(
 				if block == BLOCK_AIR:
 					continue
 				for face_index in range(6):
-					var neighbor := cell + FACE_DIRECTIONS[face_index]
+					var face_direction := _face_direction(face_index)
+					var face_normal := _face_normal(face_index)
+					var tangent_axes := _face_tangent_axes(face_index)
+					var neighbor := cell + face_direction
 					if _cached_block(
 						neighbor,
 						origin,
@@ -114,36 +119,48 @@ static func build(
 						continue
 					var base_index := vertices.size()
 					var local_cell := Vector3(local_x, y, local_z)
-					var face_vertices: Array = FACE_VERTICES[face_index]
-					var ao_levels: Array[int] = []
+					var ao_0 := 0
+					var ao_1 := 0
+					var ao_2 := 0
+					var ao_3 := 0
 					for vertex_index in range(4):
-						var vertex := Vector3(face_vertices[vertex_index])
-						var ao_level := _vertex_ao_level_cached(
+						var vertex := _face_vertex(face_index, vertex_index)
+						var ao_level := _vertex_ao_level_cached_with_basis(
 							cell,
-							face_index,
 							vertex,
+							face_direction,
+							tangent_axes,
 							origin,
 							block_cache,
 							cache_width,
 							cache_padding,
 							world_height
 						)
-						ao_levels.append(ao_level)
-						var sky_factor := _vertex_sky_factor(
+						match vertex_index:
+							0:
+								ao_0 = ao_level
+							1:
+								ao_1 = ao_level
+							2:
+								ao_2 = ao_level
+							_:
+								ao_3 = ao_level
+						var sky_factor := _vertex_sky_factor_with_basis(
 							cell,
-							face_index,
 							vertex,
+							face_direction,
+							tangent_axes,
 							origin,
 							sky_light,
 							cache_width,
 							cache_padding,
 							world_height
 						)
-						var light_factor := _face_shade(face_index) * AO_BRIGHTNESS[ao_level] * sky_factor
+						var light_factor := _face_shade(face_index) * _ao_brightness(ao_level) * sky_factor
 						vertices.append(local_cell + vertex)
-						normals.append(FACE_NORMALS[face_index])
+						normals.append(face_normal)
 						colors.append(_block_color(block, cell, face_index, light_factor))
-					_append_face_indices(indices, base_index, ao_levels)
+					_append_face_indices(indices, base_index, ao_0, ao_1, ao_2, ao_3)
 					face_count += 1
 
 	return {
@@ -153,6 +170,124 @@ static func build(
 		"indices": indices,
 		"face_count": face_count,
 	}
+
+
+static func _face_direction(face_index: int) -> Vector3i:
+	match face_index:
+		0:
+			return Vector3i.UP
+		1:
+			return Vector3i.DOWN
+		2:
+			return Vector3i.RIGHT
+		3:
+			return Vector3i.LEFT
+		4:
+			return Vector3i(0, 0, 1)
+		_:
+			return Vector3i(0, 0, -1)
+
+
+static func _face_normal(face_index: int) -> Vector3:
+	match face_index:
+		0:
+			return Vector3.UP
+		1:
+			return Vector3.DOWN
+		2:
+			return Vector3.RIGHT
+		3:
+			return Vector3.LEFT
+		4:
+			return Vector3.BACK
+		_:
+			return Vector3.FORWARD
+
+
+static func _face_vertex(face_index: int, vertex_index: int) -> Vector3:
+	match face_index:
+		0:
+			match vertex_index:
+				0:
+					return Vector3(0, 1, 0)
+				1:
+					return Vector3(0, 1, 1)
+				2:
+					return Vector3(1, 1, 1)
+				_:
+					return Vector3(1, 1, 0)
+		1:
+			match vertex_index:
+				0:
+					return Vector3(0, 0, 0)
+				1:
+					return Vector3(1, 0, 0)
+				2:
+					return Vector3(1, 0, 1)
+				_:
+					return Vector3(0, 0, 1)
+		2:
+			match vertex_index:
+				0:
+					return Vector3(1, 0, 0)
+				1:
+					return Vector3(1, 1, 0)
+				2:
+					return Vector3(1, 1, 1)
+				_:
+					return Vector3(1, 0, 1)
+		3:
+			match vertex_index:
+				0:
+					return Vector3(0, 0, 0)
+				1:
+					return Vector3(0, 0, 1)
+				2:
+					return Vector3(0, 1, 1)
+				_:
+					return Vector3(0, 1, 0)
+		4:
+			match vertex_index:
+				0:
+					return Vector3(0, 0, 1)
+				1:
+					return Vector3(1, 0, 1)
+				2:
+					return Vector3(1, 1, 1)
+				_:
+					return Vector3(0, 1, 1)
+		_:
+			match vertex_index:
+				0:
+					return Vector3(0, 0, 0)
+				1:
+					return Vector3(0, 1, 0)
+				2:
+					return Vector3(1, 1, 0)
+				_:
+					return Vector3(1, 0, 0)
+
+
+static func _face_tangent_axes(face_index: int) -> Vector2i:
+	match face_index:
+		0, 1:
+			return Vector2i(0, 2)
+		2, 3:
+			return Vector2i(1, 2)
+		_:
+			return Vector2i(0, 1)
+
+
+static func _ao_brightness(ao_level: int) -> float:
+	match ao_level:
+		0:
+			return 0.55
+		1:
+			return 0.70
+		2:
+			return 0.85
+		_:
+			return 1.0
 
 
 static func _build_block_cache(
@@ -423,8 +558,30 @@ static func _vertex_ao_level_cached(
 	cache_padding: int,
 	world_height: int
 ) -> int:
-	var normal := FACE_DIRECTIONS[face_index]
-	var tangent_axes := FACE_TANGENT_AXES[face_index]
+	return _vertex_ao_level_cached_with_basis(
+		cell,
+		vertex,
+		_face_direction(face_index),
+		_face_tangent_axes(face_index),
+		origin,
+		blocks,
+		cache_width,
+		cache_padding,
+		world_height
+	)
+
+
+static func _vertex_ao_level_cached_with_basis(
+	cell: Vector3i,
+	vertex: Vector3,
+	normal: Vector3i,
+	tangent_axes: Vector2i,
+	origin: Vector3i,
+	blocks: PackedByteArray,
+	cache_width: int,
+	cache_padding: int,
+	world_height: int
+) -> int:
 	var side_a_direction := _axis_direction(tangent_axes.x, _axis_component(vertex, tangent_axes.x) > 0.5)
 	var side_b_direction := _axis_direction(tangent_axes.y, _axis_component(vertex, tangent_axes.y) > 0.5)
 	var sample_origin := cell + normal
@@ -467,8 +624,30 @@ static func _vertex_sky_factor(
 	cache_padding: int,
 	world_height: int
 ) -> float:
-	var normal := FACE_DIRECTIONS[face_index]
-	var tangent_axes := FACE_TANGENT_AXES[face_index]
+	return _vertex_sky_factor_with_basis(
+		cell,
+		vertex,
+		_face_direction(face_index),
+		_face_tangent_axes(face_index),
+		origin,
+		sky_light,
+		cache_width,
+		cache_padding,
+		world_height
+	)
+
+
+static func _vertex_sky_factor_with_basis(
+	cell: Vector3i,
+	vertex: Vector3,
+	normal: Vector3i,
+	tangent_axes: Vector2i,
+	origin: Vector3i,
+	sky_light: PackedByteArray,
+	cache_width: int,
+	cache_padding: int,
+	world_height: int
+) -> float:
 	var side_a_direction := _axis_direction(tangent_axes.x, _axis_component(vertex, tangent_axes.x) > 0.5)
 	var side_b_direction := _axis_direction(tangent_axes.y, _axis_component(vertex, tangent_axes.y) > 0.5)
 	var sample_origin := cell + normal
@@ -540,29 +719,36 @@ static func _axis_direction(axis: int, positive: bool) -> Vector3i:
 			return Vector3i(0, 0, amount)
 
 
-static func _append_face_indices(indices: PackedInt32Array, base_index: int, ao_levels: Array[int]) -> void:
-	if _should_flip_ao_diagonal(ao_levels):
-		indices.append_array(PackedInt32Array([
-			base_index,
-			base_index + 3,
-			base_index + 1,
-			base_index + 1,
-			base_index + 3,
-			base_index + 2,
-		]))
+static func _append_face_indices(
+	indices: PackedInt32Array,
+	base_index: int,
+	ao_0: int,
+	ao_1: int,
+	ao_2: int,
+	ao_3: int
+) -> void:
+	if _should_flip_ao_diagonal_values(ao_0, ao_1, ao_2, ao_3):
+		indices.append(base_index)
+		indices.append(base_index + 3)
+		indices.append(base_index + 1)
+		indices.append(base_index + 1)
+		indices.append(base_index + 3)
+		indices.append(base_index + 2)
 		return
-	indices.append_array(PackedInt32Array([
-		base_index,
-		base_index + 2,
-		base_index + 1,
-		base_index,
-		base_index + 3,
-		base_index + 2,
-	]))
+	indices.append(base_index)
+	indices.append(base_index + 2)
+	indices.append(base_index + 1)
+	indices.append(base_index)
+	indices.append(base_index + 3)
+	indices.append(base_index + 2)
 
 
 static func _should_flip_ao_diagonal(ao_levels: Array[int]) -> bool:
 	return ao_levels[0] + ao_levels[2] > ao_levels[1] + ao_levels[3]
+
+
+static func _should_flip_ao_diagonal_values(ao_0: int, ao_1: int, ao_2: int, ao_3: int) -> bool:
+	return ao_0 + ao_2 > ao_1 + ao_3
 
 
 static func _block_color(block: int, cell: Vector3i, face_index: int, light_factor: float) -> Color:
