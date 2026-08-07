@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/playable_world_port.gd" id="1_chunk_manager"]
 [ext_resource type="Script" path="res://scripts/player/inventory_first_person_controller.gd" id="2_player"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/ui/touch_action_controls.gd" id="4_touch_action_controls"]
 [ext_resource type="Script" path="res://scripts/world/localized_water_bodies.gd" id="5_localized_water"]
 [ext_resource type="Script" path="res://scripts/player/mobile_camera_sensitivity.gd" id="6_mobile_camera"]
+[ext_resource type="Script" path="res://scripts/ui/diagnostic_log_button.gd" id="7_diagnostic_log_button"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -81,6 +82,9 @@ script = ExtResource("3_touch_controls")
 
 [node name="TouchActionControls" type="CanvasLayer" parent="."]
 script = ExtResource("4_touch_action_controls")
+
+[node name="DiagnosticLogButton" type="CanvasLayer" parent="."]
+script = ExtResource("7_diagnostic_log_button")
 
 [node name="MobileCameraSensitivity" type="Node" parent="."]
 script = ExtResource("6_mobile_camera")

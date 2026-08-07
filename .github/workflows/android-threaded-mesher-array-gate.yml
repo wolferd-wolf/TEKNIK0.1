@@ -1,0 +1,67 @@
+name: TEKNIK Android Threaded Mesher Array Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/world/playable_world_mesher.gd"
+      - "tests/android_threaded_mesher_array_gate.gd"
+      - ".github/workflows/android-threaded-mesher-array-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  threaded-mesher-array-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project strictly
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/threaded-mesher-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/threaded-mesher-parse.log; then
+            exit 1
+          fi
+
+      - name: Stress concurrent mesher and verify table equivalence
+        run: |
+          set -o pipefail
+          timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+            --script res://tests/android_threaded_mesher_array_gate.gd \
+            2>&1 | tee artifacts/threaded-mesher-array-gate.log
+          grep -Fq 'ANDROID_THREADED_MESHER_SHARED_ARRAY_ACCESS_REMOVED_PASS' artifacts/threaded-mesher-array-gate.log
+          grep -Fq 'ANDROID_THREADED_MESHER_TABLE_EQUIVALENCE_PASS' artifacts/threaded-mesher-array-gate.log
+          grep -Fq 'ANDROID_THREADED_MESHER_CONCURRENCY_PASS' artifacts/threaded-mesher-array-gate.log
+          grep -Fq 'ANDROID_THREADED_MESHER_GATE_PASS' artifacts/threaded-mesher-array-gate.log
+          if grep -E 'Out of bounds get index|Nonexistent .Vector3. constructor|Condition "!success" is true|SCRIPT ERROR' artifacts/threaded-mesher-array-gate.log; then
+            exit 1
+          fi
+
+      - name: Upload threaded mesher evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-threaded-mesher-array-evidence
+          path: artifacts/
+          if-no-files-found: error

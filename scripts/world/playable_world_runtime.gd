@@ -12,6 +12,7 @@ const EDIT_DEBOUNCE_MSEC := 75
 const MESH_CACHE_PADDING := 2
 const MAX_ACTIVE_BUILD_TASKS := 2
 const MAX_BUILD_APPLIES_PER_FRAME := 1
+const WORKER_STALL_DIAGNOSTIC_USEC := 5000000
 
 var target: Node3D
 var target_physics_enabled := false
@@ -47,6 +48,10 @@ var coalesced_edits := 0
 var build_tasks_started := 0
 var build_results_applied := 0
 var stale_results_discarded := 0
+var worker_submit_failures := 0
+var worker_wait_failures := 0
+var worker_missing_results := 0
+var worker_stall_warnings := 0
 var max_background_compute_usec := 0
 var max_pump_usec := 0
 
@@ -210,6 +215,10 @@ func diagnostics() -> Dictionary:
 		"tasks_started": build_tasks_started,
 		"results_applied": build_results_applied,
 		"stale_results_discarded": stale_results_discarded,
+		"worker_submit_failures": worker_submit_failures,
+		"worker_wait_failures": worker_wait_failures,
+		"worker_missing_results": worker_missing_results,
+		"worker_stall_warnings": worker_stall_warnings,
 		"coalesced_requests": coalesced_edits,
 		"active_tasks": active_build_tasks.size(),
 		"pending_applies": build_apply_queue.size() + build_queue.size() + pending_rebuilds.size(),
@@ -235,6 +244,10 @@ func reset_diagnostics() -> bool:
 	build_tasks_started = 0
 	build_results_applied = 0
 	stale_results_discarded = 0
+	worker_submit_failures = 0
+	worker_wait_failures = 0
+	worker_missing_results = 0
+	worker_stall_warnings = 0
 	max_background_compute_usec = 0
 	max_pump_usec = 0
 	return true
@@ -331,7 +344,14 @@ func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
 		"TEKNIK initial chunk %s r%d" % [coord, revision]
 	)
 	if task_id < 0:
-		push_error("Failed to submit chunk build task for %s revision %d" % [coord, revision])
+		worker_submit_failures += 1
+		_report_worker_failure(
+			"WORKER_SUBMIT_FAILURE",
+			coord,
+			revision,
+			task_id,
+			"WorkerThreadPool.add_task returned an invalid task id"
+		)
 		_queue_latest_revision(coord, true)
 		return
 	active_build_tasks[coord] = {
@@ -340,6 +360,7 @@ func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
 		"result_key": result_key,
 		"replacing": replacing,
 		"queued_at_usec": Time.get_ticks_usec(),
+		"stall_reported": false,
 	}
 	build_tasks_started += 1
 	last_build_usec = maxi(last_build_usec, Time.get_ticks_usec() - queue_start)
@@ -410,21 +431,65 @@ func _collect_completed_build_tasks() -> void:
 		var coord: Vector2i = coord_value
 		var task_data: Dictionary = active_build_tasks.get(coord, {})
 		var task_id := int(task_data.get("task_id", -1))
-		if task_id < 0 or not WorkerThreadPool.is_task_completed(task_id):
+		if task_id < 0:
 			continue
-		WorkerThreadPool.wait_for_task_completion(task_id)
+		if not WorkerThreadPool.is_task_completed(task_id):
+			var queued_at_usec := int(task_data.get("queued_at_usec", Time.get_ticks_usec()))
+			var task_age_usec := Time.get_ticks_usec() - queued_at_usec
+			if (
+				task_age_usec >= WORKER_STALL_DIAGNOSTIC_USEC
+				and not bool(task_data.get("stall_reported", false))
+			):
+				task_data["stall_reported"] = true
+				active_build_tasks[coord] = task_data
+				worker_stall_warnings += 1
+				_report_worker_failure(
+					"WORKER_TASK_STALL",
+					coord,
+					int(task_data.get("revision", 0)),
+					task_id,
+					"task still incomplete after %.3f s"
+					% (task_age_usec / 1000000.0)
+				)
+			continue
+		var wait_error := WorkerThreadPool.wait_for_task_completion(task_id)
 		var result_key := String(task_data.get("result_key", ""))
 		var result := _take_worker_result(result_key)
 		var completed_revision := int(task_data.get("revision", 0))
 		var latest_revision := int(build_revisions.get(coord, 0))
 		var replacing := bool(task_data.get("replacing", false))
 		active_build_tasks.erase(coord)
+		if wait_error != OK:
+			worker_wait_failures += 1
+			_report_worker_failure(
+				"WORKER_WAIT_FAILURE",
+				coord,
+				completed_revision,
+				task_id,
+				"wait_for_task_completion error=%d result_key=%s" % [wait_error, result_key]
+			)
 		max_background_compute_usec = maxi(
 			max_background_compute_usec,
 			int(result.get("compute_usec", 0))
 		)
 		var still_wanted := distance(coord, center) <= RENDER_RADIUS
 		var target_state_valid := loaded.has(coord) if replacing else not loaded.has(coord)
+		if result.is_empty():
+			worker_missing_results += 1
+			_report_worker_failure(
+				"WORKER_RESULT_MISSING",
+				coord,
+				completed_revision,
+				task_id,
+				"task completed without published result; result_key=%s latest_revision=%d replacing=%s still_wanted=%s target_state_valid=%s"
+				% [
+					result_key,
+					latest_revision,
+					replacing,
+					still_wanted,
+					target_state_valid,
+				]
+			)
 		if (
 			result.is_empty()
 			or completed_revision != latest_revision
@@ -453,6 +518,37 @@ func _take_worker_result(result_key: String) -> Dictionary:
 		completed_worker_results.erase(result_key)
 	worker_result_mutex.unlock()
 	return result
+
+
+func _report_worker_failure(
+	marker: String,
+	coord: Vector2i,
+	revision: int,
+	task_id: int,
+	detail: String
+) -> void:
+	var message := (
+		"%s coord=%s revision=%d task_id=%d center=%s active=%d build_queue=%d apply_queue=%d result_sink=%d detail=%s"
+		% [
+			marker,
+			coord,
+			revision,
+			task_id,
+			center,
+			active_build_tasks.size(),
+			build_queue.size(),
+			build_apply_queue.size(),
+			completed_worker_results.size(),
+			detail,
+		]
+	)
+	if marker == "WORKER_TASK_STALL":
+		push_warning(message)
+	else:
+		push_error(message)
+	var capture := get_node_or_null("/root/DiagnosticLogCapture")
+	if capture != null and capture.has_method("record_event"):
+		capture.record_event(marker, message)
 
 
 func _apply_completed_builds(max_applies: int) -> void:

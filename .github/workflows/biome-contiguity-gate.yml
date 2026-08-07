@@ -38,6 +38,18 @@ jobs:
             exit 1
           fi
 
+      - name: Gate player-scale biome macro-zone size
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-biome-zone-size" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/biome_zone_size_gate.gd \
+              2>&1 | tee artifacts/biome-zone-size.log
+          grep -Fq 'BIOME_ZONE_SIZE_GATE_PASS' artifacts/biome-zone-size.log
+          grep -Fq '"legacy_would_fail_new_gate":true' artifacts/biome-zone-size.log
+          grep -Fq '"frequency_only_would_fail_new_gate":true' artifacts/biome-zone-size.log
+          grep -Fq '"patch_only_would_fail_new_gate":true' artifacts/biome-zone-size.log
+
       - name: Gate 2-block minimap regional contiguity
         run: |
           set -o pipefail

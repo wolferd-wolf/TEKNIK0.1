@@ -34,8 +34,12 @@ static func _scan(data, failures: Array[String]) -> Dictionary:
 		var left := -1
 		for column in range(size):
 			var x := SCAN_MIN + column * SCAN_STEP
+			# Terrain height deliberately stays on the accepted four-noise sampler.
 			var samples: Vector4 = data.sample_column_noise(x, z)
-			var weights: Vector4 = data.biome_weights_from_samples(samples)
+			# Biome distribution is measured from the dedicated slower climate field
+			# that shipping biome_at()/blended_biome_from_samples() now use.
+			var climate: Vector2 = data.sample_biome_climate(x, z)
+			var weights: Vector4 = data.biome_weights_from_climate(climate.x, climate.y)
 			var biome: int = data.blended_biome_from_weights(weights, x, z)
 			counts[biome] += 1
 			var maximum_weight := maxf(weights.x, maxf(weights.y, maxf(weights.z, weights.w)))
@@ -219,8 +223,8 @@ static func _write_diagnostics(data, failures: Array[String]) -> void:
 		var world_z := (pixel_z - int(DIAG_SIZE / 2)) * DIAG_SCALE
 		for pixel_x in range(DIAG_SIZE):
 			var world_x := (pixel_x - int(DIAG_SIZE / 2)) * DIAG_SCALE
-			var samples: Vector4 = data.sample_column_noise(world_x, world_z)
-			var weights: Vector4 = data.biome_weights_from_samples(samples)
+			var climate: Vector2 = data.sample_biome_climate(world_x, world_z)
+			var weights: Vector4 = data.biome_weights_from_climate(climate.x, climate.y)
 			var weighted_color := (
 				palette[0] * weights.x
 				+ palette[1] * weights.y

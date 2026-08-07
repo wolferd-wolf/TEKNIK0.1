@@ -7,6 +7,7 @@ const PADDING := 2
 const WIDTH := CHUNK_SIZE + PADDING * 2
 const WARMUPS := 4
 const REPEATS := 20
+const BIOME_CLIMATE_SAMPLES_PER_COLUMN := 2
 
 
 static func run(data, failures: Array[String]) -> Dictionary:
@@ -48,9 +49,9 @@ static func run(data, failures: Array[String]) -> Dictionary:
 				discrete_biome_checksum += int(discrete["biome"])
 
 	if discrete_height_checksum != blended_height_checksum:
-		_fail(failures, "Step 4 changed the accepted Step 3 height output")
+		_fail(failures, "Biome zone sizing changed the accepted terrain height output")
 	if blended_biome_checksum == 0:
-		_fail(failures, "Step 4 blend cache produced an invalid zero biome checksum")
+		_fail(failures, "Blended biome cache produced an invalid zero biome checksum")
 
 	var discrete_stats := _stats(discrete_times)
 	var blended_stats := _stats(blended_times)
@@ -70,8 +71,10 @@ static func run(data, failures: Array[String]) -> Dictionary:
 			"cache_padding": PADDING,
 			"sampled_columns_per_chunk": WIDTH * WIDTH,
 			"measured_chunks_per_path": coords.size() * REPEATS,
-			"base_noise_samples_per_column": WORLD_DATA.NOISE_SAMPLES_PER_COLUMN,
-			"included_work": "cache allocation, one four-noise sample vector per column, height calculation, normalized biome weights, deterministic blend selection, cache writes",
+			"terrain_noise_samples_per_column": WORLD_DATA.NOISE_SAMPLES_PER_COLUMN,
+			"biome_climate_samples_per_column": BIOME_CLIMATE_SAMPLES_PER_COLUMN,
+			"shipping_total_noise_samples_per_column": WORLD_DATA.NOISE_SAMPLES_PER_COLUMN + BIOME_CLIMATE_SAMPLES_PER_COLUMN,
+			"included_work": "cache allocation, one four-noise terrain sample vector plus two dedicated biome-climate samples per column, height calculation, normalized biome weights, deterministic blend selection, cache writes",
 			"excluded_work": [
 				"meshing",
 				"rendering",

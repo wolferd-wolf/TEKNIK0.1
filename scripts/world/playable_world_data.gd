@@ -31,6 +31,10 @@ const ROCKY_MOUNTAIN_BASE_RISE := 6.0
 const ROCKY_MOUNTAIN_RUGGEDNESS := 20.0
 const ROCKY_MOUNTAIN_LAND_BLEND_START := 6.0
 const ROCKY_MOUNTAIN_LAND_BLEND_END := 9.0
+const TERRAIN_TEMPERATURE_NOISE_FREQUENCY := 0.0024
+const TERRAIN_MOISTURE_NOISE_FREQUENCY := 0.0028
+const BIOME_TEMPERATURE_NOISE_FREQUENCY := 0.0012
+const BIOME_MOISTURE_NOISE_FREQUENCY := 0.0014
 
 const BIOME_PLAINS := 0
 const BIOME_FOREST := 1
@@ -42,9 +46,9 @@ const BIOME_COLD_THRESHOLD := -0.12
 const BIOME_DRY_THRESHOLD := -0.08
 const BIOME_WET_THRESHOLD := 0.10
 const BIOME_BLEND_WIDTH := 0.10
-const BIOME_BLEND_PATCH_SIZE := 12
+const BIOME_BLEND_PATCH_SIZE := 24
 const BIOME_BLEND_RANGE_RECIPROCAL := 5.0
-const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 12.0
+const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 24.0
 
 var overrides: Dictionary = {}
 var dirty := false
@@ -52,8 +56,14 @@ var save_delay := 0.0
 
 var continentalness_noise := FastNoiseLite.new()
 var terrain_shape_noise := FastNoiseLite.new()
+# These two retain the accepted terrain-shape climate scale. Rocky mountain
+# elevation depends on samples.z/w, so changing these would alter terrain.
 var temperature_noise := FastNoiseLite.new()
 var moisture_noise := FastNoiseLite.new()
+# Biome classification has its own slower climate samplers so biome zone size
+# can change without changing the accepted terrain-height field.
+var biome_temperature_noise := FastNoiseLite.new()
+var biome_moisture_noise := FastNoiseLite.new()
 
 # Compatibility aliases for existing diagnostics that still refer to the
 # pre-Stage-1 names.
@@ -74,23 +84,39 @@ func _init() -> void:
 	terrain_shape_noise.fractal_octaves = 2
 	_configure_domain_warp(terrain_shape_noise)
 
-	temperature_noise.seed = WORLD_SEED ^ 0x68bc21eb
-	temperature_noise.frequency = 0.0024
-	temperature_noise.fractal_octaves = 3
-	temperature_noise.fractal_gain = 0.5
-	temperature_noise.fractal_lacunarity = 2.0
-	_configure_domain_warp(temperature_noise)
-
-	moisture_noise.seed = WORLD_SEED ^ 0x02e5be93
-	moisture_noise.frequency = 0.0028
-	moisture_noise.fractal_octaves = 3
-	moisture_noise.fractal_gain = 0.5
-	moisture_noise.fractal_lacunarity = 2.0
-	_configure_domain_warp(moisture_noise)
+	_configure_climate_noise(
+		temperature_noise,
+		WORLD_SEED ^ 0x68bc21eb,
+		TERRAIN_TEMPERATURE_NOISE_FREQUENCY
+	)
+	_configure_climate_noise(
+		moisture_noise,
+		WORLD_SEED ^ 0x02e5be93,
+		TERRAIN_MOISTURE_NOISE_FREQUENCY
+	)
+	_configure_climate_noise(
+		biome_temperature_noise,
+		WORLD_SEED ^ 0x68bc21eb,
+		BIOME_TEMPERATURE_NOISE_FREQUENCY
+	)
+	_configure_climate_noise(
+		biome_moisture_noise,
+		WORLD_SEED ^ 0x02e5be93,
+		BIOME_MOISTURE_NOISE_FREQUENCY
+	)
 
 	height_noise = continentalness_noise
 	region_noise = terrain_shape_noise
 	load_save()
+
+
+func _configure_climate_noise(noise: FastNoiseLite, seed_value: int, frequency: float) -> void:
+	noise.seed = seed_value
+	noise.frequency = frequency
+	noise.fractal_octaves = 3
+	noise.fractal_gain = 0.5
+	noise.fractal_lacunarity = 2.0
+	_configure_domain_warp(noise)
 
 
 func _configure_domain_warp(noise: FastNoiseLite) -> void:
@@ -112,6 +138,15 @@ func sample_column_noise(x: int, z: int) -> Vector4:
 		terrain_shape_noise.get_noise_2d(world_x, world_z),
 		temperature_noise.get_noise_2d(world_x, world_z),
 		moisture_noise.get_noise_2d(world_x, world_z)
+	)
+
+
+func sample_biome_climate(x: int, z: int) -> Vector2:
+	var world_x := float(x)
+	var world_z := float(z)
+	return Vector2(
+		biome_temperature_noise.get_noise_2d(world_x, world_z),
+		biome_moisture_noise.get_noise_2d(world_x, world_z)
 	)
 
 
@@ -257,13 +292,72 @@ func blended_biome_from_weights(weights: Vector4, x: int, z: int) -> int:
 	return BIOME_ROCKY
 
 
-func blended_biome_from_samples(samples: Vector4, x: int, z: int) -> int:
-	return blended_biome_from_weights(biome_weights_from_samples(samples), x, z)
+func blended_biome_from_samples(_samples: Vector4, x: int, z: int) -> int:
+	return _resolve_large_zone_biome(x, z)
 
 
 func biome_at(x: int, z: int) -> int:
-	var samples := sample_column_noise(x, z)
-	return blended_biome_from_samples(samples, x, z)
+	return _resolve_large_zone_biome(x, z)
+
+
+func _resolve_large_zone_biome(x: int, z: int) -> int:
+	# This is the chunk-generation hot path. Keep it scalar and inline the
+	# existing weight/selector math so the two added climate samples do not
+	# pay repeated GDScript helper calls or Vector2/Vector4 allocations.
+	var world_x := float(x)
+	var world_z := float(z)
+	var temperature := biome_temperature_noise.get_noise_2d(world_x, world_z)
+	var moisture := biome_moisture_noise.get_noise_2d(world_x, world_z)
+
+	var hot_t := clampf(
+		(temperature - (BIOME_HOT_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var hot := hot_t * hot_t * (3.0 - 2.0 * hot_t)
+	var cold_t := clampf(
+		(temperature - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var cold := 1.0 - cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var dry_t := clampf(
+		(moisture - (BIOME_DRY_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var dry := 1.0 - dry_t * dry_t * (3.0 - 2.0 * dry_t)
+	var wet_t := clampf(
+		(moisture - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
+	)
+	var wet := wet_t * wet_t * (3.0 - 2.0 * wet_t)
+
+	var desert := hot * dry
+	var forest := wet * (1.0 - desert)
+	var rocky := cold * (1.0 - wet) * (1.0 - desert)
+	var plains := maxf(0.0, 1.0 - maxf(desert, maxf(forest, rocky)))
+	var total := plains + forest + desert + rocky
+	if total <= 0.000001:
+		return BIOME_PLAINS
+	var reciprocal_total := 1.0 / total
+	plains *= reciprocal_total
+	forest *= reciprocal_total
+	desert *= reciprocal_total
+
+	var patch_x := floori(world_x * BIOME_BLEND_PATCH_RECIPROCAL)
+	var patch_z := floori(world_z * BIOME_BLEND_PATCH_RECIPROCAL)
+	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (WORLD_SEED * 83492791)
+	hash_value = absi(hash_value)
+	var selector := float(hash_value % 1000003) / 1000003.0
+	if selector < plains:
+		return BIOME_PLAINS
+	if selector < plains + forest:
+		return BIOME_FOREST
+	if selector < plains + forest + desert:
+		return BIOME_DESERT
+	return BIOME_ROCKY
 
 
 func biome_name(biome: int) -> String:
