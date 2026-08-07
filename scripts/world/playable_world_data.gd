@@ -42,9 +42,9 @@ const BIOME_COLD_THRESHOLD := -0.12
 const BIOME_DRY_THRESHOLD := -0.08
 const BIOME_WET_THRESHOLD := 0.10
 const BIOME_BLEND_WIDTH := 0.10
-const BIOME_BLEND_PATCH_SIZE := 3
+const BIOME_BLEND_PATCH_SIZE := 12
 const BIOME_BLEND_RANGE_RECIPROCAL := 5.0
-const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 3.0
+const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 12.0
 
 var overrides: Dictionary = {}
 var dirty := false
@@ -313,14 +313,20 @@ func get_block(cell: Vector3i) -> int:
 
 
 func generated_tree_block(cell: Vector3i) -> int:
+	# Resolve the tree rooted in this column before neighboring canopies so an
+	# overlapping leaf volume can never hide a mineable trunk block.
+	if is_tree_origin(cell.x, cell.z):
+		var own_surface := terrain_height(cell.x, cell.z)
+		var own_trunk_top := own_surface + TREE_TRUNK_HEIGHT
+		if cell.y > own_surface and cell.y <= own_trunk_top:
+			return BLOCK_LOG
+
 	for tree_z in range(cell.z - TREE_CANOPY_RADIUS, cell.z + TREE_CANOPY_RADIUS + 1):
 		for tree_x in range(cell.x - TREE_CANOPY_RADIUS, cell.x + TREE_CANOPY_RADIUS + 1):
 			if not is_tree_origin(tree_x, tree_z):
 				continue
 			var surface := terrain_height(tree_x, tree_z)
 			var trunk_top := surface + TREE_TRUNK_HEIGHT
-			if cell.x == tree_x and cell.z == tree_z and cell.y > surface and cell.y <= trunk_top:
-				return BLOCK_LOG
 			if (
 				cell.y >= trunk_top - 1
 				and cell.y <= trunk_top + 1
