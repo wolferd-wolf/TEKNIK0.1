@@ -15,8 +15,9 @@ const FIELD_STRIDE := 6
 
 
 func _init() -> void:
-	# Replace only the generation-data façade. It inherits the accepted data
-	# implementation, seed, save format, constants, and noise configuration.
+	# Replace only the generation-data facade. It inherits the accepted seed,
+	# save format, noise configuration, terrain formula and biome rules, while
+	# exposing the overhaul's 150-block legal vertical range.
 	data = PIPELINE_DATA.new()
 
 
@@ -80,13 +81,14 @@ static func _stage1_worker_build_chunk(
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
+	var mesh_height := _effective_mesh_height(coord, heights, overrides_snapshot)
 	var mesh_started_usec := Time.get_ticks_usec()
 	var mesh_data: Dictionary = PIPELINE_MESHER.build(
 		coord,
 		heights,
 		overrides_snapshot,
 		CHUNK_SIZE,
-		PIPELINE_DATA.WORLD_HEIGHT,
+		mesh_height,
 		PIPELINE_DATA.SEA_LEVEL,
 		biomes
 	)
@@ -97,11 +99,49 @@ static func _stage1_worker_build_chunk(
 		"mesh_data": mesh_data,
 		"cache_usec": cache_usec,
 		"mesh_usec": mesh_usec,
+		"mesh_height": mesh_height,
 		"compute_usec": Time.get_ticks_usec() - started_usec,
 	}
 	result_mutex.lock()
 	result_sink[result_key] = result
 	result_mutex.unlock()
+
+
+static func _effective_mesh_height(
+	coord: Vector2i,
+	heights: PackedInt32Array,
+	overrides_snapshot: Dictionary
+) -> int:
+	# The legal world is 150 blocks high, but generated/edited content normally
+	# occupies only a fraction of that range. Meshing to the actual content top
+	# prevents a permanent 2.5x vertical scan cost from the height-limit change.
+	var highest_content_y := 0
+	for height in heights:
+		highest_content_y = maxi(
+			highest_content_y,
+			int(height) + PIPELINE_DATA.TREE_TRUNK_HEIGHT + 1
+		)
+
+	var min_x := coord.x * CHUNK_SIZE - MESH_CACHE_PADDING
+	var max_x := coord.x * CHUNK_SIZE + CHUNK_SIZE + MESH_CACHE_PADDING - 1
+	var min_z := coord.y * CHUNK_SIZE - MESH_CACHE_PADDING
+	var max_z := coord.y * CHUNK_SIZE + CHUNK_SIZE + MESH_CACHE_PADDING - 1
+	for key_value: Variant in overrides_snapshot.keys():
+		if int(overrides_snapshot.get(key_value, PIPELINE_DATA.BLOCK_AIR)) == PIPELINE_DATA.BLOCK_AIR:
+			continue
+		var parts := String(key_value).split(",")
+		if parts.size() != 3:
+			continue
+		var x := int(parts[0])
+		var y := int(parts[1])
+		var z := int(parts[2])
+		if x < min_x or x > max_x or z < min_z or z > max_z:
+			continue
+		highest_content_y = maxi(highest_content_y, y)
+
+	# WORLD_MESHER.build() takes an exclusive upper bound. +1 preserves a solid
+	# override at y=149, while the clamp keeps the physical ceiling at 150.
+	return clampi(highest_content_y + 1, 1, PIPELINE_DATA.OVERHAUL_WORLD_HEIGHT)
 
 
 static func _stage1_build_column_caches_for_sampler(coord: Vector2i, sampler) -> Dictionary:
