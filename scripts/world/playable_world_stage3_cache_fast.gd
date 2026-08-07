@@ -96,6 +96,18 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		z_node[i] = nz
 		z_weight[i] = _smooth(float(world_z - (node_min_z + nz * spacing)) * reciprocal)
 
+	# Cache Stage 4 constants once per chunk. The shipping data methods expose
+	# the same arithmetic for direct queries; this hot path inlines it to avoid
+	# hundreds of dynamic property lookups and script calls per padded chunk.
+	var ocean_start: float = sampler.STAGE4_OCEAN_WATER_START
+	var ocean_full: float = sampler.STAGE4_OCEAN_BASIN_FULL
+	var coast_end: float = sampler.STAGE4_COAST_INLAND_END
+	var ocean_edge_floor: int = sampler.STAGE4_OCEAN_EDGE_FLOOR
+	var ocean_core_floor: int = sampler.STAGE4_OCEAN_CORE_FLOOR
+	var sea_level: int = sampler.SEA_LEVEL
+	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
+	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
+
 	for cz in range(width):
 		var world_z: int = z_world[cz]
 		var nz: int = z_node[cz]
@@ -129,15 +141,19 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			fields[field + 5] = moisture
 			var terrain_fields := Vector4(continentalness, structure, 0.0, 0.0)
 			var height: int = sampler.build_provisional_terrain(terrain_fields)
-			# Most columns remain on the Stage 3 fast path. Stage 4 arithmetic is
-			# evaluated only in the ocean/coast continentalness band.
-			if continentalness < sampler.STAGE4_COAST_INLAND_END:
-				height = sampler.apply_water_topology(
-					terrain_fields,
-					height,
-					world_x,
-					world_z
+			if continentalness <= ocean_start:
+				var ocean_t := (ocean_start - continentalness) * ocean_reciprocal
+				ocean_t = clampf(ocean_t, 0.0, 1.0)
+				ocean_t = ocean_t * ocean_t * (3.0 - 2.0 * ocean_t)
+				var ocean_floor := roundi(
+					float(ocean_edge_floor)
+					+ float(ocean_core_floor - ocean_edge_floor) * ocean_t
 				)
+				height = mini(height, ocean_floor)
+			elif continentalness < coast_end:
+				var inland_t := (continentalness - ocean_start) * coast_reciprocal
+				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
+				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 			heights[column] = height
 			biomes[column] = sampler.classify_biome(Vector2(temperature, moisture), world_x, world_z)
 
