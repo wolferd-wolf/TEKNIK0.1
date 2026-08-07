@@ -18,6 +18,24 @@ func _wait_for_world(manager: Variant, label: String) -> bool:
 	return false
 
 
+# Chunk roots can be swapped during a process frame while PhysicsServer3D only
+# exposes the new collision state after the next physics synchronization. Slow
+# hosted runners make that ordering visible. Keep polling the real shipping
+# player's raycast instead of replacing the assertion with a direct world-data
+# lookup: the gate still proves that a generated tree can actually be targeted
+# through gameplay collision.
+func _wait_for_block_target(player: Variant, expected: Vector3i, label: String) -> bool:
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
+		await physics_frame
+		await process_frame
+		var hit: Dictionary = player.get_block_target()
+		if not hit.is_empty() and hit.get("block_coord", Vector3i.ZERO) == expected:
+			return true
+	_fail("Timed out waiting for %s target at %s" % [label, expected])
+	return false
+
+
 # The historical parent integration predates the consolidated public player
 # API and still calls removed private helpers (`_get_block_hit`,
 # `_try_mine_targeted_block`) plus an obsolete inventory crafting interface.
@@ -102,17 +120,14 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 	manager.refresh_streaming(player.global_position)
 	if not await _wait_for_world(manager, "generated tree"):
 		return
-	await _wait_frames(4)
+	if manager.get_block_world(base_log) != BLOCK_LOG:
+		_fail("Generated tree fixture no longer contains its base log")
+		return
 	camera.look_at(
 		Vector3(tree_origin.x + 0.5, tree_surface + 1.5, tree_origin.y + 0.5),
 		Vector3.UP
 	)
-	# Give the shipping controller a complete process opportunity to refresh its
-	# public block target after the camera move.
-	await _wait_frames(2)
-	var hit: Dictionary = player.get_block_target()
-	if hit.is_empty() or hit.get("block_coord", Vector3i.ZERO) != base_log:
-		_fail("Mining raycast did not target the generated tree base log")
+	if not await _wait_for_block_target(player, base_log, "generated tree base log"):
 		return
 	var inventory: Variant = player.get_inventory()
 	if inventory == null:
