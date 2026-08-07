@@ -4,6 +4,8 @@ const CAPTURE_SCRIPT := preload("res://scripts/debug/diagnostic_log_capture.gd")
 const PROJECT_PATH := "res://project.godot"
 const MAIN_SCENE_PATH := "res://scenes/main.tscn"
 const BUTTON_SOURCE_PATH := "res://scripts/ui/diagnostic_log_button.gd"
+const INVENTORY_SCREEN_SOURCE_PATH := "res://scripts/ui/minecraft_inventory_screen.gd"
+const TOUCH_ACTION_SOURCE_PATH := "res://scripts/ui/touch_action_controls.gd"
 const RUNTIME_SOURCE_PATH := "res://scripts/world/playable_world_runtime.gd"
 const TEST_SOURCE_PATH := "user://diagnostic_capture_gate_source.log"
 const ROTATED_ENGINE_FIXTURE_PATH := "user://logs/godot-crash-gate.log"
@@ -109,6 +111,7 @@ func _run() -> void:
 		print("DIAGNOSTIC_LOG_CAPTURE_GATE_PASS")
 		print("DIAGNOSTIC_LOG_ENGINE_FILE_CAPTURE=warning+error")
 		print("DIAGNOSTIC_LOG_ROTATED_ENGINE_RECOVERY=pass")
+		print("DIAGNOSTIC_LOG_TOP_INVENTORY_REMOVED=pass")
 		print("DIAGNOSTIC_LOG_BUFFER_MAX_CHARS=%d" % CAPTURE_SCRIPT.MAX_BUFFER_CHARS)
 		print("DIAGNOSTIC_LOG_PERSIST_PATH=%s" % capture.get_latest_log_path())
 	_finish()
@@ -130,6 +133,12 @@ func _validate_static_wiring() -> void:
 	var button_source := FileAccess.get_file_as_string(BUTTON_SOURCE_PATH)
 	if not button_source.contains("copy_to_clipboard"):
 		_fail("Diagnostic UI does not invoke clipboard capture")
+	var inventory_screen_source := FileAccess.get_file_as_string(INVENTORY_SCREEN_SOURCE_PATH)
+	if inventory_screen_source.contains("_toggle_button = Button.new()"):
+		_fail("Duplicate top inventory button is still created")
+	var touch_action_source := FileAccess.get_file_as_string(TOUCH_ACTION_SOURCE_PATH)
+	if not touch_action_source.contains("\"InventoryButton\": INVENTORY_ACTION"):
+		_fail("Bottom inventory touch button was removed unexpectedly")
 	var capture_source := FileAccess.get_file_as_string("res://scripts/debug/diagnostic_log_capture.gd")
 	if not capture_source.contains("DisplayServer.clipboard_set"):
 		_fail("Diagnostic capture service does not use the system clipboard")
