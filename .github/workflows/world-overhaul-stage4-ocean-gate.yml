@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/world/playable_world_generation_data.gd"
+      - "scripts/world/playable_world_stage4_generation_runtime.gd"
       - "scripts/world/playable_world_stage3_cache_fast.gd"
       - "scripts/world/localized_water_bodies.gd"
       - "scripts/world/playable_world_generation_runtime.gd"
@@ -52,9 +53,13 @@ jobs:
       - name: Verify explicit ocean topology, coast transition and performance
         run: |
           set -o pipefail
+          cp tests/world_overhaul_stage4_ocean_gate.gd tests/_ci_world_overhaul_stage4_ocean_gate.gd
+          sed -i \
+            -e 's#playable_world_generation_runtime.gd#playable_world_stage4_generation_runtime.gd#g' \
+            tests/_ci_world_overhaul_stage4_ocean_gate.gd
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage4-ocean" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage4_ocean_gate.gd \
+              --script res://tests/_ci_world_overhaul_stage4_ocean_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage4-ocean.log
           grep -Fq 'WORLD_OVERHAUL_STAGE4_PASS' artifacts/world-overhaul-stage4-ocean.log
 
