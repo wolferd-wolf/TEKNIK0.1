@@ -306,20 +306,6 @@ func _build_screen() -> void:
 	_long_press_timer.timeout.connect(_on_long_press_timeout)
 	add_child(_long_press_timer)
 
-	_toggle_button = Button.new()
-	_toggle_button.name = "InventoryToggle"
-	_toggle_button.text = "INVENTORY"
-	_toggle_button.anchor_left = 1.0
-	_toggle_button.anchor_right = 1.0
-	_toggle_button.offset_left = -190.0
-	_toggle_button.offset_top = 18.0
-	_toggle_button.offset_right = -18.0
-	_toggle_button.offset_bottom = 76.0
-	_toggle_button.focus_mode = Control.FOCUS_NONE
-	_toggle_button.add_theme_font_size_override("font_size", 18)
-	_toggle_button.pressed.connect(toggle_inventory)
-	_root.add_child(_toggle_button)
-
 	_overlay = Control.new()
 	_overlay.name = "Overlay"
 	_overlay.anchor_right = 1.0
