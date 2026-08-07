@@ -2,11 +2,11 @@ extends "res://scripts/world/playable_world_data.gd"
 
 # Stage 1 compatibility layer.
 #
-# The inherited sampler remains the accepted world-generation oracle. These
-# named stages make the generation responsibilities explicit without changing
-# any terrain, biome, block, tree, seed, or save behavior. Stage 2 can replace
-# individual stages while the legacy implementation remains available for
-# assertion-equivalence tests.
+# The inherited sampler remains the accepted 60-block world-generation oracle.
+# The overhaul owns a 150-block legal vertical range while Stage 1 deliberately
+# preserves today's generated terrain/biome output. Later terrain stages can use
+# the new headroom without another architecture migration.
+const OVERHAUL_WORLD_HEIGHT := 150
 
 
 func sample_world_fields(x: int, z: int) -> Vector4:
@@ -28,7 +28,7 @@ func apply_water_topology(
 
 
 func finalize_height(water_shaped_height: int) -> int:
-	return water_shaped_height
+	return clampi(water_shaped_height, 3, OVERHAUL_WORLD_HEIGHT - 3)
 
 
 func classify_biome(climate: Vector2, x: int, z: int) -> int:
@@ -113,7 +113,7 @@ func blended_biome_from_samples(_samples: Vector4, x: int, z: int) -> int:
 func get_block(cell: Vector3i) -> int:
 	if cell.y < 0:
 		return BLOCK_STONE
-	if cell.y >= WORLD_HEIGHT:
+	if cell.y >= OVERHAUL_WORLD_HEIGHT:
 		return BLOCK_AIR
 	var key := cell_key(cell)
 	if overrides.has(key):
@@ -140,3 +140,34 @@ func is_tree_origin(x: int, z: int) -> bool:
 	var surface := finalize_height(water_shaped_height)
 	var biome := classify_biome(sample_biome_climate(x, z), x, z)
 	return is_tree_origin_for_biome(x, z, surface, biome)
+
+
+func is_tree_origin_for_biome(x: int, z: int, surface: int, biome: int) -> bool:
+	if biome == BIOME_DESERT or biome == BIOME_ROCKY:
+		return false
+	if surface <= SEA_LEVEL + 1 or surface + TREE_TRUNK_HEIGHT + 1 >= OVERHAUL_WORLD_HEIGHT:
+		return false
+	var baseline_grid := (
+		posmod(x, TREE_SPACING) == TREE_OFFSET
+		and posmod(z, TREE_SPACING) == TREE_OFFSET
+	)
+	var forest_grid := (
+		biome == BIOME_FOREST
+		and posmod(x, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET
+		and posmod(z, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET
+	)
+	if not baseline_grid and not forest_grid:
+		return false
+	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	if forest_grid and not baseline_grid:
+		return hash_value % 3 != 0
+	return hash_value % 4 != 0
+
+
+func set_block(cell: Vector3i, block_id: int) -> bool:
+	if cell.y < 0 or cell.y >= OVERHAUL_WORLD_HEIGHT or get_block(cell) == block_id:
+		return false
+	overrides[cell_key(cell)] = block_id
+	dirty = true
+	save_delay = 1.5
+	return true
