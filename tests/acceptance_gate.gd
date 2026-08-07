@@ -1,6 +1,31 @@
 extends "res://tests/acceptance_gate_core.gd"
 
 const BLOCK_STONE := 3
+const ASYNC_WORLD_WAIT_TIMEOUT_MSEC := 30000
+
+
+func _wait_for_world_ready(manager, context: String) -> bool:
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < ASYNC_WORLD_WAIT_TIMEOUT_MSEC:
+		await process_frame
+		if (
+			manager.chunk_count() >= manager.expected_chunk_count()
+			and manager.chunk_count() <= MAX_RETAINED_CHUNK_COUNT
+			and manager.is_playable_world_collision_ring_ready()
+			and manager.is_remesh_idle()
+		):
+			return true
+	_fail(
+		"Playable world did not become ready during %s: chunks=%d expected=%d collision=%s idle=%s"
+		% [
+			context,
+			manager.chunk_count(),
+			manager.expected_chunk_count(),
+			manager.is_playable_world_collision_ring_ready(),
+			manager.is_remesh_idle(),
+		]
+	)
+	return false
 
 
 func _test_terrain_and_features(manager) -> void:
