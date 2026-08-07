@@ -10,6 +10,7 @@ on:
       - "scripts/world/playable_world_stage6_optimized_data.gd"
       - "scripts/world/playable_world_stage6_cache_aware_data.gd"
       - "scripts/world/playable_world_stage6_tree_consistent_data.gd"
+      - "scripts/world/playable_world_stage6_generation_cache_fast.gd"
       - "scripts/world/playable_world_stage6_cache_fast.gd"
       - "scripts/world/playable_world_stage6_mesher.gd"
       - "scripts/world/playable_world_stage5_generation_data.gd"
