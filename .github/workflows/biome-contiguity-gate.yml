@@ -1,0 +1,66 @@
+name: TEKNIK Biome Contiguity Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  biome-contiguity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+      - name: Parse strict
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-biome-parse" \
+            timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/biome-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/biome-parse.log; then
+            exit 1
+          fi
+
+      - name: Gate 2-block minimap regional contiguity
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-biome-contiguity" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/biome_contiguity_gate.gd \
+              2>&1 | tee artifacts/biome-contiguity.log
+          grep -Fq 'BIOME_CONTIGUITY_GATE_PASS' artifacts/biome-contiguity.log
+          grep -Fq '"legacy_would_fail_new_gate":true' artifacts/biome-contiguity.log
+
+      - name: Run full multi-noise integration gate
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-biome-integration" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/multi_noise_step1_gate.gd \
+              2>&1 | tee artifacts/biome-integration.log
+          grep -Fq 'MULTI_NOISE_STEP5_GATE_PASS' artifacts/biome-integration.log
+
+      - name: Upload biome evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: biome-contiguity-evidence
+          path: artifacts/
+          if-no-files-found: error
