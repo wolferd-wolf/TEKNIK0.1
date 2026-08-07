@@ -1,50 +1,47 @@
 extends "res://scripts/world/playable_world_generation_data.gd"
 
-# Stage 5 rivers are deterministic continuous corridors. A rotated coordinate
-# is bent by low-frequency 1D value noise, then converted to distance from a
-# periodic centerline. Unlike arbitrary 2D zero contours this cannot create
-# tiny closed river loops, while the accepted Stage 3 macro warp bends the
-# corridors further without adding another FastNoiseLite sampler.
+# Stage 5 rivers are deterministic continuous centerlines. Each corridor is a
+# graph in world space: x + diagonal_drift(z) + low-frequency meander(z). The
+# field is continuous, cannot form tiny closed loops, and is cheap enough to
+# evaluate directly in the chunk hot path without another FastNoiseLite stack.
 const WATER_RIVER := 2
 
 const STAGE5_RIVER_LATTICE_SPACING := 192
 const STAGE5_RIVER_LATTICE_RECIPROCAL := 1.0 / 192.0
 const STAGE5_RIVER_SPACING := 224.0
-const STAGE5_RIVER_WARP_SCALE := 0.75
+const STAGE5_RIVER_PI_OVER_SPACING := PI / 224.0
+const STAGE5_RIVER_DIAGONAL_SLOPE := 0.28
 const STAGE5_RIVER_MEANDER_AMPLITUDE := 48.0
 const STAGE5_RIVER_HASH_SALT := 0x3d93cb17
-const STAGE5_RIVER_DIR_X := 0.819152044288992
-const STAGE5_RIVER_DIR_Z := 0.573576436351046
-const STAGE5_RIVER_PERP_X := -0.573576436351046
-const STAGE5_RIVER_PERP_Z := 0.819152044288992
 
-const STAGE5_CHANNEL_INNER := 0.012
-const STAGE5_CHANNEL_OUTER := 0.040
-const STAGE5_VALLEY_INNER := 0.045
-const STAGE5_VALLEY_OUTER := 0.120
+# At 224-block spacing these thresholds produce roughly a four-block channel
+# half-width, wide enough to remain 4-neighbour connected at the game's
+# 4-block diagnostic sampling while still reading as a narrow river in play.
+const STAGE5_CHANNEL_INNER := 0.025
+const STAGE5_CHANNEL_OUTER := 0.095
+const STAGE5_VALLEY_INNER := 0.100
+const STAGE5_VALLEY_OUTER := 0.200
 const STAGE5_CHANNEL_WATER_CUTOFF := 0.50
 
-# Width changes are deliberately subtle and very low-gradient. This gives
-# slightly broader mouths without allowing continentalness noise to break a
-# continuous river into short wet/dry fragments.
-const STAGE5_COAST_WIDTH_SCALE := 1.08
-const STAGE5_INLAND_WIDTH_SCALE := 0.92
+# Only subtle mouth broadening. Width changes cannot dominate the continuity
+# of the centerline field.
+const STAGE5_COAST_WIDTH_SCALE := 1.04
+const STAGE5_INLAND_WIDTH_SCALE := 0.96
 const STAGE5_WIDTH_CONTINENTAL_RANGE := 1.34
 
 const STAGE5_MAX_VALLEY_CARVE := 24
 const STAGE5_CHANNEL_DEPTH := 2
+const STAGE5_VALLEY_RELIEF_FRACTION := 0.55
 
 
 func stage5_river_lattice_value(lattice_index: int) -> float:
 	return _stage3_hash01(lattice_index, 0, STAGE5_RIVER_HASH_SALT) * 2.0 - 1.0
 
 
-func stage5_meander_at(perpendicular_coordinate: float) -> float:
-	var lattice_index := floori(perpendicular_coordinate * STAGE5_RIVER_LATTICE_RECIPROCAL)
+func stage5_meander_at(world_z: float) -> float:
+	var lattice_index := floori(world_z * STAGE5_RIVER_LATTICE_RECIPROCAL)
 	var lattice_origin := float(lattice_index * STAGE5_RIVER_LATTICE_SPACING)
-	var t := _stage3_smooth01(
-		(perpendicular_coordinate - lattice_origin) * STAGE5_RIVER_LATTICE_RECIPROCAL
-	)
+	var t := _stage3_smooth01((world_z - lattice_origin) * STAGE5_RIVER_LATTICE_RECIPROCAL)
 	return lerpf(
 		stage5_river_lattice_value(lattice_index),
 		stage5_river_lattice_value(lattice_index + 1),
@@ -52,47 +49,30 @@ func stage5_meander_at(perpendicular_coordinate: float) -> float:
 	)
 
 
-func stage5_river_raw_at(world_x: float, world_z: float) -> float:
-	var along := world_x * STAGE5_RIVER_DIR_X + world_z * STAGE5_RIVER_DIR_Z
-	var across := world_x * STAGE5_RIVER_PERP_X + world_z * STAGE5_RIVER_PERP_Z
-	var meander := stage5_meander_at(across) * STAGE5_RIVER_MEANDER_AMPLITUDE
-	# abs(sin()) is a continuous normalized distance proxy. Its zero lines are
-	# the river centerlines and repeat every STAGE5_RIVER_SPACING blocks.
-	return absf(sin(PI * (along + meander) / STAGE5_RIVER_SPACING))
-
-
-func stage5_river_raw_at_with_warp(world_x: int, world_z: int, warp: Vector2) -> float:
-	return stage5_river_raw_at(
-		float(world_x) + warp.x * STAGE5_RIVER_WARP_SCALE,
-		float(world_z) + warp.y * STAGE5_RIVER_WARP_SCALE
+func stage5_river_row_phase(world_z: int) -> float:
+	return (
+		float(world_z) * STAGE5_RIVER_DIAGONAL_SLOPE
+		+ stage5_meander_at(float(world_z)) * STAGE5_RIVER_MEANDER_AMPLITUDE
 	)
+
+
+func stage5_river_raw_at(world_x: float, world_z: float) -> float:
+	var phase := (
+		world_x
+		+ world_z * STAGE5_RIVER_DIAGONAL_SLOPE
+		+ stage5_meander_at(world_z) * STAGE5_RIVER_MEANDER_AMPLITUDE
+	)
+	return absf(sin(phase * STAGE5_RIVER_PI_OVER_SPACING))
 
 
 func stage5_sample_river_structure_node(world_x: int, world_z: int) -> float:
-	var warp := stage3_macro_warp_offset(world_x, world_z)
-	return stage5_river_raw_at_with_warp(world_x, world_z, warp)
+	# Kept as a stable diagnostic/public helper even though the shipping cache now
+	# evaluates the continuous field directly per column.
+	return stage5_river_raw_at(float(world_x), float(world_z))
 
 
 func stage5_river_signal(x: int, z: int) -> float:
-	# Public direct queries reproduce the same 4-block lattice interpolation used
-	# by the fused chunk hot path.
-	var spacing := STAGE3_FIELD_LATTICE_SPACING
-	var reciprocal := STAGE3_FIELD_LATTICE_RECIPROCAL
-	var node_x := floori(float(x) * reciprocal)
-	var node_z := floori(float(z) * reciprocal)
-	var origin_x := node_x * spacing
-	var origin_z := node_z * spacing
-	var tx := _stage3_smooth01(float(x - origin_x) * reciprocal)
-	var tz := _stage3_smooth01(float(z - origin_z) * reciprocal)
-	var north_west := stage5_sample_river_structure_node(origin_x, origin_z)
-	var north_east := stage5_sample_river_structure_node(origin_x + spacing, origin_z)
-	var south_west := stage5_sample_river_structure_node(origin_x, origin_z + spacing)
-	var south_east := stage5_sample_river_structure_node(origin_x + spacing, origin_z + spacing)
-	return lerpf(
-		lerpf(north_west, north_east, tx),
-		lerpf(south_west, south_east, tx),
-		tz
-	)
+	return stage5_river_raw_at(float(x), float(z))
 
 
 func stage5_river_width_scale(continentalness: float) -> float:
@@ -121,6 +101,14 @@ func stage5_river_strengths_from_signal(continentalness: float, river_value: flo
 	return Vector2(1.0 - channel_t, 1.0 - valley_t)
 
 
+func stage5_valley_drop(stage4_height: int) -> int:
+	var relief := maxi(0, stage4_height - SEA_LEVEL)
+	return mini(
+		STAGE5_MAX_VALLEY_CARVE,
+		maxi(2, roundi(float(relief) * STAGE5_VALLEY_RELIEF_FRACTION))
+	)
+
+
 func stage5_shape_height_from_signal(
 	continentalness: float,
 	stage4_height: int,
@@ -134,12 +122,7 @@ func stage5_shape_height_from_signal(
 	if valley_strength <= 0.0:
 		return stage4_height
 
-	var continental_target := roundi(continental_base_elevation(continentalness) + 1.0)
-	var carve_limited_target := stage4_height - STAGE5_MAX_VALLEY_CARVE
-	var valley_floor := mini(
-		stage4_height,
-		maxi(SEA_LEVEL, maxi(continental_target, carve_limited_target))
-	)
+	var valley_floor := maxi(SEA_LEVEL, stage4_height - stage5_valley_drop(stage4_height))
 	var shaped_height := roundi(lerpf(
 		float(stage4_height),
 		float(valley_floor),
