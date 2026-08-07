@@ -2,8 +2,25 @@ extends "res://scripts/world/playable_world_stage6_generation_data.gd"
 
 # Shipping-only Stage 6 lookup optimization. The accepted Stage 6 topology stays
 # in playable_world_stage6_generation_data.gd; this subclass preserves that
-# exact behavior while avoiding full lake-candidate evaluation for lake cells
-# that are geometrically incapable of overlapping a pond.
+# exact behavior while rejecting impossible feature cells before terrain/noise
+# sampling and avoiding full lake evaluation for geometrically distant ponds.
+
+func stage6_lake_candidate(cell_x: int, cell_z: int) -> Dictionary:
+	# Moisture can raise the accepted probability only as high as base+bonus.
+	# If the deterministic roll is already above that ceiling, the reference
+	# implementation must reject this cell for every possible moisture value.
+	var accept_roll := _stage3_hash01(cell_x, cell_z, STAGE6_LAKE_SALT_ACCEPT)
+	if accept_roll >= STAGE6_LAKE_BASE_CHANCE + STAGE6_LAKE_MOISTURE_BONUS:
+		return {}
+	return super.stage6_lake_candidate(cell_x, cell_z)
+
+
+func stage6_pond_candidate(cell_x: int, cell_z: int) -> Dictionary:
+	var accept_roll := _stage3_hash01(cell_x, cell_z, STAGE6_POND_SALT_ACCEPT)
+	if accept_roll >= STAGE6_POND_BASE_CHANCE + STAGE6_POND_MOISTURE_BONUS:
+		return {}
+	return super.stage6_pond_candidate(cell_x, cell_z)
+
 
 func _stage6_pond_overlaps_lake(
 	center: Vector2i,
