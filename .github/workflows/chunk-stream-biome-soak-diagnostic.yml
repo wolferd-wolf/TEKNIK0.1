@@ -1,0 +1,87 @@
+name: TEKNIK Chunk Stream Biome Soak Diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chunk-stream-biome-soak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@v4
+
+      - name: Checkout current main baseline
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+      - name: Parse diagnostic strictly
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-soak-parse" \
+            timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/chunk-stream-biome-soak-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/chunk-stream-biome-soak-parse.log; then
+            exit 1
+          fi
+
+      - name: Soak PR head from fresh user data
+        env:
+          TEKNIK_WRITE_PERSISTED: '1'
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-soak-head" \
+            timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/chunk_stream_biome_soak_diagnostic.gd \
+              2>&1 | tee artifacts/chunk-stream-biome-soak-head-fresh.log
+          grep -Fq 'CHUNK_STREAM_BIOME_SOAK_PASS' artifacts/chunk-stream-biome-soak-head-fresh.log
+
+      - name: Relaunch PR head with same persisted user data
+        env:
+          TEKNIK_EXPECT_PERSISTED: '1'
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-soak-head" \
+            timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/chunk_stream_biome_soak_diagnostic.gd \
+              2>&1 | tee artifacts/chunk-stream-biome-soak-head-persisted.log
+          grep -Fq 'CHUNK_STREAM_BIOME_SOAK_PASS' artifacts/chunk-stream-biome-soak-head-persisted.log
+
+      - name: Soak current main baseline with same diagnostic
+        if: github.event_name == 'pull_request'
+        run: |
+          cp tests/chunk_stream_biome_soak_diagnostic.gd baseline/tests/chunk_stream_biome_soak_diagnostic.gd
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-soak-main" \
+            timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path baseline \
+              --script res://tests/chunk_stream_biome_soak_diagnostic.gd \
+              2>&1 | tee artifacts/chunk-stream-biome-soak-main.log
+          grep -Fq 'CHUNK_STREAM_BIOME_SOAK_PASS' artifacts/chunk-stream-biome-soak-main.log
+
+      - name: Upload soak evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-stream-biome-soak-evidence
+          path: artifacts/
+          if-no-files-found: error
