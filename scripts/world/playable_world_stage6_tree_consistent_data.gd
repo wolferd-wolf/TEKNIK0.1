@@ -10,6 +10,8 @@ func is_tree_origin_for_biome(
 	surface: int,
 	biome: int
 ) -> bool:
-	if water_type_at(x, z) != WATER_NONE:
+	# Keep the cheap deterministic tree-origin rejection first. Water topology is
+	# substantially more expensive and only needs to run for actual tree candidates.
+	if not super.is_tree_origin_for_biome(x, z, surface, biome):
 		return false
-	return super.is_tree_origin_for_biome(x, z, surface, biome)
+	return water_type_at(x, z) == WATER_NONE
