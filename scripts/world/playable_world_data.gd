@@ -43,6 +43,8 @@ const BIOME_DRY_THRESHOLD := -0.08
 const BIOME_WET_THRESHOLD := 0.10
 const BIOME_BLEND_WIDTH := 0.10
 const BIOME_BLEND_PATCH_SIZE := 3
+const BIOME_BLEND_RANGE_RECIPROCAL := 5.0
+const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 3.0
 
 var overrides: Dictionary = {}
 var dirty := false
@@ -198,26 +200,32 @@ func select_biome_from_samples(samples: Vector4) -> int:
 
 
 func biome_weights_from_climate(temperature: float, moisture: float) -> Vector4:
-	var hot := _smooth_range(
-		BIOME_HOT_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_HOT_THRESHOLD + BIOME_BLEND_WIDTH,
-		temperature
+	# Mathematically identical to four _smooth_range calls, without the
+	# interpreted helper-call overhead in every padded chunk column.
+	var hot_t := clampf(
+		(temperature - (BIOME_HOT_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
-	var cold := 1.0 - _smooth_range(
-		BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_COLD_THRESHOLD + BIOME_BLEND_WIDTH,
-		temperature
+	var hot := hot_t * hot_t * (3.0 - 2.0 * hot_t)
+	var cold_t := clampf(
+		(temperature - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
-	var dry := 1.0 - _smooth_range(
-		BIOME_DRY_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_DRY_THRESHOLD + BIOME_BLEND_WIDTH,
-		moisture
+	var cold := 1.0 - cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var dry_t := clampf(
+		(moisture - (BIOME_DRY_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
-	var wet := _smooth_range(
-		BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_WET_THRESHOLD + BIOME_BLEND_WIDTH,
-		moisture
+	var dry := 1.0 - dry_t * dry_t * (3.0 - 2.0 * dry_t)
+	var wet_t := clampf(
+		(moisture - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
+	var wet := wet_t * wet_t * (3.0 - 2.0 * wet_t)
 
 	var desert := hot * dry
 	var forest := wet * (1.0 - desert)
@@ -234,8 +242,8 @@ func biome_weights_from_samples(samples: Vector4) -> Vector4:
 
 
 func blended_biome_from_weights(weights: Vector4, x: int, z: int) -> int:
-	var patch_x := floori(float(x) / float(BIOME_BLEND_PATCH_SIZE))
-	var patch_z := floori(float(z) / float(BIOME_BLEND_PATCH_SIZE))
+	var patch_x := floori(float(x) * BIOME_BLEND_PATCH_RECIPROCAL)
+	var patch_z := floori(float(z) * BIOME_BLEND_PATCH_RECIPROCAL)
 	var selector := _blend_selector(patch_x, patch_z)
 	var cumulative := weights.x
 	if selector < cumulative:
