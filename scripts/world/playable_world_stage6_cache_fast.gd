@@ -3,6 +3,38 @@ extends RefCounted
 const STAGE5_CACHE := preload("res://scripts/world/playable_world_stage5_cache_fast.gd")
 const CHUNK_SIZE := 12
 const PADDING := 2
+const FIELD_STRIDE := 6
+
+
+static func _base_tree_candidate(
+	x: int,
+	z: int,
+	surface: int,
+	biome: int,
+	sampler
+) -> bool:
+	if biome == sampler.BIOME_DESERT or biome == sampler.BIOME_ROCKY:
+		return false
+	if (
+		surface <= sampler.SEA_LEVEL + 1
+		or surface + sampler.TREE_TRUNK_HEIGHT + 1 >= sampler.OVERHAUL_WORLD_HEIGHT
+	):
+		return false
+	var baseline_grid := (
+		posmod(x, sampler.TREE_SPACING) == sampler.TREE_OFFSET
+		and posmod(z, sampler.TREE_SPACING) == sampler.TREE_OFFSET
+	)
+	var forest_grid := (
+		biome == sampler.BIOME_FOREST
+		and posmod(x, sampler.FOREST_TREE_SPACING) == sampler.FOREST_TREE_OFFSET
+		and posmod(z, sampler.FOREST_TREE_SPACING) == sampler.FOREST_TREE_OFFSET
+	)
+	if not baseline_grid and not forest_grid:
+		return false
+	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ sampler.WORLD_SEED)
+	if forest_grid and not baseline_grid:
+		return hash_value % 3 != 0
+	return hash_value % 4 != 0
 
 
 static func build(coord: Vector2i, sampler) -> Dictionary:
@@ -15,6 +47,8 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	if heights.is_empty():
 		return result
 	var world_fields: PackedFloat32Array = result.get("world_fields", PackedFloat32Array())
+	var biomes: PackedByteArray = result.get("biomes", PackedByteArray())
+	var blocked_tree_columns := PackedInt32Array()
 
 	var width := CHUNK_SIZE + PADDING * 2
 	var origin_x := coord.x * CHUNK_SIZE
@@ -23,6 +57,35 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var min_z := origin_z - PADDING
 	var max_x := origin_x + CHUNK_SIZE + PADDING - 1
 	var max_z := origin_z + CHUNK_SIZE + PADDING - 1
+
+	# Stage 5 water already exists in the base cache. Only evaluate river status
+	# for columns that the mesher would otherwise consider tree origins; this is
+	# sparse (grid/hash gated) and avoids a second dense river pass.
+	for cache_z in range(width):
+		var world_z := min_z + cache_z
+		var row := cache_z * width
+		for cache_x in range(width):
+			var index := row + cache_x
+			var surface := heights[index]
+			var biome := int(biomes[index]) if index < biomes.size() else sampler.BIOME_PLAINS
+			var world_x := min_x + cache_x
+			if not _base_tree_candidate(world_x, world_z, surface, biome, sampler):
+				continue
+			var field_index := index * FIELD_STRIDE
+			if field_index >= world_fields.size():
+				continue
+			var continentalness := float(world_fields[field_index])
+			if continentalness <= sampler.STAGE4_OCEAN_WATER_START:
+				blocked_tree_columns.append(index)
+				continue
+			var river_value := sampler.stage5_river_signal(world_x, world_z)
+			var strengths := sampler.stage5_river_strengths_from_signal(
+				continentalness,
+				river_value
+			)
+			if strengths.x >= sampler.STAGE5_CHANNEL_WATER_CUTOFF:
+				blocked_tree_columns.append(index)
+
 	var features: Array[Dictionary] = sampler.stage6_collect_features_for_cached_bounds(
 		min_x,
 		min_z,
@@ -33,6 +96,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		heights
 	)
 	if features.is_empty():
+		result["blocked_tree_columns"] = blocked_tree_columns
 		return result
 
 	for feature: Dictionary in features:
@@ -85,6 +149,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 						3,
 						safe_top
 					)
+					var biome := int(biomes[index]) if index < biomes.size() else sampler.BIOME_PLAINS
+					if _base_tree_candidate(world_x, world_z, heights[index], biome, sampler):
+						blocked_tree_columns.append(index)
 					continue
 				if distance_squared <= hard_rim_squared:
 					heights[index] = clampi(
@@ -113,4 +180,5 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				)
 
 	result["heights"] = heights
+	result["blocked_tree_columns"] = blocked_tree_columns
 	return result
