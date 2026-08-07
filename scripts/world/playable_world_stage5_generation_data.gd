@@ -1,30 +1,27 @@
 extends "res://scripts/world/playable_world_generation_data.gd"
 
 # Stage 5 rivers are deterministic continuous centerlines. Each corridor is a
-# graph in world space: x + diagonal_drift(z) + low-frequency meander(z). The
-# field is continuous, cannot form tiny closed loops, and is cheap enough to
-# evaluate directly in the chunk hot path without another FastNoiseLite stack.
+# graph in world space: x + diagonal_drift(z) + low-frequency meander(z).
+# The shipping field stores physical block-distance from the nearest centerline,
+# avoiding per-column trigonometry while retaining the accepted river geometry.
 const WATER_RIVER := 2
 
 const STAGE5_RIVER_LATTICE_SPACING := 192
 const STAGE5_RIVER_LATTICE_RECIPROCAL := 1.0 / 192.0
 const STAGE5_RIVER_SPACING := 224.0
-const STAGE5_RIVER_PI_OVER_SPACING := PI / 224.0
+const STAGE5_RIVER_HALF_SPACING := 112.0
 const STAGE5_RIVER_DIAGONAL_SLOPE := 0.28
 const STAGE5_RIVER_MEANDER_AMPLITUDE := 48.0
 const STAGE5_RIVER_HASH_SALT := 0x3d93cb17
 
-# At 224-block spacing these thresholds produce roughly a four-block channel
-# half-width, wide enough to remain 4-neighbour connected at the game's
-# 4-block diagnostic sampling while still reading as a narrow river in play.
-const STAGE5_CHANNEL_INNER := 0.025
-const STAGE5_CHANNEL_OUTER := 0.095
-const STAGE5_VALLEY_INNER := 0.100
-const STAGE5_VALLEY_OUTER := 0.200
+# Physical block distances from the centerline. These are equivalent to the
+# previously accepted sin-distance bands at 224-block river spacing.
+const STAGE5_CHANNEL_INNER := 1.8
+const STAGE5_CHANNEL_OUTER := 6.8
+const STAGE5_VALLEY_INNER := 7.2
+const STAGE5_VALLEY_OUTER := 14.4
 const STAGE5_CHANNEL_WATER_CUTOFF := 0.50
 
-# Only subtle mouth broadening. Width changes cannot dominate the continuity
-# of the centerline field.
 const STAGE5_COAST_WIDTH_SCALE := 1.04
 const STAGE5_INLAND_WIDTH_SCALE := 0.96
 const STAGE5_WIDTH_CONTINENTAL_RANGE := 1.34
@@ -56,18 +53,23 @@ func stage5_river_row_phase(world_z: int) -> float:
 	)
 
 
+func stage5_periodic_block_distance(position: float) -> float:
+	return absf(
+		fposmod(position + STAGE5_RIVER_HALF_SPACING, STAGE5_RIVER_SPACING)
+		- STAGE5_RIVER_HALF_SPACING
+	)
+
+
 func stage5_river_raw_at(world_x: float, world_z: float) -> float:
 	var phase := (
 		world_x
 		+ world_z * STAGE5_RIVER_DIAGONAL_SLOPE
 		+ stage5_meander_at(world_z) * STAGE5_RIVER_MEANDER_AMPLITUDE
 	)
-	return absf(sin(phase * STAGE5_RIVER_PI_OVER_SPACING))
+	return stage5_periodic_block_distance(phase)
 
 
 func stage5_sample_river_structure_node(world_x: int, world_z: int) -> float:
-	# Kept as a stable diagnostic/public helper even though the shipping cache now
-	# evaluates the continuous field directly per column.
 	return stage5_river_raw_at(float(world_x), float(world_z))
 
 
@@ -121,7 +123,6 @@ func stage5_shape_height_from_signal(
 	var valley_strength := strengths.y
 	if valley_strength <= 0.0:
 		return stage4_height
-
 	var valley_floor := maxi(SEA_LEVEL, stage4_height - stage5_valley_drop(stage4_height))
 	var shaped_height := roundi(lerpf(
 		float(stage4_height),
