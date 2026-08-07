@@ -65,7 +65,7 @@ jobs:
           set -o pipefail
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-biome-integration" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/multi_noise_step1_stage3_gate.gd \
+              --script res://tests/multi_noise_step1_stage7_gate.gd \
               2>&1 | tee artifacts/biome-integration.log
           grep -Fq 'MULTI_NOISE_STEP5_GATE_PASS' artifacts/biome-integration.log
 
