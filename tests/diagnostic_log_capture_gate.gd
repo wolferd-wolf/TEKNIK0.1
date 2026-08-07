@@ -29,6 +29,18 @@ func _run() -> void:
 		root.add_child(capture)
 		await process_frame
 
+	# Prove the configured Godot 4.3 file logger really feeds the in-memory
+	# service, rather than testing only a synthetic file-reader path.
+	capture._test_set_source_log_path(CAPTURE_SCRIPT.ENGINE_LOG_PATH)
+	push_warning("DIAGNOSTIC_ENGINE_WARNING_SENTINEL")
+	push_error("DIAGNOSTIC_ENGINE_ERROR_SENTINEL")
+	await process_frame
+	capture._test_poll_now()
+	var engine_buffer: String = capture.get_buffer_text()
+	for sentinel in ["DIAGNOSTIC_ENGINE_WARNING_SENTINEL", "DIAGNOSTIC_ENGINE_ERROR_SENTINEL"]:
+		if not engine_buffer.contains(sentinel):
+			_fail("Godot runtime file logging did not reach the in-memory buffer: %s" % sentinel)
+
 	var source := FileAccess.open(TEST_SOURCE_PATH, FileAccess.WRITE)
 	if source == null:
 		_fail("Could not create diagnostic capture source fixture")
@@ -76,6 +88,7 @@ func _run() -> void:
 
 	if failures.is_empty():
 		print("DIAGNOSTIC_LOG_CAPTURE_GATE_PASS")
+		print("DIAGNOSTIC_LOG_ENGINE_FILE_CAPTURE=warning+error")
 		print("DIAGNOSTIC_LOG_BUFFER_MAX_CHARS=%d" % CAPTURE_SCRIPT.MAX_BUFFER_CHARS)
 		print("DIAGNOSTIC_LOG_PERSIST_PATH=%s" % capture.get_latest_log_path())
 	_finish()
