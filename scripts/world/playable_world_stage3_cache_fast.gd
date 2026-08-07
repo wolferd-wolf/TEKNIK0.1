@@ -127,9 +127,18 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			fields[field + 3] = moisture
 			fields[field + 4] = temperature
 			fields[field + 5] = moisture
-			heights[column] = sampler.build_provisional_terrain(
-				Vector4(continentalness, structure, 0.0, 0.0)
-			)
+			var terrain_fields := Vector4(continentalness, structure, 0.0, 0.0)
+			var height: int = sampler.build_provisional_terrain(terrain_fields)
+			# Most columns remain on the Stage 3 fast path. Stage 4 arithmetic is
+			# evaluated only in the ocean/coast continentalness band.
+			if continentalness < sampler.STAGE4_COAST_INLAND_END:
+				height = sampler.apply_water_topology(
+					terrain_fields,
+					height,
+					world_x,
+					world_z
+				)
+			heights[column] = height
 			biomes[column] = sampler.classify_biome(Vector2(temperature, moisture), world_x, world_z)
 
 	return {"world_fields": fields, "heights": heights, "biomes": biomes}
