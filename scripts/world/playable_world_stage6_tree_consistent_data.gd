@@ -1,9 +1,9 @@
-extends "res://scripts/world/playable_world_stage6_optimized_data.gd"
+extends "res://scripts/world/playable_world_stage6_cache_aware_data.gd"
 
-# Stage 6 tree-origin consistency layer. The historical biome/grid helper knew
-# only climate/surface context; Stage 5/6 added explicit water topology later.
-# Any caller of the helper on the shipping generator must therefore reject wet
-# columns before applying the unchanged accepted tree-grid/hash rule.
+# Final Stage 6 shipping data layer. It keeps the cache-aware candidate reuse
+# and also makes the historical biome/grid tree helper respect explicit water
+# topology. Public/static queries and the threaded runtime therefore share the
+# same lake/pond/river/ocean-aware tree-origin rule.
 func is_tree_origin_for_biome(
 	x: int,
 	z: int,
