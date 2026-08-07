@@ -38,6 +38,16 @@ jobs:
             exit 1
           fi
 
+      - name: Diagnose macro-zone levers at 2-block spacing
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-biome-zone-diagnostic" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/biome_zone_size_diagnostic.gd \
+              2>&1 | tee artifacts/biome-zone-diagnostic.log
+          grep -Fq 'BIOME_ZONE_DIAGNOSTIC_PASS' artifacts/biome-zone-diagnostic.log
+          grep -Fq 'BIOME_ZONE_DIAGNOSTIC_JSON=' artifacts/biome-zone-diagnostic.log
+
       - name: Gate 2-block minimap regional contiguity
         run: |
           set -o pipefail
