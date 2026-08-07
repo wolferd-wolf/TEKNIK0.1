@@ -1,6 +1,7 @@
 extends SceneTree
 
 const WORLD_PORT_SCRIPT := preload("res://scripts/world/playable_world_port.gd")
+const WORLD_RUNTIME := preload("res://scripts/world/playable_world_runtime.gd")
 const WORLD_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -205,7 +206,7 @@ func _measure_chunk_streaming(manager, target: Node3D) -> Dictionary:
 	var initial_diagnostics: Dictionary = manager.get_remesh_diagnostics()
 	var architecture := {
 		"background_compute_ms": float(initial_diagnostics.get("max_background_compute_ms", -1.0)),
-		"build_budget_usec": int(runtime.BUILD_BUDGET_USEC),
+		"build_budget_usec": int(WORLD_RUNTIME.BUILD_BUDGET_USEC),
 		"world_height": int(WORLD_DATA.WORLD_HEIGHT),
 		"chunk_size": CHUNK_SIZE,
 		"render_radius": RENDER_RADIUS,
@@ -220,7 +221,8 @@ func _measure_chunk_streaming(manager, target: Node3D) -> Dictionary:
 		shifts.append(shift)
 		if next_center == Vector2i(1, 0) and first_forward_coords.is_empty():
 			for coord_value: Variant in shift.get("requested_missing_coords", []):
-				first_forward_coords.append(coord_value as Vector2i)
+				var coord: Vector2i = coord_value
+				first_forward_coords.append(coord)
 
 	if first_forward_coords.size() != 7:
 		_fail("Expected seven first-boundary incoming chunks, measured %d" % first_forward_coords.size())
@@ -303,10 +305,14 @@ func _measure_live_shift(manager, target: Node3D, next_center: Vector2i) -> Dict
 		_fail("Chunk-stream shift to %s did not finish within the frame limit" % next_center)
 		return {}
 	var total_ms := (Time.get_ticks_usec() - start_usec) / 1000.0
+	var missing_json: Array[Array] = []
+	for coord in missing:
+		missing_json.append([coord.x, coord.y])
 	return {
 		"center": [next_center.x, next_center.y],
 		"requested_missing_count": missing.size(),
 		"requested_missing_coords": missing,
+		"requested_missing_coords_json": missing_json,
 		"stream_total_ms": total_ms,
 		"observed_single_chunk_build_ms": _stats(build_ms),
 		"frame_wall_ms": _stats(frame_ms),
@@ -339,7 +345,7 @@ func _measure_chunk_phases(runtime, coord: Vector2i) -> Dictionary:
 	var mesh := entry.get("mesh") as ArrayMesh
 	if mesh != null:
 		var collision_start := Time.get_ticks_usec()
-		var collision := runtime._create_collision(mesh)
+		var collision: StaticBody3D = runtime._create_collision(mesh)
 		collision_usec = Time.get_ticks_usec() - collision_start
 		if is_instance_valid(collision):
 			collision.free()
