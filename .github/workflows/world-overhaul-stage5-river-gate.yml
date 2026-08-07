@@ -7,8 +7,8 @@ on:
       - "scripts/world/playable_world_stage5_generation_data.gd"
       - "scripts/world/playable_world_stage5_cache_fast.gd"
       - "scripts/world/playable_world_stage5_frozen_runtime.gd"
+      - "scripts/world/playable_world_stage4_generation_data.gd"
       - "scripts/world/playable_world_stage4_generation_runtime.gd"
-      - "scripts/world/playable_world_generation_runtime.gd"
       - "scripts/world/localized_water_bodies.gd"
       - "tests/world_overhaul_stage5_river_gate_v2.gd"
       - ".github/workflows/world-overhaul-stage5-river-gate.yml"
@@ -56,7 +56,8 @@ jobs:
           set -o pipefail
           cp tests/world_overhaul_stage5_river_gate_v2.gd tests/_ci_world_overhaul_stage5_river_gate.gd
           sed -i \
-            's#playable_world_generation_runtime.gd#playable_world_stage5_frozen_runtime.gd#g' \
+            -e 's#playable_world_generation_data.gd#playable_world_stage4_generation_data.gd#g' \
+            -e 's#playable_world_generation_runtime.gd#playable_world_stage5_frozen_runtime.gd#g' \
             tests/_ci_world_overhaul_stage5_river_gate.gd
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage5-rivers" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
