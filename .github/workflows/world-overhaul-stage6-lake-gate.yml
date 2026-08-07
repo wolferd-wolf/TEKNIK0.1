@@ -4,15 +4,21 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "scripts/world/playable_world_generation_data.gd"
+      - "scripts/world/playable_world_generation_runtime.gd"
       - "scripts/world/playable_world_stage6_generation_data.gd"
       - "scripts/world/playable_world_stage6_optimized_data.gd"
+      - "scripts/world/playable_world_stage6_cache_aware_data.gd"
+      - "scripts/world/playable_world_stage6_tree_consistent_data.gd"
       - "scripts/world/playable_world_stage6_cache_fast.gd"
-      - "scripts/world/playable_world_generation_runtime.gd"
+      - "scripts/world/playable_world_stage6_mesher.gd"
       - "scripts/world/playable_world_stage5_generation_data.gd"
       - "scripts/world/playable_world_stage5_cache_fast.gd"
       - "scripts/world/playable_world_stage5_frozen_runtime.gd"
+      - "scripts/world/playable_world_stage4_generation_data.gd"
       - "scripts/world/localized_water_bodies.gd"
       - "tests/world_overhaul_stage6_lake_gate.gd"
+      - "tests/world_overhaul_stage6_tree_water_gate.gd"
       - ".github/workflows/world-overhaul-stage6-lake-gate.yml"
   workflow_dispatch:
 
@@ -61,6 +67,15 @@ jobs:
               --script res://tests/world_overhaul_stage6_lake_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage6-lakes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE6_PASS' artifacts/world-overhaul-stage6-lakes.log
+
+      - name: Verify water-aware tree origin and mesher consistency
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage6-tree-water" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/world_overhaul_stage6_tree_water_gate.gd \
+              2>&1 | tee artifacts/world-overhaul-stage6-tree-water.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE6_TREE_WATER_PASS' artifacts/world-overhaul-stage6-tree-water.log
 
       - name: Upload Stage 6 evidence
         if: always()
