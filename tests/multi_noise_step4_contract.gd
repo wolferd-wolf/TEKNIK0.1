@@ -145,6 +145,7 @@ static func _validate_sources(failures: Array[String]) -> void:
 		"biome_moisture_noise",
 		"biome_weights_from_climate",
 		"blended_biome_from_samples",
+		"_resolve_large_zone_biome",
 		"BIOME_BLEND_PATCH_SIZE",
 		"rocky_mountain_weight_from_climate",
 	]:
@@ -162,18 +163,18 @@ static func _validate_sources(failures: Array[String]) -> void:
 		if _count(terrain_sample_body, ".get_noise_2d(") != 4:
 			_fail(failures, "Terrain sampler must retain exactly four get_noise_2d calls")
 		if _count(biome_sample_body, ".get_noise_2d(") != 2:
-			_fail(failures, "Biome zone resolver must use exactly two dedicated climate samples")
-		if not biome_sample_body.contains("biome_temperature_noise") or not biome_sample_body.contains("biome_moisture_noise"):
-			_fail(failures, "Biome climate sampler is not isolated from terrain climate")
+			_fail(failures, "Biome diagnostic sampler must expose exactly two dedicated climate samples")
 
-	var blend_start := data_source.find("func blended_biome_from_samples")
-	var biome_at_start := data_source.find("func biome_at", blend_start)
-	if blend_start < 0 or biome_at_start < 0:
-		_fail(failures, "Unable to isolate production biome resolution")
+	var resolver_start := data_source.find("func _resolve_large_zone_biome")
+	var biome_name_start := data_source.find("func biome_name", resolver_start)
+	if resolver_start < 0 or biome_name_start < 0:
+		_fail(failures, "Unable to isolate optimized production biome resolver")
 	else:
-		var blend_body := data_source.substr(blend_start, biome_at_start - blend_start)
-		if not blend_body.contains("sample_biome_climate("):
-			_fail(failures, "Shipping blended biome does not use the dedicated slower climate field")
+		var resolver_body := data_source.substr(resolver_start, biome_name_start - resolver_start)
+		if _count(resolver_body, ".get_noise_2d(") != 2:
+			_fail(failures, "Optimized shipping biome resolver must use exactly two climate noise calls")
+		if not resolver_body.contains("biome_temperature_noise") or not resolver_body.contains("biome_moisture_noise"):
+			_fail(failures, "Optimized shipping biome resolver is not isolated from terrain climate")
 
 	var runtime_source := FileAccess.get_file_as_string("res://scripts/world/playable_world_runtime.gd")
 	var cache_start := runtime_source.find("static func _build_column_caches_for_sampler")
