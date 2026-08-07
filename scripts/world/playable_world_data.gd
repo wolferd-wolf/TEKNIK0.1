@@ -7,7 +7,7 @@ const BLOCK_STONE := 3
 const BLOCK_SAND := 4
 const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
-const WORLD_HEIGHT := 40
+const WORLD_HEIGHT := 60
 const SEA_LEVEL := 7
 const WORLD_SEED := 734921
 const SAVE_PATH := "user://teknik_world_v1.json"
@@ -26,9 +26,9 @@ const DOMAIN_WARP_FRACTAL_GAIN := 0.5
 const DOMAIN_WARP_FRACTAL_LACUNARITY := 2.0
 const TERRAIN_BASE_HEIGHT := 10.0
 const CONTINENTALNESS_HEIGHT_SCALE := 6.4
-const TERRAIN_SHAPE_HEIGHT_SCALE := 3.0
-const ROCKY_MOUNTAIN_BASE_RISE := 4.0
-const ROCKY_MOUNTAIN_RUGGEDNESS := 11.0
+const TERRAIN_SHAPE_HEIGHT_SCALE := 4.5
+const ROCKY_MOUNTAIN_BASE_RISE := 6.0
+const ROCKY_MOUNTAIN_RUGGEDNESS := 20.0
 const ROCKY_MOUNTAIN_LAND_BLEND_START := 6.0
 const ROCKY_MOUNTAIN_LAND_BLEND_END := 9.0
 
@@ -43,6 +43,8 @@ const BIOME_DRY_THRESHOLD := -0.08
 const BIOME_WET_THRESHOLD := 0.10
 const BIOME_BLEND_WIDTH := 0.10
 const BIOME_BLEND_PATCH_SIZE := 3
+const BIOME_BLEND_RANGE_RECIPROCAL := 5.0
+const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 3.0
 
 var overrides: Dictionary = {}
 var dirty := false
@@ -138,9 +140,16 @@ func terrain_height_from_samples(samples: Vector4) -> int:
 		+ samples.y * TERRAIN_SHAPE_HEIGHT_SCALE
 	)
 
-	# Keep the hot column path allocation-free and avoid hundreds of nested
-	# GDScript helper calls per chunk. These are the same smooth ranges used by
-	# rocky_mountain_weight_from_climate(), inlined for the accepted p95 budget.
+	# These branches are exact zero-contribution cases, not approximations.
+	# They keep ordinary plains/forest/desert columns out of the rocky math hot path.
+	if base_height <= ROCKY_MOUNTAIN_LAND_BLEND_START:
+		return clampi(roundi(base_height), 3, WORLD_HEIGHT - 3)
+	if (
+		samples.z >= BIOME_COLD_THRESHOLD + BIOME_BLEND_WIDTH
+		or samples.w >= BIOME_WET_THRESHOLD + BIOME_BLEND_WIDTH
+	):
+		return clampi(roundi(base_height), 3, WORLD_HEIGHT - 3)
+
 	var cold_t := clampf(
 		(samples.z - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH))
 		/ (BIOME_BLEND_WIDTH * 2.0),
@@ -191,26 +200,32 @@ func select_biome_from_samples(samples: Vector4) -> int:
 
 
 func biome_weights_from_climate(temperature: float, moisture: float) -> Vector4:
-	var hot := _smooth_range(
-		BIOME_HOT_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_HOT_THRESHOLD + BIOME_BLEND_WIDTH,
-		temperature
+	# Mathematically identical to four _smooth_range calls, without the
+	# interpreted helper-call overhead in every padded chunk column.
+	var hot_t := clampf(
+		(temperature - (BIOME_HOT_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
-	var cold := 1.0 - _smooth_range(
-		BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_COLD_THRESHOLD + BIOME_BLEND_WIDTH,
-		temperature
+	var hot := hot_t * hot_t * (3.0 - 2.0 * hot_t)
+	var cold_t := clampf(
+		(temperature - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
-	var dry := 1.0 - _smooth_range(
-		BIOME_DRY_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_DRY_THRESHOLD + BIOME_BLEND_WIDTH,
-		moisture
+	var cold := 1.0 - cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var dry_t := clampf(
+		(moisture - (BIOME_DRY_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
-	var wet := _smooth_range(
-		BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH,
-		BIOME_WET_THRESHOLD + BIOME_BLEND_WIDTH,
-		moisture
+	var dry := 1.0 - dry_t * dry_t * (3.0 - 2.0 * dry_t)
+	var wet_t := clampf(
+		(moisture - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH)) * BIOME_BLEND_RANGE_RECIPROCAL,
+		0.0,
+		1.0
 	)
+	var wet := wet_t * wet_t * (3.0 - 2.0 * wet_t)
 
 	var desert := hot * dry
 	var forest := wet * (1.0 - desert)
@@ -227,8 +242,8 @@ func biome_weights_from_samples(samples: Vector4) -> Vector4:
 
 
 func blended_biome_from_weights(weights: Vector4, x: int, z: int) -> int:
-	var patch_x := floori(float(x) / float(BIOME_BLEND_PATCH_SIZE))
-	var patch_z := floori(float(z) / float(BIOME_BLEND_PATCH_SIZE))
+	var patch_x := floori(float(x) * BIOME_BLEND_PATCH_RECIPROCAL)
+	var patch_z := floori(float(z) * BIOME_BLEND_PATCH_RECIPROCAL)
 	var selector := _blend_selector(patch_x, patch_z)
 	var cumulative := weights.x
 	if selector < cumulative:
