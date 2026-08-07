@@ -7,7 +7,7 @@ const BLOCK_STONE := 3
 const BLOCK_SAND := 4
 const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
-const WORLD_HEIGHT := 30
+const WORLD_HEIGHT := 40
 const SEA_LEVEL := 7
 const WORLD_SEED := 734921
 const SAVE_PATH := "user://teknik_world_v1.json"
@@ -24,6 +24,13 @@ const DOMAIN_WARP_FREQUENCY := 0.004
 const DOMAIN_WARP_FRACTAL_OCTAVES := 2
 const DOMAIN_WARP_FRACTAL_GAIN := 0.5
 const DOMAIN_WARP_FRACTAL_LACUNARITY := 2.0
+const TERRAIN_BASE_HEIGHT := 10.0
+const CONTINENTALNESS_HEIGHT_SCALE := 6.4
+const TERRAIN_SHAPE_HEIGHT_SCALE := 3.0
+const ROCKY_MOUNTAIN_BASE_RISE := 4.0
+const ROCKY_MOUNTAIN_RUGGEDNESS := 11.0
+const ROCKY_MOUNTAIN_LAND_BLEND_START := 6.0
+const ROCKY_MOUNTAIN_LAND_BLEND_END := 9.0
 
 const BIOME_PLAINS := 0
 const BIOME_FOREST := 1
@@ -106,8 +113,63 @@ func sample_column_noise(x: int, z: int) -> Vector4:
 	)
 
 
+func rocky_mountain_weight_from_climate(temperature: float, moisture: float) -> float:
+	var cold_t := clampf(
+		(temperature - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
+	)
+	cold_t = cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var wet_t := clampf(
+		(moisture - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
+	)
+	wet_t = wet_t * wet_t * (3.0 - 2.0 * wet_t)
+	return (1.0 - cold_t) * (1.0 - wet_t)
+
+
 func terrain_height_from_samples(samples: Vector4) -> int:
-	return clampi(roundi(10.0 + samples.x * 6.4 + samples.y * 3.0), 3, WORLD_HEIGHT - 3)
+	var base_height := (
+		TERRAIN_BASE_HEIGHT
+		+ samples.x * CONTINENTALNESS_HEIGHT_SCALE
+		+ samples.y * TERRAIN_SHAPE_HEIGHT_SCALE
+	)
+
+	# Keep the hot column path allocation-free and avoid hundreds of nested
+	# GDScript helper calls per chunk. These are the same smooth ranges used by
+	# rocky_mountain_weight_from_climate(), inlined for the accepted p95 budget.
+	var cold_t := clampf(
+		(samples.z - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
+	)
+	cold_t = cold_t * cold_t * (3.0 - 2.0 * cold_t)
+	var wet_t := clampf(
+		(samples.w - (BIOME_WET_THRESHOLD - BIOME_BLEND_WIDTH))
+		/ (BIOME_BLEND_WIDTH * 2.0),
+		0.0,
+		1.0
+	)
+	wet_t = wet_t * wet_t * (3.0 - 2.0 * wet_t)
+	var rocky_weight := (1.0 - cold_t) * (1.0 - wet_t)
+
+	var land_factor := clampf(
+		(base_height - ROCKY_MOUNTAIN_LAND_BLEND_START)
+		/ (ROCKY_MOUNTAIN_LAND_BLEND_END - ROCKY_MOUNTAIN_LAND_BLEND_START),
+		0.0,
+		1.0
+	)
+	land_factor = land_factor * land_factor * (3.0 - 2.0 * land_factor)
+	var peak_strength := clampf((samples.y + 1.0) * 0.5, 0.0, 1.0)
+	peak_strength *= peak_strength
+	var mountain_rise := rocky_weight * land_factor * (
+		ROCKY_MOUNTAIN_BASE_RISE + peak_strength * ROCKY_MOUNTAIN_RUGGEDNESS
+	)
+	return clampi(roundi(base_height + mountain_rise), 3, WORLD_HEIGHT - 3)
 
 
 func terrain_height(x: int, z: int) -> int:

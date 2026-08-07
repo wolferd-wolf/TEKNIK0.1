@@ -1,11 +1,13 @@
 extends CanvasLayer
 class_name TouchActionControls
 
+const WORLD_MAP_OVERLAY_SCRIPT := preload("res://scripts/ui/world_map_overlay.gd")
+const INVENTORY_ACTION := StringName("toggle_inventory")
 const ACTION_BUTTONS := {
 	"JumpButton": StringName("jump"),
 	"MineButton": StringName("mine_block"),
 	"PlaceButton": StringName("place_block"),
-	"CraftButton": StringName("craft_test_recipe"),
+	"InventoryButton": INVENTORY_ACTION,
 }
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_ACTION_PREFIX := "select_hotbar_"
@@ -25,6 +27,7 @@ var _touch_actions: Dictionary = {}
 func _ready() -> void:
 	layer = 40
 	_build_controls()
+	call_deferred("_install_world_map_overlay")
 	_update_layout()
 	var viewport := get_viewport()
 	if viewport != null and not viewport.size_changed.is_connected(_update_layout):
@@ -40,6 +43,10 @@ func _input(event: InputEvent) -> void:
 			return
 		var action := _action_at_position(touch.position)
 		if action == StringName():
+			return
+		if action == INVENTORY_ACTION:
+			_toggle_inventory_screen()
+			get_viewport().set_input_as_handled()
 			return
 		_touch_actions[touch.index] = action
 		_press_action(action)
@@ -70,6 +77,15 @@ func get_hotbar_button(slot_index: int) -> Button:
 	return _hotbar_buttons[slot_index]
 
 
+func _install_world_map_overlay() -> void:
+	var main := get_parent()
+	if main == null or main.get_node_or_null("WorldMapOverlay") != null:
+		return
+	var map_overlay := WORLD_MAP_OVERLAY_SCRIPT.new()
+	map_overlay.name = "WorldMapOverlay"
+	main.add_child(map_overlay)
+
+
 func _build_controls() -> void:
 	_root = Control.new()
 	_root.name = "TouchActionRoot"
@@ -81,8 +97,11 @@ func _build_controls() -> void:
 	for button_name in ACTION_BUTTONS.keys():
 		var action: StringName = ACTION_BUTTONS[button_name]
 		var button := _create_action_button(String(button_name), _label_for_action(action))
-		button.button_down.connect(_press_action.bind(action))
-		button.button_up.connect(_release_action.bind(action))
+		if action == INVENTORY_ACTION:
+			button.pressed.connect(_toggle_inventory_screen)
+		else:
+			button.button_down.connect(_press_action.bind(action))
+			button.button_up.connect(_release_action.bind(action))
 		_root.add_child(button)
 		_action_buttons[String(button_name)] = button
 
@@ -120,8 +139,8 @@ func _label_for_action(action: StringName) -> String:
 			return "MINE"
 		StringName("place_block"):
 			return "PLACE"
-		StringName("craft_test_recipe"):
-			return "CRAFT"
+		INVENTORY_ACTION:
+			return "INVENTORY"
 		_:
 			return String(action).to_upper()
 
@@ -136,6 +155,15 @@ func _action_at_position(position: Vector2) -> StringName:
 		if hotbar_button.is_visible_in_tree() and hotbar_button.get_global_rect().has_point(position):
 			return StringName(HOTBAR_ACTION_PREFIX + str(slot_index + 1))
 	return StringName()
+
+
+func _toggle_inventory_screen() -> void:
+	var player := get_node_or_null("../Player")
+	if player == null or not player.has_method("get_inventory_screen"):
+		return
+	var inventory_screen = player.get_inventory_screen()
+	if inventory_screen != null and inventory_screen.has_method("toggle_inventory"):
+		inventory_screen.toggle_inventory()
 
 
 func _press_action(action: StringName) -> void:
@@ -154,7 +182,7 @@ func _update_layout() -> void:
 	if not is_instance_valid(_root):
 		return
 	var viewport_size := get_viewport().get_visible_rect().size
-	var names := ["JumpButton", "MineButton", "PlaceButton", "CraftButton"]
+	var names := ["JumpButton", "MineButton", "PlaceButton", "InventoryButton"]
 	for index in range(names.size()):
 		var button := _action_buttons.get(names[index]) as Button
 		if button == null:
