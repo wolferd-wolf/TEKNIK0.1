@@ -11,6 +11,8 @@ const PLAYABLE_RENDER_RADIUS := 3
 var chunks: Dictionary = {}
 var last_center_chunk: Vector3i = Vector3i(2147483647, 0, 2147483647)
 var _runtime
+var _blank_world_diag_layer: CanvasLayer
+var _blank_world_diag_label: Label
 
 
 func _ready() -> void:
@@ -22,6 +24,8 @@ func _ready() -> void:
 	_runtime.material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	chunks = _runtime.loaded
 	_update_center_compatibility()
+	_install_blank_world_diagnostic()
+	_update_blank_world_diagnostic()
 
 
 func _process(delta: float) -> void:
@@ -30,6 +34,7 @@ func _process(delta: float) -> void:
 	_runtime.tick(delta)
 	chunks = _runtime.loaded
 	_update_center_compatibility()
+	_update_blank_world_diagnostic()
 
 
 func _exit_tree() -> void:
@@ -41,6 +46,64 @@ func _update_center_compatibility() -> void:
 	if _runtime == null:
 		return
 	last_center_chunk = Vector3i(_runtime.center.x, 0, _runtime.center.y)
+
+
+func _install_blank_world_diagnostic() -> void:
+	_blank_world_diag_layer = CanvasLayer.new()
+	_blank_world_diag_layer.name = "BlankWorldDiagnostic"
+	_blank_world_diag_layer.layer = 100
+	add_child(_blank_world_diag_layer)
+	_blank_world_diag_label = Label.new()
+	_blank_world_diag_label.name = "DiagnosticLabel"
+	_blank_world_diag_label.position = Vector2(285.0, 35.0)
+	_blank_world_diag_label.add_theme_font_size_override("font_size", 18)
+	_blank_world_diag_label.add_theme_color_override("font_color", Color.WHITE)
+	_blank_world_diag_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_blank_world_diag_label.add_theme_constant_override("outline_size", 4)
+	_blank_world_diag_layer.add_child(_blank_world_diag_label)
+
+
+func _update_blank_world_diagnostic() -> void:
+	if _runtime == null or not is_instance_valid(_blank_world_diag_label):
+		return
+	var spawn_x := int(CHUNK_SIZE * 0.5)
+	var spawn_z := int(CHUNK_SIZE * 0.5)
+	var main_height := _runtime.data.terrain_height(spawn_x, spawn_z)
+	var main_biome := _runtime.data.biome_at(spawn_x, spawn_z)
+	var main_block_zero := _runtime.data.get_block(Vector3i(spawn_x, 0, spawn_z))
+	var diag: Dictionary = _runtime.diagnostics()
+	var center_entry: Dictionary = _runtime.get_chunk_entry(_runtime.center)
+	var center_mesh := center_entry.get("mesh") as ArrayMesh
+	var surface_count := 0
+	var vertex_count := 0
+	if is_instance_valid(center_mesh):
+		surface_count = center_mesh.get_surface_count()
+		if surface_count > 0:
+			var arrays := center_mesh.surface_get_arrays(0)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			vertex_count = vertices.size()
+	_blank_world_diag_label.text = (
+		"BLANK-WORLD DIAGNOSTIC\n"
+		+ "main spawn height=%d biome=%d block_y0=%d overrides=%d\n"
+		% [main_height, main_biome, main_block_zero, _runtime.data.overrides.size()]
+		+ "center=%s loaded=%d collision_ring=%s spawn_prepared=%s\n"
+		% [
+			str(_runtime.center),
+			_runtime.loaded.size(),
+			str(_runtime.collision_ring_ready()),
+			str(_runtime.spawn_prepared),
+		]
+		+ "tasks=%d applied=%d stale_or_empty=%d active=%d pending=%d\n"
+		% [
+			int(diag.get("tasks_started", 0)),
+			int(diag.get("results_applied", 0)),
+			int(diag.get("stale_results_discarded", 0)),
+			int(diag.get("active_tasks", 0)),
+			int(diag.get("pending_applies", 0)),
+		]
+		+ "center mesh surfaces=%d vertices=%d bg_max_ms=%.1f"
+		% [surface_count, vertex_count, float(diag.get("max_background_compute_ms", 0.0))]
+	)
 
 
 func is_playable_world_port_active() -> bool:
