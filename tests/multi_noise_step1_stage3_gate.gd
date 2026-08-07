@@ -60,6 +60,64 @@ func _wait_for_block_target(
 	return false
 
 
+# Stage 4/5-era static fixture discovery can nominate a historical tree origin
+# whose column is later occupied by Stage 6 surface water. Shipping generation
+# intentionally suppresses trees in generated water columns. Resolve the test
+# fixture against the actual shipping runtime so this integration assertion
+# always targets a block the current world really generates.
+func _resolve_runtime_tree_fixture(
+	manager: Variant,
+	runtime_data: Variant,
+	preferred_origin: Vector2i
+) -> Dictionary:
+	for radius in range(0, SCAN_RADIUS + 1):
+		var candidates: Array[Vector2i] = []
+		if radius == 0:
+			candidates.append(preferred_origin)
+		else:
+			for offset in range(-radius, radius + 1):
+				candidates.append(preferred_origin + Vector2i(-radius, offset))
+				candidates.append(preferred_origin + Vector2i(radius, offset))
+				if offset != -radius and offset != radius:
+					candidates.append(preferred_origin + Vector2i(offset, -radius))
+					candidates.append(preferred_origin + Vector2i(offset, radius))
+		for origin: Vector2i in candidates:
+			if LOCALIZED_WATER.is_water_column(runtime_data, origin.x, origin.y):
+				continue
+			var surface: int = manager.get_playable_world_height(origin.x, origin.y)
+			var base_log := Vector3i(origin.x, surface + 1, origin.y)
+			if manager.get_block_world(base_log) != BLOCK_LOG:
+				continue
+			var access := _runtime_tree_access(manager, origin, surface)
+			if access == Vector2i.ZERO:
+				continue
+			return {
+				"origin": origin,
+				"access": access,
+				"surface": surface,
+				"base_log": base_log,
+			}
+	return {}
+
+
+func _runtime_tree_access(manager: Variant, origin: Vector2i, surface: int) -> Vector2i:
+	var target_y := surface + 1
+	for direction: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var clear := true
+		for distance in range(1, 5):
+			var x := origin.x + direction.x * distance
+			var z := origin.y + direction.y * distance
+			if manager.get_playable_world_height(x, z) >= target_y:
+				clear = false
+				break
+			if manager.get_block_world(Vector3i(x, target_y, z)) != BLOCK_AIR:
+				clear = false
+				break
+		if clear:
+			return direction
+	return Vector2i.ZERO
+
+
 # The historical parent integration predates the consolidated public player
 # API and still calls removed private helpers (`_get_block_hit`,
 # `_try_mine_targeted_block`) plus an obsolete inventory crafting interface.
@@ -106,9 +164,8 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 	var water_values: Array = report.get("water_fixture", [])
 	var dry_values: Array = report.get("dry_fixture", [])
 	var tree_values: Array = report.get("tree_fixture", [])
-	var access_values: Array = report.get("tree_access", [])
 	var placement_values: Array = report.get("placement_fixture", [])
-	if water_values.size() != 2 or dry_values.size() != 2 or tree_values.size() != 2 or access_values.size() != 2 or placement_values.size() != 2:
+	if water_values.size() != 2 or dry_values.size() != 2 or tree_values.size() != 2 or placement_values.size() != 2:
 		_fail("The static Step 5 fixtures were incomplete")
 		return
 
@@ -131,10 +188,15 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 	if not is_instance_valid(water_instance) or water_instance.mesh == null:
 		_fail("The shipping water system did not render the real water-body fixture")
 
-	var tree_origin := Vector2i(int(tree_values[0]), int(tree_values[1]))
-	var access := Vector2i(int(access_values[0]), int(access_values[1]))
-	var tree_surface: int = manager.get_playable_world_height(tree_origin.x, tree_origin.y)
-	var base_log := Vector3i(tree_origin.x, tree_surface + 1, tree_origin.y)
+	var preferred_tree := Vector2i(int(tree_values[0]), int(tree_values[1]))
+	var resolved_tree := _resolve_runtime_tree_fixture(manager, runtime.data, preferred_tree)
+	if resolved_tree.is_empty():
+		_fail("Shipping runtime scan found no dry side-accessible generated tree")
+		return
+	var tree_origin: Vector2i = resolved_tree["origin"]
+	var access: Vector2i = resolved_tree["access"]
+	var tree_surface: int = int(resolved_tree["surface"])
+	var base_log: Vector3i = resolved_tree["base_log"]
 	var eye := Vector3(
 		tree_origin.x + 0.5 + float(access.x) * 3.0,
 		float(tree_surface) + 1.6,
@@ -145,7 +207,7 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 	if not await _wait_for_world(manager, "generated tree"):
 		return
 	if manager.get_block_world(base_log) != BLOCK_LOG:
-		_fail("Generated tree fixture no longer contains its base log")
+		_fail("Resolved shipping tree lost its base log after streaming")
 		return
 	if not await _wait_for_block_target(
 		player,
@@ -192,6 +254,8 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 
 	report["runtime_water_chunk"] = [water_coord.x, water_coord.y]
 	report["global_water_plane_removed"] = not is_instance_valid(runtime.get_node_or_null("Water"))
+	report["runtime_tree_fixture"] = [tree_origin.x, tree_origin.y]
+	report["runtime_tree_access"] = [access.x, access.y]
 	report["mined_tree_log"] = [base_log.x, base_log.y, base_log.z]
 	report["placed_dirt"] = [place_cell.x, place_cell.y, place_cell.z]
 	report["inventory_logs_after_mine"] = inventory.get_item_count(BLOCK_LOG)
