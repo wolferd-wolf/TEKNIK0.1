@@ -77,7 +77,7 @@ func _run() -> void:
 		_fail("Cache marked a dry tree origin as water-blocked")
 	if data.is_tree_origin(world_x, world_z):
 		_fail("Canonical Stage 6 data still accepts a tree origin in generated water")
-	if data.get_block(world_x, surface + 1, world_z) == BLOCK_LOG:
+	if data.get_block(Vector3i(world_x, surface + 1, world_z)) == BLOCK_LOG:
 		_fail("Canonical direct block query still generated a wet-origin trunk")
 
 	# The stable public data facade and the threaded runtime must describe the
@@ -104,7 +104,7 @@ func _run() -> void:
 	# If no dry neighboring canopy legitimately occupies this exact cell, the
 	# wet-origin trunk must be explicitly suppressed. Otherwise the direct world
 	# is allowed to contain the neighbor's leaf, but never this origin's log.
-	var direct_block := int(data.get_block(world_x, surface + 1, world_z))
+	var direct_block := int(data.get_block(Vector3i(world_x, surface + 1, world_z)))
 	if direct_block == BLOCK_AIR and int(suppression.get(trunk_key, -1)) != BLOCK_AIR:
 		_fail("Stage 6 mesher did not suppress the wet-origin trunk cell")
 
