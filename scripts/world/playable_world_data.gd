@@ -31,6 +31,8 @@ const ROCKY_MOUNTAIN_BASE_RISE := 6.0
 const ROCKY_MOUNTAIN_RUGGEDNESS := 20.0
 const ROCKY_MOUNTAIN_LAND_BLEND_START := 6.0
 const ROCKY_MOUNTAIN_LAND_BLEND_END := 9.0
+const TEMPERATURE_NOISE_FREQUENCY := 0.0012
+const MOISTURE_NOISE_FREQUENCY := 0.0014
 
 const BIOME_PLAINS := 0
 const BIOME_FOREST := 1
@@ -42,9 +44,9 @@ const BIOME_COLD_THRESHOLD := -0.12
 const BIOME_DRY_THRESHOLD := -0.08
 const BIOME_WET_THRESHOLD := 0.10
 const BIOME_BLEND_WIDTH := 0.10
-const BIOME_BLEND_PATCH_SIZE := 12
+const BIOME_BLEND_PATCH_SIZE := 24
 const BIOME_BLEND_RANGE_RECIPROCAL := 5.0
-const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 12.0
+const BIOME_BLEND_PATCH_RECIPROCAL := 1.0 / 24.0
 
 var overrides: Dictionary = {}
 var dirty := false
@@ -75,14 +77,14 @@ func _init() -> void:
 	_configure_domain_warp(terrain_shape_noise)
 
 	temperature_noise.seed = WORLD_SEED ^ 0x68bc21eb
-	temperature_noise.frequency = 0.0024
+	temperature_noise.frequency = TEMPERATURE_NOISE_FREQUENCY
 	temperature_noise.fractal_octaves = 3
 	temperature_noise.fractal_gain = 0.5
 	temperature_noise.fractal_lacunarity = 2.0
 	_configure_domain_warp(temperature_noise)
 
 	moisture_noise.seed = WORLD_SEED ^ 0x02e5be93
-	moisture_noise.frequency = 0.0028
+	moisture_noise.frequency = MOISTURE_NOISE_FREQUENCY
 	moisture_noise.fractal_octaves = 3
 	moisture_noise.fractal_gain = 0.5
 	moisture_noise.fractal_lacunarity = 2.0
