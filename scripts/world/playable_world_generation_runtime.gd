@@ -6,7 +6,8 @@ const SHIPPING_STAGE5_MESHER := preload("res://scripts/world/playable_world_mesh
 
 # Stable public runtime path. Stage 5 subclasses the frozen Stage 4 runtime and
 # adds the river corridor/valley pass while preserving the accepted streaming,
-# remeshing and active-content mesh-ceiling machinery.
+# remeshing and active-content mesh-ceiling machinery. This file is the final
+# Stage 5 shipping checkpoint used by the exact-head regression matrix.
 
 func _init() -> void:
 	data = SHIPPING_STAGE5_DATA.new()
