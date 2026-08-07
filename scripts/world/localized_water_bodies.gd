@@ -46,9 +46,9 @@ func _activate_for_mobile_world() -> void:
 	if runtime == null:
 		call_deferred("_activate_for_mobile_world")
 		return
-	# Water classification must use the exact generation facade the playable
-	# runtime uses. Stage 4 exposes explicit ocean topology there; older oracle
-	# data still falls back to the accepted low-basin classifier below.
+	# Water classification and local surface height use the exact generation
+	# facade owned by the playable runtime. Stage 5 returns ocean/river info in
+	# one query so mesh building does not resample each column twice.
 	_data = runtime.data
 	var global_plane := runtime.get_node_or_null("Water")
 	if is_instance_valid(global_plane):
@@ -93,26 +93,35 @@ func _create_chunk(coord: Vector2i) -> void:
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.name = "Water_%d_%d" % [coord.x, coord.y]
 	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mesh_instance.position = Vector3(coord.x * CHUNK_SIZE, WORLD_DATA.SEA_LEVEL + WATER_SURFACE_OFFSET, coord.y * CHUNK_SIZE)
+	mesh_instance.position = Vector3(coord.x * CHUNK_SIZE, 0.0, coord.y * CHUNK_SIZE)
 	mesh_instance.mesh = mesh
 	mesh.surface_set_material(0, _material)
 	add_child(mesh_instance)
 	_chunks[coord] = mesh_instance
 
 
-static func is_water_column(data, x: int, z: int) -> bool:
-	# Stage 4 shipping data owns water topology. This prevents arbitrary inland
-	# depressions from being filled just because they happen to sit below sea
-	# level. The fallback preserves the legacy oracle and pre-overhaul tests.
+static func water_info(data, x: int, z: int) -> Vector2i:
+	if data.has_method("water_info_at"):
+		return data.water_info_at(x, z)
+	# Stage 4 exposes explicit ocean topology but has one global sea level.
 	if data.has_method("is_ocean_column"):
-		return bool(data.is_ocean_column(x, z))
+		if bool(data.is_ocean_column(x, z)):
+			return Vector2i(1, WORLD_DATA.SEA_LEVEL)
+		return Vector2i(0, -1)
+	# Legacy oracle fallback: only connected low terrain is water.
 	if data.terrain_height(x, z) >= WORLD_DATA.SEA_LEVEL:
-		return false
+		return Vector2i(0, -1)
 	var connected_neighbors := 0
 	for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		if data.terrain_height(x + offset.x, z + offset.y) < WORLD_DATA.SEA_LEVEL:
 			connected_neighbors += 1
-	return connected_neighbors >= 2
+	if connected_neighbors >= 2:
+		return Vector2i(1, WORLD_DATA.SEA_LEVEL)
+	return Vector2i(0, -1)
+
+
+static func is_water_column(data, x: int, z: int) -> bool:
+	return water_info(data, x, z).x != 0
 
 
 static func build_water_mesh(data, coord: Vector2i, chunk_size: int) -> ArrayMesh:
@@ -125,14 +134,16 @@ static func build_water_mesh(data, coord: Vector2i, chunk_size: int) -> ArrayMes
 		for local_x in range(chunk_size):
 			var world_x := origin_x + local_x
 			var world_z := origin_z + local_z
-			if not is_water_column(data, world_x, world_z):
+			var info := water_info(data, world_x, world_z)
+			if info.x == 0:
 				continue
+			var surface_y := float(info.y) + WATER_SURFACE_OFFSET
 			var base := vertices.size()
 			vertices.append_array(PackedVector3Array([
-				Vector3(local_x, 0.0, local_z),
-				Vector3(local_x, 0.0, local_z + 1),
-				Vector3(local_x + 1, 0.0, local_z + 1),
-				Vector3(local_x + 1, 0.0, local_z),
+				Vector3(local_x, surface_y, local_z),
+				Vector3(local_x, surface_y, local_z + 1),
+				Vector3(local_x + 1, surface_y, local_z + 1),
+				Vector3(local_x + 1, surface_y, local_z),
 			]))
 			for _index in range(4):
 				normals.append(Vector3.UP)
