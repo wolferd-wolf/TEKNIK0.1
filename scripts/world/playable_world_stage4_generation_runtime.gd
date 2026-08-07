@@ -1,6 +1,6 @@
 extends "res://scripts/world/playable_world_stage3_generation_runtime.gd"
 
-const STAGE4_DATA := preload("res://scripts/world/playable_world_generation_data.gd")
+const STAGE4_DATA := preload("res://scripts/world/playable_world_stage4_generation_data.gd")
 const STAGE4_CACHE := preload("res://scripts/world/playable_world_stage3_cache_fast.gd")
 const STAGE4_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
