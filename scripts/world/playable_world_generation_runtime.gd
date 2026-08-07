@@ -15,20 +15,16 @@ const FIELD_STRIDE := 6
 
 
 func _init() -> void:
-	# Replace only the generation-data facade. It inherits the accepted seed,
-	# save format, noise configuration, terrain formula and biome rules, while
-	# exposing the overhaul's 150-block legal vertical range.
 	data = PIPELINE_DATA.new()
 
 
 func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
-	# The stable streaming/runtime machinery is inherited unchanged. Only the
-	# worker target changes so chunk generation passes through the Stage 1
-	# pipeline before the existing mesher runs.
+	# Stable streaming/runtime machinery remains inherited unchanged. Stage 2
+	# replaces terrain math inside the worker-local generation pipeline only.
 	var queue_start := Time.get_ticks_usec()
 	var result_key := _result_key(coord, revision)
 	var overrides_snapshot: Dictionary = data.overrides.duplicate(true)
-	var task_callable := Callable(get_script(), "_stage1_worker_build_chunk").bind(
+	var task_callable := Callable(get_script(), "_stage2_worker_build_chunk").bind(
 		coord,
 		overrides_snapshot,
 		revision,
@@ -39,7 +35,7 @@ func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
 	var task_id := WorkerThreadPool.add_task(
 		task_callable,
 		false,
-		"TEKNIK Stage 1 chunk %s r%d" % [coord, revision]
+		"TEKNIK Stage 2 chunk %s r%d" % [coord, revision]
 	)
 	if task_id < 0:
 		worker_submit_failures += 1
@@ -64,7 +60,7 @@ func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
 	last_build_usec = maxi(last_build_usec, Time.get_ticks_usec() - queue_start)
 
 
-static func _stage1_worker_build_chunk(
+static func _stage2_worker_build_chunk(
 	coord: Vector2i,
 	overrides_snapshot: Dictionary,
 	revision: int,
@@ -77,7 +73,7 @@ static func _stage1_worker_build_chunk(
 	# are never shared between concurrent workers.
 	var sampler = PIPELINE_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches := _stage1_build_column_caches_for_sampler(coord, sampler)
+	var caches := _stage2_build_column_caches_for_sampler(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
@@ -113,8 +109,7 @@ static func _effective_mesh_height(
 	overrides_snapshot: Dictionary
 ) -> int:
 	# The legal world is 150 blocks high, but generated/edited content normally
-	# occupies only a fraction of that range. Meshing to the actual content top
-	# prevents a permanent 2.5x vertical scan cost from the height-limit change.
+	# occupies only part of that range. Scan only the actual content ceiling.
 	var highest_content_y := 0
 	for height in heights:
 		highest_content_y = maxi(
@@ -139,17 +134,13 @@ static func _effective_mesh_height(
 			continue
 		highest_content_y = maxi(highest_content_y, y)
 
-	# WORLD_MESHER.build() takes an exclusive upper bound. +1 preserves a solid
-	# override at y=149, while the clamp keeps the physical ceiling at 150.
 	return clampi(highest_content_y + 1, 1, PIPELINE_DATA.OVERHAUL_WORLD_HEIGHT)
 
 
-static func _stage1_build_column_caches_for_sampler(coord: Vector2i, sampler) -> Dictionary:
-	# The first implementation kept sampling, height and biome classification as
-	# three separate 256-column passes. That proved correct but measured 1.046 ms
-	# p95. Stage boundaries remain explicit in the data facade; the shipping hot
-	# path fuses their per-column work so the field cache costs only writes, not
-	# repeated iteration and Vector reconstruction.
+static func _stage2_build_column_caches_for_sampler(coord: Vector2i, sampler) -> Dictionary:
+	# Keep Stage 1's fused hot path. Stage 2 changes only the cheap arithmetic
+	# that converts already-sampled world fields into terrain height; it adds no
+	# extra noise request and no vertical procedural loop.
 	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var column_count := width * width
 	var field_cache := PackedFloat32Array()
@@ -181,10 +172,7 @@ static func _stage1_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 			field_cache[field_index + FIELD_BIOME_TEMPERATURE] = biome_climate.x
 			field_cache[field_index + FIELD_BIOME_MOISTURE] = biome_climate.y
 
-			# apply_water_topology() and finalize_height() are intentional Stage 1
-			# identity boundaries. The accepted terrain formula is called directly
-			# here to avoid one interpreted wrapper call per padded column.
-			heights[column_index] = sampler.terrain_height_from_samples(terrain_fields)
+			heights[column_index] = sampler.build_provisional_terrain(terrain_fields)
 			biomes[column_index] = sampler.classify_biome(
 				biome_climate,
 				world_x,
@@ -194,9 +182,8 @@ static func _stage1_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 	return _decorate_surface(field_cache, heights, biomes)
 
 
-# Reference stage helpers remain callable for diagnostics and later stages.
-# Shipping Stage 1 uses the fused loop above after CI showed the split-pass
-# version exceeded the fixed 1.0 ms p95 gate by 46 microseconds.
+# Reference helpers preserve the explicit architecture for diagnostics and the
+# future water stages. The shipping path remains fused for performance.
 static func _sample_world_fields(coord: Vector2i, sampler) -> PackedFloat32Array:
 	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var field_cache := PackedFloat32Array()
@@ -249,8 +236,6 @@ static func _apply_water_topology(
 	_coord: Vector2i,
 	_sampler
 ) -> PackedInt32Array:
-	# Stage 1 boundary only. The accepted world has no terrain-integrated water
-	# topology yet, so changing a height here would be a regression.
 	return provisional_heights
 
 
@@ -259,8 +244,6 @@ static func _finalize_height(
 	_coord: Vector2i,
 	_sampler
 ) -> PackedInt32Array:
-	# Stage 1 has no post-water height transform. Keeping this as a named stage
-	# gives Stage 2-6 a stable insertion point without touching streaming code.
 	return water_shaped_heights
 
 
@@ -294,9 +277,6 @@ static func _decorate_surface(
 	heights: PackedInt32Array,
 	biomes: PackedByteArray
 ) -> Dictionary:
-	# Bulk block material/tree decoration intentionally remains in the proven
-	# mesher for Stage 1. This stage publishes the immutable column context the
-	# mesher consumes; no visual rule is moved or changed yet.
 	return {
 		"world_fields": field_cache,
 		"heights": heights,
@@ -305,4 +285,4 @@ static func _decorate_surface(
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return _stage1_build_column_caches_for_sampler(coord, data)
+	return _stage2_build_column_caches_for_sampler(coord, data)
