@@ -12,7 +12,7 @@ const STAGE5_RIVER_LATTICE_RECIPROCAL := 1.0 / 96.0
 const STAGE5_RIVER_WARP_SCALE := 0.75
 const STAGE5_RIVER_HASH_SALT := 0x3d93cb17
 
-# abs(river_signal) near zero is the corridor. The inner/outer pairs create
+# abs(river value) near zero is the corridor. The inner/outer pairs create
 # smooth bands rather than a binary trench. Width broadens gradually toward the
 # coast so mouths meet oceans naturally and narrows inland.
 const STAGE5_CHANNEL_INNER := 0.012
@@ -60,7 +60,7 @@ func stage5_sample_river_structure_node(world_x: int, world_z: int) -> float:
 
 
 func stage5_river_signal(x: int, z: int) -> float:
-	# River signal is cached on the same 4-block lattice as terrain structure.
+	# River value is cached on the same 4-block lattice as terrain structure.
 	# This public path reproduces that lattice exactly for direct queries.
 	var spacing := STAGE3_FIELD_LATTICE_SPACING
 	var reciprocal := STAGE3_FIELD_LATTICE_RECIPROCAL
@@ -88,8 +88,8 @@ func stage5_river_width_scale(continentalness: float) -> float:
 	return lerpf(STAGE5_COAST_WIDTH_SCALE, STAGE5_INLAND_WIDTH_SCALE, inland_t)
 
 
-func stage5_river_strengths_from_signal(continentalness: float, signal: float) -> Vector2:
-	var scaled_distance := absf(signal) / stage5_river_width_scale(continentalness)
+func stage5_river_strengths_from_signal(continentalness: float, river_value: float) -> Vector2:
+	var scaled_distance := absf(river_value) / stage5_river_width_scale(continentalness)
 	var channel_t := clampf(
 		(scaled_distance - STAGE5_CHANNEL_INNER)
 		/ (STAGE5_CHANNEL_OUTER - STAGE5_CHANNEL_INNER),
@@ -110,11 +110,11 @@ func stage5_river_strengths_from_signal(continentalness: float, signal: float) -
 func stage5_shape_height_from_signal(
 	continentalness: float,
 	stage4_height: int,
-	signal: float
+	river_value: float
 ) -> int:
 	if continentalness <= STAGE4_OCEAN_WATER_START:
 		return stage4_height
-	var strengths := stage5_river_strengths_from_signal(continentalness, signal)
+	var strengths := stage5_river_strengths_from_signal(continentalness, river_value)
 	var channel_strength := strengths.x
 	var valley_strength := strengths.y
 	if valley_strength <= 0.0:
@@ -170,10 +170,10 @@ func water_info_at(x: int, z: int) -> Vector2i:
 			return Vector2i(WATER_OCEAN, SEA_LEVEL)
 		return Vector2i(WATER_NONE, -1)
 
-	var signal := stage5_river_signal(x, z)
-	var strengths := stage5_river_strengths_from_signal(fields.x, signal)
+	var river_value := stage5_river_signal(x, z)
+	var strengths := stage5_river_strengths_from_signal(fields.x, river_value)
 	var final_height := finalize_height(
-		stage5_shape_height_from_signal(fields.x, stage4_height, signal)
+		stage5_shape_height_from_signal(fields.x, stage4_height, river_value)
 	)
 	if strengths.x >= STAGE5_CHANNEL_WATER_CUTOFF:
 		return Vector2i(WATER_RIVER, final_height + 1)
