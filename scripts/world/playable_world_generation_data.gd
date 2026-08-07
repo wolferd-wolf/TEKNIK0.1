@@ -6,9 +6,9 @@ extends "res://scripts/world/playable_world_stage2_generation_data.gd"
 # hashes, so it does not add another FastNoiseLite stack.
 #
 # Terrain structure is evaluated on a 4-block lattice and smoothly interpolated.
-# Slow terrain-only climate fields use an 8-block lattice; biome climate remains
-# unchanged and continues to drive the accepted biome classifier at full column
-# resolution. Shipping chunk caches reuse both lattices across all columns.
+# The shipping chunk cache also reuses terrain-only temperature/moisture on an
+# 8-block lattice for headroom; direct field queries preserve exact climate
+# samples. Biome climate is unchanged and remains full-resolution.
 const STAGE3_FIELD_LATTICE_SPACING := 4
 const STAGE3_FIELD_LATTICE_RECIPROCAL := 1.0 / 4.0
 const STAGE3_TERRAIN_CLIMATE_LATTICE_SPACING := 8
@@ -134,10 +134,9 @@ func stage3_unwarped_structure(x: int, z: int) -> float:
 func sample_world_fields(x: int, z: int) -> Vector4:
 	var world_x := float(x)
 	var world_z := float(z)
-	var terrain_climate := stage3_terrain_climate(x, z)
 	return Vector4(
 		continentalness_noise.get_noise_2d(world_x, world_z),
 		stage3_terrain_structure(x, z),
-		terrain_climate.x,
-		terrain_climate.y
+		temperature_noise.get_noise_2d(world_x, world_z),
+		moisture_noise.get_noise_2d(world_x, world_z)
 	)
