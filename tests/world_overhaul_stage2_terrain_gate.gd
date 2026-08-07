@@ -84,20 +84,19 @@ func _validate_contract(data) -> void:
 	if not runtime_source.contains("sampler.build_provisional_terrain(terrain_fields)"):
 		_fail("Shipping cache bypasses the Stage 2 terrain formula")
 
-	# Verify the public terrain path uses the same structured formula.
 	for point in [Vector2i.ZERO, Vector2i(31, -47), Vector2i(-96, 73)]:
 		var fields: Vector4 = data.sample_world_fields(point.x, point.y)
-		var expected := data.finalize_height(data.build_provisional_terrain(fields))
+		var expected: int = data.finalize_height(data.build_provisional_terrain(fields))
 		if data.terrain_height(point.x, point.y) != expected:
 			_fail("Public terrain_height bypasses Stage 2 at %s" % point)
 
 
 func _validate_synthetic_landforms(data) -> Dictionary:
-	var plain := data.build_provisional_terrain(Vector4(0.0, -0.65, 0.0, 0.0))
-	var rolling := data.build_provisional_terrain(Vector4(0.35, -0.05, 0.0, 0.0))
-	var upland := data.build_provisional_terrain(Vector4(0.1, 0.30, 0.0, 0.0))
-	var ridge := data.build_provisional_terrain(Vector4(0.0, 0.82, 0.0, 0.0))
-	var mountain_valley := data.build_provisional_terrain(Vector4(0.88, 0.82, 0.0, 0.0))
+	var plain: int = data.build_provisional_terrain(Vector4(0.0, -0.65, 0.0, 0.0))
+	var rolling: int = data.build_provisional_terrain(Vector4(0.35, -0.05, 0.0, 0.0))
+	var upland: int = data.build_provisional_terrain(Vector4(0.1, 0.30, 0.0, 0.0))
+	var ridge: int = data.build_provisional_terrain(Vector4(0.0, 0.82, 0.0, 0.0))
+	var mountain_valley: int = data.build_provisional_terrain(Vector4(0.88, 0.82, 0.0, 0.0))
 
 	if rolling <= plain:
 		_fail("Rolling regime does not rise above synthetic plains")
@@ -123,10 +122,10 @@ func _validate_climate_independence(data) -> Dictionary:
 	var comparisons := 0
 	for continentalness in [-0.75, -0.25, 0.0, 0.35, 0.75]:
 		for structure in [-0.6, -0.1, 0.25, 0.52, 0.82]:
-			var cold_wet := data.build_provisional_terrain(
+			var cold_wet: int = data.build_provisional_terrain(
 				Vector4(continentalness, structure, -1.0, 1.0)
 			)
-			var hot_dry := data.build_provisional_terrain(
+			var hot_dry: int = data.build_provisional_terrain(
 				Vector4(continentalness, structure, 1.0, -1.0)
 			)
 			if cold_wet != hot_dry:
@@ -162,7 +161,7 @@ func _audit_world(data) -> Dictionary:
 		var previous_mountain := false
 		for x in range(start, finish + 1, spacing):
 			var fields: Vector4 = data.sample_world_fields(x, z)
-			var height := data.build_provisional_terrain(fields)
+			var height: int = data.build_provisional_terrain(fields)
 			minimum_height = mini(minimum_height, height)
 			maximum_height = maxi(maximum_height, height)
 			height_total += height
@@ -179,8 +178,8 @@ func _audit_world(data) -> Dictionary:
 				mountain_adjacencies += 1
 			previous_mountain = is_mountain
 
-			var east_height := data.terrain_height(x + spacing, z)
-			var south_height := data.terrain_height(x, z + spacing)
+			var east_height: int = data.terrain_height(x + spacing, z)
+			var south_height: int = data.terrain_height(x, z + spacing)
 			var local_delta := maxi(absi(east_height - height), absi(south_height - height))
 			if regime == 0 and local_delta <= 3:
 				flat_samples += 1
