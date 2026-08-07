@@ -139,7 +139,12 @@ func _validate_static_wiring() -> void:
 		_fail("Diagnostic capture service does not recover rotated Godot crash logs")
 
 	var runtime_source := FileAccess.get_file_as_string(RUNTIME_SOURCE_PATH)
-	for marker in ["WORKER_SUBMIT_FAILURE", "WORKER_WAIT_FAILURE", "WORKER_RESULT_MISSING"]:
+	for marker in [
+		"WORKER_SUBMIT_FAILURE",
+		"WORKER_WAIT_FAILURE",
+		"WORKER_RESULT_MISSING",
+		"WORKER_TASK_STALL",
+	]:
 		if not runtime_source.contains(marker):
 			_fail("Chunk runtime is missing permanent worker diagnostic marker: %s" % marker)
 
