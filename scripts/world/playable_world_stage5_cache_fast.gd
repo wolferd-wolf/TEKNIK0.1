@@ -109,12 +109,16 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
 
-	# Stage 5 constants. The nearest periodic centerline is resolved once at the
-	# first X column of each row. Across the 16-column padded chunk the signed
-	# distance advances by exactly one block per column, with at most one wrap.
-	# This eliminates all per-column trigonometry/modulo from the shipping path.
+	# Stage 5 constants and tiny meander cache. A padded chunk spans only 16 Z
+	# rows while the meander lattice spans 192 blocks, so only 2-3 hash nodes are
+	# ever required. This replaces 32 hash evaluations and 16 sampler calls per
+	# chunk with a tiny once-per-chunk node cache.
 	var river_spacing: float = sampler.STAGE5_RIVER_SPACING
 	var river_half_spacing: float = sampler.STAGE5_RIVER_HALF_SPACING
+	var river_lattice_spacing: int = sampler.STAGE5_RIVER_LATTICE_SPACING
+	var river_lattice_reciprocal: float = sampler.STAGE5_RIVER_LATTICE_RECIPROCAL
+	var river_diagonal_slope: float = sampler.STAGE5_RIVER_DIAGONAL_SLOPE
+	var river_meander_amplitude: float = sampler.STAGE5_RIVER_MEANDER_AMPLITUDE
 	var channel_inner: float = sampler.STAGE5_CHANNEL_INNER
 	var channel_outer: float = sampler.STAGE5_CHANNEL_OUTER
 	var valley_inner: float = sampler.STAGE5_VALLEY_INNER
@@ -128,14 +132,44 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
 	var river_early_out := valley_outer * coast_width
 
+	var river_lattice_min := floori(float(min_z) * river_lattice_reciprocal)
+	var river_lattice_max := floori(float(max_z) * river_lattice_reciprocal) + 1
+	var river_lattice_values := PackedFloat32Array()
+	river_lattice_values.resize(river_lattice_max - river_lattice_min + 1)
+	for river_node in range(river_lattice_values.size()):
+		river_lattice_values[river_node] = sampler.stage5_river_lattice_value(
+			river_lattice_min + river_node
+		)
+
 	for cz in range(width):
 		var world_z: int = z_world[cz]
 		var zf := float(world_z)
-		var river_row_phase: float = sampler.stage5_river_row_phase(world_z)
+		var river_lattice_index := floori(zf * river_lattice_reciprocal)
+		var river_node_offset := river_lattice_index - river_lattice_min
+		var river_lattice_origin := river_lattice_index * river_lattice_spacing
+		var river_t := _smooth(
+			float(world_z - river_lattice_origin) * river_lattice_reciprocal
+		)
+		var river_meander := lerpf(
+			river_lattice_values[river_node_offset],
+			river_lattice_values[river_node_offset + 1],
+			river_t
+		)
+		var river_row_phase := (
+			zf * river_diagonal_slope
+			+ river_meander * river_meander_amplitude
+		)
 		var river_signed_start := (
 			fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
 			- river_half_spacing
 		)
+		# Because the padded row is only 16 blocks wide versus 224-block river
+		# spacing, at most one near-centerline interval can intersect this row.
+		# Precompute that interval so ~85-90% of columns skip all river-distance and
+		# shaping arithmetic entirely.
+		var river_active_min := maxi(0, ceili(-river_early_out - river_signed_start))
+		var river_active_max := mini(width - 1, floori(river_early_out - river_signed_start))
+
 		var nz: int = z_node[cz]
 		var tz: float = z_weight[cz]
 		var north_base := nz * node_width
@@ -185,11 +219,8 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			var river_signed := river_signed_start + float(cx)
-			if river_signed > river_half_spacing:
-				river_signed -= river_spacing
-			var river_value := absf(river_signed)
-			if river_value < river_early_out:
+			if cx >= river_active_min and cx <= river_active_max:
+				var river_value := absf(river_signed_start + float(cx))
 				var width_t := clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
 				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
 				var width_scale := coast_width + (inland_width - coast_width) * width_t
