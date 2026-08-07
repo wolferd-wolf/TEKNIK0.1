@@ -3,7 +3,6 @@ extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 const SHIPPING_STAGE5_DATA := preload("res://scripts/world/playable_world_stage5_generation_data.gd")
 const SHIPPING_STAGE5_CACHE := preload("res://scripts/world/playable_world_stage5_cache_fast.gd")
 const SHIPPING_STAGE5_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
-const STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
 # Stable public runtime path. Stage 5 subclasses the frozen Stage 4 runtime and
 # adds the river corridor/valley pass while preserving the accepted streaming,
