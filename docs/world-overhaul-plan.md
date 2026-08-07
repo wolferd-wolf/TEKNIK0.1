@@ -6,6 +6,8 @@ The right move is a controlled architectural overhaul of the existing column gen
 
 The current foundation—chunked deterministic generation, continentalness, temperature, moisture, and a column surface—is worth keeping. What changes is the entire middle of the pipeline: how terrain shape is produced, how water participates in that shape, and how biome identity is selected and expressed.
 
+> **Progress:** Stage 1 and Stage 2 are complete on `world-overhaul`. The overhaul uses a 150-block legal vertical range. Stage 2 now ships structured plains, rolling terrain, uplands/plateaus, ridged mountain ranges, valleys, and low continental basins while remaining below the 1.0 ms p95 generation gate. Stage 3 has not started.
+
 ## Core architectural decision
 
 TEKNIK's new world generator should be organized like this:
@@ -185,9 +187,11 @@ Nothing proceeds until we have:
 
 # Stage 1 — Refactor the generator internally without changing the world
 
-This is a structural safety step.
+**Status: complete.**
 
-Before changing terrain behaviour, split the existing generator into explicit stages.
+This was a structural safety step.
+
+The generator now exposes explicit stages and a per-chunk field cache with halo coverage. Stage 1 also established the overhaul's 150-block legal vertical range and dynamic active-content mesh ceiling while preserving legacy terrain/biome output during the refactor.
 
 Conceptually:
 
@@ -200,109 +204,64 @@ classify_biome()
 decorate_surface()
 ```
 
-At this stage, those functions should reproduce today's world.
-
-The purpose is preventing one gigantic generator function from becoming even more tangled as rivers, oceans and more biomes arrive.
-
-Also introduce a per-chunk field cache.
-
-Instead of repeatedly asking:
-
-```text
-temperature(x,z)
-moisture(x,z)
-continentalness(x,z)
-```
-
-throughout terrain, biome and vegetation code, compute them once and reuse them.
-
-The cache should include a small halo around the chunk boundary so neighbouring information such as slope and river continuity does not create seams.
-
-### Stage 1 gate
-
-The refactored generator must produce assertion-equivalent world output to the existing generator.
-
-Performance must remain at or below the existing threshold.
-
-If a refactor alone materially slows generation, fix that before proceeding.
+Stage 1 passed assertion-equivalence, halo continuity, mesh equivalence, shipping-runtime wiring and the existing performance gate before Stage 2 began.
 
 # Stage 2 — Replace the current terrain-shape calculation
 
-This is the biggest terrain change.
+**Status: complete.**
 
-Do not simply increase terrain noise amplitude again.
-
-The new terrain system should build terrain from several derived structural components.
+The shipping generator now builds terrain from several derived structural components without adding another noise stack.
 
 ## 2A. Continental base elevation
 
-Continentalness becomes the authority for large-scale world elevation.
-
-It should distinguish things such as:
-
-- deep ocean,
-- ocean basin,
-- continental shelf,
-- coast,
-- low inland,
-- normal inland,
-- deep inland,
-
-through a nonlinear mapping rather than a simple linear height addition.
-
-This gives oceans a proper architectural foundation later.
+Continentalness is now authoritative for large-scale base elevation through a nonlinear remap. Strong negative continentalness also creates low basin/coastal geography below the existing sea level, preserving physical lowlands for water while explicit hydrology remains deferred to Stage 4.
 
 ## 2B. Broad terrain regime
 
-A low-frequency terrain field establishes things like:
+The existing broad terrain field establishes readable regions of:
 
-- flat regions,
-- rolling regions,
-- uplands,
-- mountain-capable regions.
+- plains,
+- rolling country,
+- uplands/plateaus,
+- mountain-capable terrain.
 
-It should not directly equal final height.
-
-Think:
-
-```text
-terrain field
-    ↓
-terrain regime
-    ↓
-different shaping rules
-```
+The shipping implementation uses a continuous piecewise curve so only the active terrain regime is evaluated per column.
 
 ## 2C. Ridged mountains
 
-Mountain regions then use a ridged transform rather than simply amplifying ordinary smooth noise.
-
-That produces actual mountain spines and ranges.
-
-Reuse existing sampled noise where possible and derive ridge information mathematically instead of paying for a new expensive stack of octaves.
+Mountain regions use a ridged transform derived arithmetically from an already sampled field. No additional terrain noise request is required.
 
 ## 2D. Mountain masks
 
-Ridges should only become large where the macro terrain says mountains belong.
-
-Otherwise ridged noise everywhere would make the whole world rough.
-
-Conceptually:
-
-```text
-mountain_height =
-    mountain_region_strength
-    × ridge_strength
-    × mountain_amplitude
-```
+Ridged rise is applied only where the broad terrain structure selects mountain terrain. Climate no longer determines whether terrain becomes mountainous.
 
 ## 2E. Plateaus / foothills / ordinary hills
 
-These should come from different remappings of the same terrain fields.
+Rolling and upland terrain are produced through separate continuous remappings, giving visibly different landform scales without multiplying noise calls.
 
-That is how we get more landform types without multiplying random noise calls.
+### Stage 2 measured gate
+
+Final exact-head Stage 2 audit on commit `c8b52621025d67cdc675431377f1282ce2061127`:
+
+- legal world height: 150,
+- safe generated terrain top: 138,
+- sampled terrain minimum: 3,
+- sampled terrain maximum: 86,
+- sampled vertical range: 83 blocks,
+- flat-plains samples: 3,143,
+- steep-mountain samples: 954,
+- mountain adjacencies: 2,013,
+- regime sample counts: Plains 3,809 / Rolling 9,508 / Upland 2,218 / Mountain 1,106,
+- climate-independence comparisons: 25 passed,
+- cross-chunk halo comparisons: 192 passed,
+- deterministic chunk comparisons: 4 passed,
+- generation/cache benchmark: **0.872 ms p95 across 320 measured chunks**, below the hard 1.0 ms limit.
+
+The full exact-head regression matrix also passed, including Acceptance, threaded chunk-stream soak, localized water, biome contiguity, standalone world, inventory, touch, lighting, legacy 60-height oracle, Android setup and debug APK export.
 
 # Stage 3 — Introduce low-cost domain warping
+
+**Status: not started.**
 
 Only after Stage 2 works.
 
@@ -332,13 +291,11 @@ Across the fixed seed suite demonstrate:
 - valleys,
 - plateaus/uplands,
 - no chunk seams,
-- no clipping against the current world-height limit,
+- no clipping against the 150-block world-height limit,
 - no repetitive terracing,
 - generation still **≤ 1.0 ms p95** using the established benchmark.
 
-The current world height of **60** remains unchanged during this overhaul unless terrain statistics prove it is actually insufficient.
-
-Do not mix another vertical-range change into the same architecture work without evidence.
+The 150-block legal vertical range is now an explicit overhaul requirement. Do not reduce it to satisfy legacy fixture assumptions; tests that exercise the shipping world must use the shipping vertical contract.
 
 # Stage 4 — Build water topology into terrain
 
@@ -769,7 +726,7 @@ Do not:
 - let biome IDs directly dictate terrain height;
 - generate rivers after terrain is finished;
 - make Ocean merely another random biome;
-- increase world height again without evidence;
+- reduce the 150-block world height to satisfy a legacy fixture;
 - loosen the 1.0 ms performance gate to accommodate the new system.
 
 Those would make this session larger and riskier without proportionate benefit.
