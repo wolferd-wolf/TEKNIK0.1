@@ -64,19 +64,15 @@ func terrain_regime_weights(terrain_structure: float) -> Vector4:
 
 
 func ridge_strength(continentalness: float) -> float:
-	# Square the classic 1-|noise| ridge signal. This is visibly sharp enough
-	# for voxel terrain and avoids a general pow() call in the column hot path.
 	var ridge := 1.0 - absf(clampf(continentalness, -1.0, 1.0))
 	ridge = clampf(ridge, 0.0, 1.0)
 	return ridge * ridge
 
 
 func build_provisional_terrain(fields: Vector4) -> int:
-	# This is intentionally fused. The first Stage 2 implementation expressed
-	# every transform through helper calls and produced the right terrain but
-	# measured 1.651 ms p95. The same transforms are expanded here so each
-	# padded column pays one interpreted function call, matching Stage 1's hot
-	# path discipline.
+	# Performance-critical Stage 2 path. Each column evaluates only the active
+	# terrain regime instead of calculating all regime masks. Boundaries use a
+	# smoothstep blend so the piecewise implementation remains continuous.
 	var c := clampf(fields.x, -1.0, 1.0)
 	var structure := clampf(fields.y, -1.0, 1.0)
 	var shaped_continent := c * 0.35 + c * c * c * 0.65
@@ -84,51 +80,45 @@ func build_provisional_terrain(fields: Vector4) -> int:
 		STAGE2_CONTINENTAL_BASE_HEIGHT
 		+ shaped_continent * STAGE2_CONTINENTAL_HEIGHT_SCALE
 	)
+	var rolling_target := base_height + 2.0 + absf(c) * STAGE2_ROLLING_RISE
 
-	var rolling_in_t := clampf(
-		(structure - STAGE2_ROLLING_START)
-		/ (STAGE2_PLAINS_END - STAGE2_ROLLING_START),
-		0.0,
-		1.0
-	)
-	var rolling_in := rolling_in_t * rolling_in_t * (3.0 - 2.0 * rolling_in_t)
-	var rolling_out_t := clampf(
-		(structure - STAGE2_ROLLING_END)
-		/ (STAGE2_UPLAND_END - STAGE2_ROLLING_END),
-		0.0,
-		1.0
-	)
-	var rolling_out := 1.0 - (
-		rolling_out_t * rolling_out_t * (3.0 - 2.0 * rolling_out_t)
-	)
-	var rolling := rolling_in * rolling_out
+	if structure <= STAGE2_ROLLING_START:
+		return clampi(roundi(base_height), 3, STAGE2_SAFE_TERRAIN_TOP)
 
-	var upland_t := clampf(
-		(structure - STAGE2_UPLAND_START)
-		/ (STAGE2_UPLAND_END - STAGE2_UPLAND_START),
-		0.0,
-		1.0
-	)
-	var upland_curve := upland_t * upland_t * (3.0 - 2.0 * upland_t)
-	var mountain_t := clampf(
-		(structure - STAGE2_MOUNTAIN_START)
-		/ (STAGE2_MOUNTAIN_FULL - STAGE2_MOUNTAIN_START),
-		0.0,
-		1.0
-	)
-	var mountain := mountain_t * mountain_t * (3.0 - 2.0 * mountain_t)
-	var upland := upland_curve * (1.0 - mountain)
+	if structure < STAGE2_PLAINS_END:
+		var t := (structure - STAGE2_ROLLING_START) / (
+			STAGE2_PLAINS_END - STAGE2_ROLLING_START
+		)
+		t = t * t * (3.0 - 2.0 * t)
+		return clampi(roundi(lerpf(base_height, rolling_target, t)), 3, STAGE2_SAFE_TERRAIN_TOP)
 
-	var ridge_base := clampf(1.0 - absf(c), 0.0, 1.0)
+	if structure <= STAGE2_ROLLING_END:
+		return clampi(roundi(rolling_target), 3, STAGE2_SAFE_TERRAIN_TOP)
+
+	var upland_target := base_height + 6.0 + STAGE2_UPLAND_RISE
+	if structure < STAGE2_MOUNTAIN_START:
+		var t := (structure - STAGE2_ROLLING_END) / (
+			STAGE2_MOUNTAIN_START - STAGE2_ROLLING_END
+		)
+		t = t * t * (3.0 - 2.0 * t)
+		return clampi(roundi(lerpf(rolling_target, upland_target, t)), 3, STAGE2_SAFE_TERRAIN_TOP)
+
+	var ridge_base := 1.0 - absf(c)
 	var ridge := ridge_base * ridge_base
-	var rolling_rise := rolling * (2.0 + absf(c) * STAGE2_ROLLING_RISE)
-	var upland_rise := upland * (6.0 + upland_curve * STAGE2_UPLAND_RISE)
-	var mountain_rise := mountain * (
-		STAGE2_MOUNTAIN_BASE_RISE + ridge * STAGE2_MOUNTAIN_RIDGE_RISE
+	var mountain_target := (
+		base_height
+		+ STAGE2_MOUNTAIN_BASE_RISE
+		+ ridge * STAGE2_MOUNTAIN_RIDGE_RISE
+		- (1.0 - ridge) * STAGE2_VALLEY_CUT
 	)
-	var valley_cut := mountain * (1.0 - ridge) * STAGE2_VALLEY_CUT
-	var height := base_height + rolling_rise + upland_rise + mountain_rise - valley_cut
-	return clampi(roundi(height), 3, STAGE2_SAFE_TERRAIN_TOP)
+	if structure < STAGE2_MOUNTAIN_FULL:
+		var t := (structure - STAGE2_MOUNTAIN_START) / (
+			STAGE2_MOUNTAIN_FULL - STAGE2_MOUNTAIN_START
+		)
+		t = t * t * (3.0 - 2.0 * t)
+		return clampi(roundi(lerpf(upland_target, mountain_target, t)), 3, STAGE2_SAFE_TERRAIN_TOP)
+
+	return clampi(roundi(mountain_target), 3, STAGE2_SAFE_TERRAIN_TOP)
 
 
 func apply_water_topology(
