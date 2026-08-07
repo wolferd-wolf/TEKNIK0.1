@@ -122,8 +122,18 @@ func _poll_source_log() -> void:
 	while source.get_position() < source_length:
 		appended += source.get_line() + "\n"
 	_source_position = source.get_position()
-	if not appended.is_empty():
-		_append_raw(appended)
+	if appended.is_empty():
+		return
+	_append_raw(appended)
+	# Error/warning streams are the highest-value crash evidence. Once one is
+	# observed in Godot's engine log, request a snapshot on the next frame.
+	if (
+		appended.contains("ERROR:")
+		or appended.contains("WARNING:")
+		or appended.contains("SCRIPT ERROR:")
+		or appended.contains("WORKER_")
+	):
+		_flush_elapsed = FLUSH_INTERVAL_SEC
 
 
 func _append_raw(text: String) -> void:
