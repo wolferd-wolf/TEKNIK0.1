@@ -68,8 +68,8 @@ func _validate_contract(data) -> Dictionary:
 		_fail("Lake feature can escape its deterministic feature cell")
 	if DATA.STAGE6_POND_JITTER + DATA.STAGE6_POND_RADIUS_MAX >= float(DATA.STAGE6_POND_CELL_HALF):
 		_fail("Pond feature can escape its deterministic feature cell")
-	var dry_chance := data._stage6_moisture_chance(-1.0, DATA.STAGE6_LAKE_BASE_CHANCE, DATA.STAGE6_LAKE_MOISTURE_BONUS)
-	var wet_chance := data._stage6_moisture_chance(1.0, DATA.STAGE6_LAKE_BASE_CHANCE, DATA.STAGE6_LAKE_MOISTURE_BONUS)
+	var dry_chance: float = data._stage6_moisture_chance(-1.0, DATA.STAGE6_LAKE_BASE_CHANCE, DATA.STAGE6_LAKE_MOISTURE_BONUS)
+	var wet_chance: float = data._stage6_moisture_chance(1.0, DATA.STAGE6_LAKE_BASE_CHANCE, DATA.STAGE6_LAKE_MOISTURE_BONUS)
 	if wet_chance <= dry_chance or wet_chance >= 1.0:
 		_fail("Moisture does not increase lake probability correctly")
 	if int(data.water_type_at(6, 6)) != DATA.WATER_NONE:
