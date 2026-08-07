@@ -1,6 +1,6 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
-const SHIPPING_STAGE6_DATA := preload("res://scripts/world/playable_world_stage6_cache_aware_data.gd")
+const SHIPPING_STAGE6_DATA := preload("res://scripts/world/playable_world_stage6_tree_consistent_data.gd")
 const SHIPPING_STAGE6_CACHE := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 const SHIPPING_STAGE6_MESHER := preload("res://scripts/world/playable_world_stage6_mesher.gd")
 
