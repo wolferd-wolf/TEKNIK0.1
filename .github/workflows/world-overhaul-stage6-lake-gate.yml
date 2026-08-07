@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/world/playable_world_stage6_generation_data.gd"
+      - "scripts/world/playable_world_stage6_optimized_data.gd"
       - "scripts/world/playable_world_stage6_cache_fast.gd"
       - "scripts/world/playable_world_generation_runtime.gd"
       - "scripts/world/playable_world_stage5_generation_data.gd"
