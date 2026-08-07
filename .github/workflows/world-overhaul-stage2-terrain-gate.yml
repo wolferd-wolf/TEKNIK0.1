@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "scripts/world/playable_world_stage2_generation_data.gd"
+      - "scripts/world/playable_world_stage2_generation_runtime.gd"
       - "scripts/world/playable_world_generation_data.gd"
       - "scripts/world/playable_world_generation_runtime.gd"
       - "scripts/world/playable_world_port.gd"
@@ -51,9 +53,14 @@ jobs:
       - name: Verify structured terrain, seams and performance
         run: |
           set -o pipefail
+          cp tests/world_overhaul_stage2_terrain_gate.gd tests/_ci_world_overhaul_stage2_terrain_gate.gd
+          sed -i \
+            -e 's#playable_world_generation_data.gd#playable_world_stage2_generation_data.gd#g' \
+            -e 's#playable_world_generation_runtime.gd#playable_world_stage2_generation_runtime.gd#g' \
+            tests/_ci_world_overhaul_stage2_terrain_gate.gd
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage2-terrain" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage2_terrain_gate.gd \
+              --script res://tests/_ci_world_overhaul_stage2_terrain_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage2-terrain.log
           grep -Fq 'WORLD_OVERHAUL_STAGE2_PASS' artifacts/world-overhaul-stage2-terrain.log
 
