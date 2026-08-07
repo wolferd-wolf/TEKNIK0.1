@@ -165,12 +165,13 @@ func _validate_runtime_lattice(runtime, data) -> Dictionary:
 	var compared_columns := 0
 	var compared_heights := 0
 	var maximum_structure_error := 0.0
-	for coord in [Vector2i.ZERO, Vector2i(3, -2), Vector2i(-7, 5), Vector2i(11, 9)]:
+	for coord_value in [Vector2i.ZERO, Vector2i(3, -2), Vector2i(-7, 5), Vector2i(11, 9)]:
+		var coord: Vector2i = coord_value
 		var cache: Dictionary = runtime._build_column_caches(coord)
 		var fields: PackedFloat32Array = cache["world_fields"]
 		var heights: PackedInt32Array = cache["heights"]
-		var origin_x := coord.x * CHUNK_SIZE
-		var origin_z := coord.y * CHUNK_SIZE
+		var origin_x: int = coord.x * CHUNK_SIZE
+		var origin_z: int = coord.y * CHUNK_SIZE
 		for local_z in range(-CACHE_PADDING, CHUNK_SIZE + CACHE_PADDING):
 			for local_x in range(-CACHE_PADDING, CHUNK_SIZE + CACHE_PADDING):
 				var column_index := (
@@ -179,8 +180,8 @@ func _validate_runtime_lattice(runtime, data) -> Dictionary:
 					+ CACHE_PADDING
 				)
 				var field_index := column_index * FIELD_STRIDE
-				var world_x := origin_x + local_x
-				var world_z := origin_z + local_z
+				var world_x: int = origin_x + local_x
+				var world_z: int = origin_z + local_z
 				var expected_structure: float = data.stage3_terrain_structure(world_x, world_z)
 				var error := absf(fields[field_index + FIELD_TERRAIN_STRUCTURE] - expected_structure)
 				maximum_structure_error = maxf(maximum_structure_error, error)
