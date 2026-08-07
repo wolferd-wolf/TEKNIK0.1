@@ -9,6 +9,8 @@ on:
       - "scripts/world/playable_world_generation_runtime.gd"
       - "scripts/world/playable_world_stage2_generation_runtime.gd"
       - "scripts/world/playable_world_stage3_generation_runtime.gd"
+      - "scripts/world/playable_world_stage3_cache.gd"
+      - "scripts/world/playable_world_stage3_cache_fast.gd"
       - "tests/world_overhaul_stage3_warp_gate.gd"
       - ".github/workflows/world-overhaul-stage3-warp-gate.yml"
   workflow_dispatch:
