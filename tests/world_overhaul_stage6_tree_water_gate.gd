@@ -2,7 +2,6 @@ extends SceneTree
 
 const SHIPPING_DATA := preload("res://scripts/world/playable_world_generation_data.gd")
 const SHIPPING_RUNTIME := preload("res://scripts/world/playable_world_generation_runtime.gd")
-const STAGE6_CACHE := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 const STAGE6_MESHER := preload("res://scripts/world/playable_world_stage6_mesher.gd")
 
 const CHUNK_SIZE := 12
@@ -35,17 +34,19 @@ func _run() -> void:
 	var found_coord := Vector2i.ZERO
 	var found_index := -1
 	var found_cache: Dictionary = {}
-	# Deterministic bounded search. The cache itself identifies only tree-grid/hash
-	# origins that are wet, so this does not duplicate the water classifier.
+	var found_blocked := PackedInt32Array()
+	# Deterministic bounded search. Build the measured generation cache first,
+	# then call the same post-cache wet-tree helper used by the worker/mesher.
 	for chunk_z in range(-20, 21):
 		if found:
 			break
 		for chunk_x in range(-20, 21):
 			var coord := Vector2i(chunk_x, chunk_z)
-			var cache: Dictionary = STAGE6_CACHE.build(coord, data)
-			var blocked: PackedInt32Array = cache.get(
-				"blocked_tree_columns",
-				PackedInt32Array()
+			var cache: Dictionary = runtime._build_column_caches(coord)
+			var blocked: PackedInt32Array = SHIPPING_RUNTIME._stage6_blocked_tree_columns(
+				coord,
+				cache,
+				data
 			)
 			if blocked.is_empty():
 				continue
@@ -53,6 +54,7 @@ func _run() -> void:
 			found_coord = coord
 			found_index = int(blocked[0])
 			found_cache = cache
+			found_blocked = blocked
 			break
 
 	if not found:
@@ -67,21 +69,17 @@ func _run() -> void:
 	var world_z := found_coord.y * CHUNK_SIZE - PADDING + cache_z
 	var heights: PackedInt32Array = found_cache.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = found_cache.get("biomes", PackedByteArray())
-	var blocked: PackedInt32Array = found_cache.get(
-		"blocked_tree_columns",
-		PackedInt32Array()
-	)
 	var surface := int(heights[found_index])
 	var water_type := int(data.water_type_at(world_x, world_z))
 	if water_type == int(data.WATER_NONE):
-		_fail("Cache marked a dry tree origin as water-blocked")
+		_fail("Post-cache helper marked a dry tree origin as water-blocked")
 	if data.is_tree_origin(world_x, world_z):
 		_fail("Canonical Stage 6 data still accepts a tree origin in generated water")
 	if data.get_block(Vector3i(world_x, surface + 1, world_z)) == BLOCK_LOG:
 		_fail("Canonical direct block query still generated a wet-origin trunk")
 
-	# The stable public data facade and the threaded runtime must describe the
-	# same shipping world at this regression fixture.
+	# The stable public data facade and threaded runtime must describe the same
+	# shipping world at this regression fixture.
 	if runtime.data.terrain_height(world_x, world_z) != data.terrain_height(world_x, world_z):
 		_fail("Public data facade and runtime terrain height diverged")
 	if runtime.data.water_type_at(world_x, world_z) != water_type:
@@ -89,7 +87,6 @@ func _run() -> void:
 	if runtime.data.is_tree_origin(world_x, world_z) != data.is_tree_origin(world_x, world_z):
 		_fail("Public data facade and runtime tree-origin rule diverged")
 
-	var origin := Vector3i(found_coord.x * CHUNK_SIZE, 0, found_coord.y * CHUNK_SIZE)
 	var trunk_key := "%d,%d,%d" % [world_x, surface + 1, world_z]
 	var suppression: Dictionary = STAGE6_MESHER._suppression_overrides(
 		found_coord,
@@ -99,7 +96,7 @@ func _run() -> void:
 		CHUNK_SIZE,
 		int(data.OVERHAUL_WORLD_HEIGHT),
 		int(data.SEA_LEVEL),
-		blocked
+		found_blocked
 	)
 	# If no dry neighboring canopy legitimately occupies this exact cell, the
 	# wet-origin trunk must be explicitly suppressed. Otherwise the direct world
@@ -118,7 +115,7 @@ func _run() -> void:
 		CHUNK_SIZE,
 		int(data.OVERHAUL_WORLD_HEIGHT),
 		int(data.SEA_LEVEL),
-		blocked
+		found_blocked
 	)
 	if int(with_edit.get(trunk_key, BLOCK_AIR)) != BLOCK_STONE:
 		_fail("Wet-tree suppression overwrote a real player block edit")
@@ -127,7 +124,7 @@ func _run() -> void:
 		print("WORLD_OVERHAUL_STAGE6_TREE_WATER_PASS")
 		print("STAGE6_TREE_WATER_FIXTURE=%d,%d,%d" % [world_x, surface + 1, world_z])
 		print("STAGE6_TREE_WATER_TYPE=%d" % water_type)
-		print("STAGE6_BLOCKED_TREE_COLUMNS=%d" % blocked.size())
+		print("STAGE6_BLOCKED_TREE_COLUMNS=%d" % found_blocked.size())
 	_finish()
 
 
