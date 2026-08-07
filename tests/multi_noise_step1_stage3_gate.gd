@@ -82,9 +82,14 @@ func _resolve_runtime_tree_fixture(
 					candidates.append(preferred_origin + Vector2i(offset, -radius))
 					candidates.append(preferred_origin + Vector2i(offset, radius))
 		for origin: Vector2i in candidates:
+			# Require the canonical shipping generator itself to nominate this exact
+			# column as a generated tree origin. A raw BLOCK_LOG lookup can be fooled
+			# by persisted/override state from earlier acceptance transactions.
+			if not bool(runtime_data.is_tree_origin(origin.x, origin.y)):
+				continue
 			if LOCALIZED_WATER.is_water_column(runtime_data, origin.x, origin.y):
 				continue
-			var surface: int = manager.get_playable_world_height(origin.x, origin.y)
+			var surface: int = int(runtime_data.terrain_height(origin.x, origin.y))
 			var base_log := Vector3i(origin.x, surface + 1, origin.y)
 			if manager.get_block_world(base_log) != BLOCK_LOG:
 				continue
