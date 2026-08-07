@@ -1,67 +1,81 @@
 extends "res://scripts/world/playable_world_generation_data.gd"
 
-# Stage 5 adds rivers as a first-class terrain field before final surface height.
-# The field is deterministic hash/value noise on a coarse 96-block lattice. It
-# reuses the accepted Stage 3 macro warp and is resampled on the same 4-block
-# structure lattice used by the chunk cache, so the hot path adds no new
-# FastNoiseLite sampler.
+# Stage 5 rivers are deterministic continuous corridors. A rotated coordinate
+# is bent by low-frequency 1D value noise, then converted to distance from a
+# periodic centerline. Unlike arbitrary 2D zero contours this cannot create
+# tiny closed river loops, while the accepted Stage 3 macro warp bends the
+# corridors further without adding another FastNoiseLite sampler.
 const WATER_RIVER := 2
 
-const STAGE5_RIVER_LATTICE_SPACING := 96
-const STAGE5_RIVER_LATTICE_RECIPROCAL := 1.0 / 96.0
+const STAGE5_RIVER_LATTICE_SPACING := 192
+const STAGE5_RIVER_LATTICE_RECIPROCAL := 1.0 / 192.0
+const STAGE5_RIVER_SPACING := 224.0
 const STAGE5_RIVER_WARP_SCALE := 0.75
+const STAGE5_RIVER_MEANDER_AMPLITUDE := 48.0
 const STAGE5_RIVER_HASH_SALT := 0x3d93cb17
+const STAGE5_RIVER_DIR_X := 0.819152044288992
+const STAGE5_RIVER_DIR_Z := 0.573576436351046
+const STAGE5_RIVER_PERP_X := -0.573576436351046
+const STAGE5_RIVER_PERP_Z := 0.819152044288992
 
-# abs(river value) near zero is the corridor. The inner/outer pairs create
-# smooth bands rather than a binary trench. Width broadens gradually toward the
-# coast so mouths meet oceans naturally and narrows inland.
 const STAGE5_CHANNEL_INNER := 0.012
 const STAGE5_CHANNEL_OUTER := 0.040
 const STAGE5_VALLEY_INNER := 0.045
 const STAGE5_VALLEY_OUTER := 0.120
 const STAGE5_CHANNEL_WATER_CUTOFF := 0.50
-const STAGE5_COAST_WIDTH_SCALE := 1.35
-const STAGE5_INLAND_WIDTH_SCALE := 0.85
-const STAGE5_WIDTH_CONTINENTAL_RANGE := 0.90
+
+# Width changes are deliberately subtle and very low-gradient. This gives
+# slightly broader mouths without allowing continentalness noise to break a
+# continuous river into short wet/dry fragments.
+const STAGE5_COAST_WIDTH_SCALE := 1.08
+const STAGE5_INLAND_WIDTH_SCALE := 0.92
+const STAGE5_WIDTH_CONTINENTAL_RANGE := 1.34
 
 const STAGE5_MAX_VALLEY_CARVE := 24
 const STAGE5_CHANNEL_DEPTH := 2
 
 
-func stage5_river_lattice_value(lattice_x: int, lattice_z: int) -> float:
-	return _stage3_hash01(lattice_x, lattice_z, STAGE5_RIVER_HASH_SALT) * 2.0 - 1.0
+func stage5_river_lattice_value(lattice_index: int) -> float:
+	return _stage3_hash01(lattice_index, 0, STAGE5_RIVER_HASH_SALT) * 2.0 - 1.0
+
+
+func stage5_meander_at(perpendicular_coordinate: float) -> float:
+	var lattice_index := floori(perpendicular_coordinate * STAGE5_RIVER_LATTICE_RECIPROCAL)
+	var lattice_origin := float(lattice_index * STAGE5_RIVER_LATTICE_SPACING)
+	var t := _stage3_smooth01(
+		(perpendicular_coordinate - lattice_origin) * STAGE5_RIVER_LATTICE_RECIPROCAL
+	)
+	return lerpf(
+		stage5_river_lattice_value(lattice_index),
+		stage5_river_lattice_value(lattice_index + 1),
+		t
+	)
 
 
 func stage5_river_raw_at(world_x: float, world_z: float) -> float:
-	var lattice_x := floori(world_x * STAGE5_RIVER_LATTICE_RECIPROCAL)
-	var lattice_z := floori(world_z * STAGE5_RIVER_LATTICE_RECIPROCAL)
-	var origin_x := lattice_x * STAGE5_RIVER_LATTICE_SPACING
-	var origin_z := lattice_z * STAGE5_RIVER_LATTICE_SPACING
-	var tx := _stage3_smooth01(
-		(world_x - float(origin_x)) * STAGE5_RIVER_LATTICE_RECIPROCAL
-	)
-	var tz := _stage3_smooth01(
-		(world_z - float(origin_z)) * STAGE5_RIVER_LATTICE_RECIPROCAL
-	)
-	var north_west := stage5_river_lattice_value(lattice_x, lattice_z)
-	var north_east := stage5_river_lattice_value(lattice_x + 1, lattice_z)
-	var south_west := stage5_river_lattice_value(lattice_x, lattice_z + 1)
-	var south_east := stage5_river_lattice_value(lattice_x + 1, lattice_z + 1)
-	return lerpf(
-		lerpf(north_west, north_east, tx),
-		lerpf(south_west, south_east, tx),
-		tz
+	var along := world_x * STAGE5_RIVER_DIR_X + world_z * STAGE5_RIVER_DIR_Z
+	var across := world_x * STAGE5_RIVER_PERP_X + world_z * STAGE5_RIVER_PERP_Z
+	var meander := stage5_meander_at(across) * STAGE5_RIVER_MEANDER_AMPLITUDE
+	# abs(sin()) is a continuous normalized distance proxy. Its zero lines are
+	# the river centerlines and repeat every STAGE5_RIVER_SPACING blocks.
+	return absf(sin(PI * (along + meander) / STAGE5_RIVER_SPACING))
+
+
+func stage5_river_raw_at_with_warp(world_x: int, world_z: int, warp: Vector2) -> float:
+	return stage5_river_raw_at(
+		float(world_x) + warp.x * STAGE5_RIVER_WARP_SCALE,
+		float(world_z) + warp.y * STAGE5_RIVER_WARP_SCALE
 	)
 
 
 func stage5_sample_river_structure_node(world_x: int, world_z: int) -> float:
-	var warp := stage3_macro_warp_offset(world_x, world_z) * STAGE5_RIVER_WARP_SCALE
-	return stage5_river_raw_at(float(world_x) + warp.x, float(world_z) + warp.y)
+	var warp := stage3_macro_warp_offset(world_x, world_z)
+	return stage5_river_raw_at_with_warp(world_x, world_z, warp)
 
 
 func stage5_river_signal(x: int, z: int) -> float:
-	# River value is cached on the same 4-block lattice as terrain structure.
-	# This public path reproduces that lattice exactly for direct queries.
+	# Public direct queries reproduce the same 4-block lattice interpolation used
+	# by the fused chunk hot path.
 	var spacing := STAGE3_FIELD_LATTICE_SPACING
 	var reciprocal := STAGE3_FIELD_LATTICE_RECIPROCAL
 	var node_x := floori(float(x) * reciprocal)
@@ -89,7 +103,7 @@ func stage5_river_width_scale(continentalness: float) -> float:
 
 
 func stage5_river_strengths_from_signal(continentalness: float, river_value: float) -> Vector2:
-	var scaled_distance := absf(river_value) / stage5_river_width_scale(continentalness)
+	var scaled_distance := river_value / stage5_river_width_scale(continentalness)
 	var channel_t := clampf(
 		(scaled_distance - STAGE5_CHANNEL_INNER)
 		/ (STAGE5_CHANNEL_OUTER - STAGE5_CHANNEL_INNER),
@@ -120,8 +134,6 @@ func stage5_shape_height_from_signal(
 	if valley_strength <= 0.0:
 		return stage4_height
 
-	# Mountain rivers lower a broad valley toward continental base elevation, but
-	# a hard maximum carve prevents a sheer full-height trench through a ridge.
 	var continental_target := roundi(continental_base_elevation(continentalness) + 1.0)
 	var carve_limited_target := stage4_height - STAGE5_MAX_VALLEY_CARVE
 	var valley_floor := mini(
@@ -133,7 +145,6 @@ func stage5_shape_height_from_signal(
 		float(valley_floor),
 		valley_strength
 	))
-
 	if channel_strength > 0.0:
 		var channel_floor := maxi(SEA_LEVEL - 1, shaped_height - STAGE5_CHANNEL_DEPTH)
 		shaped_height = roundi(lerpf(
@@ -169,7 +180,6 @@ func water_info_at(x: int, z: int) -> Vector2i:
 		if water_type_from_fields(fields, ocean_height) == WATER_OCEAN:
 			return Vector2i(WATER_OCEAN, SEA_LEVEL)
 		return Vector2i(WATER_NONE, -1)
-
 	var river_value := stage5_river_signal(x, z)
 	var strengths := stage5_river_strengths_from_signal(fields.x, river_value)
 	var final_height := finalize_height(
