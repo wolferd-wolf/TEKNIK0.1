@@ -138,9 +138,16 @@ func terrain_height_from_samples(samples: Vector4) -> int:
 		+ samples.y * TERRAIN_SHAPE_HEIGHT_SCALE
 	)
 
-	# Keep the hot column path allocation-free and avoid hundreds of nested
-	# GDScript helper calls per chunk. These are the same smooth ranges used by
-	# rocky_mountain_weight_from_climate(), inlined for the accepted p95 budget.
+	# These branches are exact zero-contribution cases, not approximations.
+	# They keep ordinary plains/forest/desert columns out of the rocky math hot path.
+	if base_height <= ROCKY_MOUNTAIN_LAND_BLEND_START:
+		return clampi(roundi(base_height), 3, WORLD_HEIGHT - 3)
+	if (
+		samples.z >= BIOME_COLD_THRESHOLD + BIOME_BLEND_WIDTH
+		or samples.w >= BIOME_WET_THRESHOLD + BIOME_BLEND_WIDTH
+	):
+		return clampi(roundi(base_height), 3, WORLD_HEIGHT - 3)
+
 	var cold_t := clampf(
 		(samples.z - (BIOME_COLD_THRESHOLD - BIOME_BLEND_WIDTH))
 		/ (BIOME_BLEND_WIDTH * 2.0),
