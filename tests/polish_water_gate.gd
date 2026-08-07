@@ -39,16 +39,17 @@ func _run() -> void:
 	_assert(packed != null, "main scene must load")
 	var root := packed.instantiate()
 	var manager := root.get_node("ChunkManager")
-	manager.force_playable_world_port = true
+	# The consolidated architecture has one playable ChunkManager path now; the
+	# old force_playable_world_port switch was retired during world consolidation.
 	get_root().add_child(root)
 	for _frame in range(12):
 		await process_frame
 
 	var runtime := manager.get_node_or_null("PlayableWorldRuntime")
-	_assert(runtime != null, "forced mobile world runtime must start")
+	_assert(runtime != null, "playable world runtime must start")
 	_assert(runtime.get_node_or_null("Water") == null, "legacy global water plane must be removed")
 	var localized := manager.get_node_or_null("LocalizedWaterBodies")
-	_assert(localized != null and localized._active, "localized water renderer must activate on the mobile world path")
+	_assert(localized != null and localized._active, "localized water renderer must activate on the playable world path")
 	_assert(localized._chunks.size() > 0, "localized water renderer must evaluate streamed chunks")
 
 	root.queue_free()
