@@ -89,6 +89,17 @@ func _stage6_moisture_chance(
 	return base_chance + moisture01 * moisture_bonus
 
 
+func stage6_stage5_height_at(x: int, z: int) -> int:
+	# Do not call the parent terrain_height() implementation here. Its internal
+	# unqualified apply_water_topology() call can dispatch back into Stage 6.
+	# Calling the immediate parent's topology method directly keeps the dependency
+	# graph acyclic: fields -> provisional terrain -> Stage 5 hydrology -> height.
+	var fields := sample_world_fields(x, z)
+	var provisional_height := build_provisional_terrain(fields)
+	var stage5_height := super.apply_water_topology(fields, provisional_height, x, z)
+	return finalize_height(stage5_height)
+
+
 func _stage6_candidate_common_ok(
 	center: Vector2i,
 	radius_max: float,
@@ -116,7 +127,7 @@ func _stage6_candidate_common_ok(
 	)
 	if stage5_river_signal(center.x, center.y) <= river_clearance:
 		return {}
-	var center_height: int = super.terrain_height(center.x, center.y)
+	var center_height: int = stage6_stage5_height_at(center.x, center.y)
 	if center_height < SEA_LEVEL + STAGE6_MIN_WATER_ALTITUDE:
 		return {}
 	return {
@@ -383,7 +394,7 @@ func water_info_at(x: int, z: int) -> Vector2i:
 	var water_radius := float(feature["water_radius"])
 	if stage6_feature_distance_squared(x, z, feature) > water_radius * water_radius:
 		return Vector2i(WATER_NONE, -1)
-	var stage5_height := super.terrain_height(x, z)
+	var stage5_height := stage6_stage5_height_at(x, z)
 	var final_height := stage6_shape_height_for_feature(stage5_height, x, z, feature)
 	var water_level := int(feature["water_level"])
 	if final_height >= water_level:
