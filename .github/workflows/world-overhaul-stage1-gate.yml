@@ -1,0 +1,66 @@
+name: TEKNIK World Overhaul Stage 1 Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/world/playable_world_generation_data.gd"
+      - "scripts/world/playable_world_generation_runtime.gd"
+      - "scripts/world/playable_world_port.gd"
+      - "tests/world_overhaul_stage1_gate.gd"
+      - ".github/workflows/world-overhaul-stage1-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage1-equivalence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project strictly
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage1-parse" \
+            timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/world-overhaul-stage1-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/world-overhaul-stage1-parse.log; then
+            exit 1
+          fi
+
+      - name: Verify Stage 1 equivalence, 150-height boundary and performance
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage1-gate" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/world_overhaul_stage1_gate.gd \
+              2>&1 | tee artifacts/world-overhaul-stage1-gate.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE1_PASS' artifacts/world-overhaul-stage1-gate.log
+
+      - name: Upload Stage 1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-overhaul-stage1-evidence
+          path: artifacts/
+          if-no-files-found: error
