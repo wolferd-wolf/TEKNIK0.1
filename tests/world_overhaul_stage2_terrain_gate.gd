@@ -6,7 +6,6 @@ const RUNTIME := preload("res://scripts/world/playable_world_generation_runtime.
 const CHUNK_SIZE := 12
 const CACHE_PADDING := 2
 const CACHE_WIDTH := CHUNK_SIZE + CACHE_PADDING * 2
-const FIELD_STRIDE := 6
 const GENERATION_P95_LIMIT_USEC := 1000
 const WARMUPS := 4
 const REPEATS := 20
@@ -17,7 +16,6 @@ var failures: Array[String] = []
 func _init() -> void:
 	var data = DATA.new()
 	var runtime = RUNTIME.new()
-
 	_validate_contract(data)
 	var synthetic := _validate_synthetic_landforms(data)
 	var climate_independence := _validate_climate_independence(data)
@@ -25,16 +23,12 @@ func _init() -> void:
 	var halo := _validate_halo(runtime)
 	var deterministic := _validate_determinism(runtime)
 	var benchmark := _benchmark(runtime)
-
-	var p95_usec := int(benchmark["p95_usec"])
-	if p95_usec >= GENERATION_P95_LIMIT_USEC:
+	if int(benchmark["p95_usec"]) >= GENERATION_P95_LIMIT_USEC:
 		_fail(
 			"Stage 2 generation exceeded the 1.0 ms p95 threshold: %d usec"
-			% p95_usec
+			% int(benchmark["p95_usec"])
 		)
-
 	runtime.free()
-
 	var report := {
 		"world_height_limit": DATA.OVERHAUL_WORLD_HEIGHT,
 		"safe_terrain_top": DATA.STAGE2_SAFE_TERRAIN_TOP,
@@ -63,8 +57,11 @@ func _validate_contract(data) -> void:
 	if DATA.STAGE2_SAFE_TERRAIN_TOP >= DATA.OVERHAUL_WORLD_HEIGHT - 4:
 		_fail("Stage 2 terrain leaves insufficient headroom below the build ceiling")
 
-	var source := FileAccess.get_file_as_string(
-		"res://scripts/world/playable_world_generation_data.gd"
+	# Stage 3 deliberately subclasses the accepted Stage 2 terrain implementation.
+	# Validate Stage 2 where it now lives instead of requiring those symbols to be
+	# duplicated physically into every later-stage wrapper.
+	var stage2_source := FileAccess.get_file_as_string(
+		"res://scripts/world/playable_world_stage2_generation_data.gd"
 	)
 	for required in [
 		"continental_base_elevation",
@@ -72,23 +69,24 @@ func _validate_contract(data) -> void:
 		"ridge_strength",
 		"STAGE2_MOUNTAIN_RIDGE_RISE",
 		"STAGE2_VALLEY_CUT",
+		"func build_provisional_terrain",
 	]:
-		if not source.contains(required):
-			_fail("Stage 2 terrain source is missing %s" % required)
+		if not stage2_source.contains(required):
+			_fail("Preserved Stage 2 terrain base is missing %s" % required)
 
-	var runtime_source := FileAccess.get_file_as_string(
-		"res://scripts/world/playable_world_generation_runtime.gd"
+	var stage3_runtime_source := FileAccess.get_file_as_string(
+		"res://scripts/world/playable_world_stage3_generation_runtime.gd"
 	)
-	if not runtime_source.contains("_stage2_build_column_caches_for_sampler"):
-		_fail("Shipping runtime is not on the Stage 2 cache path")
-	if not runtime_source.contains("sampler.build_provisional_terrain(terrain_fields)"):
-		_fail("Shipping cache bypasses the Stage 2 terrain formula")
+	if not stage3_runtime_source.contains("_stage2_build_column_caches_for_sampler"):
+		_fail("Later-stage shipping runtime lost the Stage 2 cache compatibility path")
+	if not stage3_runtime_source.contains("sampler.build_provisional_terrain(terrain_fields)"):
+		_fail("Shipping cache bypasses the accepted Stage 2 terrain formula")
 
 	for point in [Vector2i.ZERO, Vector2i(31, -47), Vector2i(-96, 73)]:
 		var fields: Vector4 = data.sample_world_fields(point.x, point.y)
 		var expected: int = data.finalize_height(data.build_provisional_terrain(fields))
 		if data.terrain_height(point.x, point.y) != expected:
-			_fail("Public terrain_height bypasses Stage 2 at %s" % point)
+			_fail("Public terrain_height bypasses Stage 2 shaping at %s" % point)
 
 
 func _validate_synthetic_landforms(data) -> Dictionary:
@@ -96,25 +94,23 @@ func _validate_synthetic_landforms(data) -> Dictionary:
 	var rolling: int = data.build_provisional_terrain(Vector4(0.35, -0.05, 0.0, 0.0))
 	var upland: int = data.build_provisional_terrain(Vector4(0.1, 0.30, 0.0, 0.0))
 	var ridge: int = data.build_provisional_terrain(Vector4(0.0, 0.82, 0.0, 0.0))
-	var mountain_valley: int = data.build_provisional_terrain(Vector4(0.88, 0.82, 0.0, 0.0))
-
+	var valley: int = data.build_provisional_terrain(Vector4(0.88, 0.82, 0.0, 0.0))
 	if rolling <= plain:
 		_fail("Rolling regime does not rise above synthetic plains")
 	if upland <= plain + 5:
 		_fail("Upland/plateau regime is not materially above plains")
 	if ridge <= upland + 20:
-		_fail("Ridged mountain spine is not materially above upland terrain")
-	if ridge <= mountain_valley + 15:
+		_fail("Ridged mountain spine is not materially above uplands")
+	if ridge <= valley + 15:
 		_fail("Mountain ridge/valley separation is too weak")
 	if ridge >= DATA.STAGE2_SAFE_TERRAIN_TOP:
-		_fail("Synthetic mountain clips the Stage 2 safe terrain ceiling")
-
+		_fail("Synthetic mountain clips the safe terrain ceiling")
 	return {
 		"plain": plain,
 		"rolling": rolling,
 		"upland": upland,
 		"mountain_ridge": ridge,
-		"mountain_valley": mountain_valley,
+		"mountain_valley": valley,
 	}
 
 
@@ -129,10 +125,7 @@ func _validate_climate_independence(data) -> Dictionary:
 				Vector4(continentalness, structure, 1.0, -1.0)
 			)
 			if cold_wet != hot_dry:
-				_fail(
-					"Terrain height is still climate-coupled for c=%.2f structure=%.2f"
-					% [continentalness, structure]
-				)
+				_fail("Terrain height became climate-coupled")
 			comparisons += 1
 	return {"comparisons": comparisons}
 
@@ -146,17 +139,16 @@ func _audit_world(data) -> Dictionary:
 	var flat_samples := 0
 	var steep_samples := 0
 	var mountain_adjacencies := 0
-	var previous_row_mountains: Array[bool] = []
+	var previous_row: Array[bool] = []
 	var spacing := 6
 	var start := -384
 	var finish := 384
 	var row_width := int((finish - start) / spacing) + 1
-	previous_row_mountains.resize(row_width)
-
+	previous_row.resize(row_width)
 	var row_index := 0
 	for z in range(start, finish + 1, spacing):
-		var current_row_mountains: Array[bool] = []
-		current_row_mountains.resize(row_width)
+		var current_row: Array[bool] = []
+		current_row.resize(row_width)
 		var column_index := 0
 		var previous_mountain := false
 		for x in range(start, finish + 1, spacing):
@@ -166,18 +158,15 @@ func _audit_world(data) -> Dictionary:
 			maximum_height = maxi(maximum_height, height)
 			height_total += height
 			sample_count += 1
-
-			var weights: Vector4 = data.terrain_regime_weights(fields.y)
-			var regime := _dominant_regime(weights)
+			var regime := _dominant_regime(data.terrain_regime_weights(fields.y))
 			regime_counts[regime] += 1
 			var is_mountain := regime == 3
-			current_row_mountains[column_index] = is_mountain
+			current_row[column_index] = is_mountain
 			if is_mountain and previous_mountain:
 				mountain_adjacencies += 1
-			if is_mountain and row_index > 0 and previous_row_mountains[column_index]:
+			if is_mountain and row_index > 0 and previous_row[column_index]:
 				mountain_adjacencies += 1
 			previous_mountain = is_mountain
-
 			var east_height: int = data.terrain_height(x + spacing, z)
 			var south_height: int = data.terrain_height(x, z + spacing)
 			var local_delta := maxi(absi(east_height - height), absi(south_height - height))
@@ -186,27 +175,22 @@ func _audit_world(data) -> Dictionary:
 			if regime == 3 and local_delta >= 4:
 				steep_samples += 1
 			column_index += 1
-		previous_row_mountains = current_row_mountains
+		previous_row = current_row
 		row_index += 1
-
 	var height_range := maximum_height - minimum_height
-	if maximum_height < 55:
-		_fail("Sampled Stage 2 world has no substantial mountain elevation: max=%d" % maximum_height)
-	if height_range < 35:
-		_fail("Sampled Stage 2 world lacks vertical range: %d blocks" % height_range)
+	if maximum_height < 55 or height_range < 35:
+		_fail("Stage 2 terrain scale regressed")
 	if maximum_height > DATA.STAGE2_SAFE_TERRAIN_TOP:
 		_fail("Sampled terrain exceeded the safe terrain top")
 	if flat_samples < 40:
-		_fail("Sampled world does not contain enough recognizably flat plains")
+		_fail("Sampled world lacks enough recognizably flat plains")
 	if steep_samples < 20:
-		_fail("Sampled mountain areas do not contain enough steep relief")
+		_fail("Sampled mountain areas lack steep relief")
 	if mountain_adjacencies < 30:
-		_fail("Mountain-capable samples are too isolated to read as ranges")
-
+		_fail("Mountain samples are too isolated to read as ranges")
 	for regime_index in range(4):
 		if int(regime_counts[regime_index]) < 20:
-			_fail("Terrain regime %d is effectively absent from the audit" % regime_index)
-
+			_fail("Terrain regime %d is effectively absent" % regime_index)
 	return {
 		"sample_count": sample_count,
 		"minimum_height": minimum_height,
@@ -247,18 +231,12 @@ func _validate_halo(runtime) -> Dictionary:
 		var cache_b: Dictionary = runtime._build_column_caches(b)
 		var heights_a: PackedInt32Array = cache_a["heights"]
 		var heights_b: PackedInt32Array = cache_b["heights"]
-		var min_x := maxi(
-			a.x * CHUNK_SIZE - CACHE_PADDING,
-			b.x * CHUNK_SIZE - CACHE_PADDING
-		)
+		var min_x := maxi(a.x * CHUNK_SIZE - CACHE_PADDING, b.x * CHUNK_SIZE - CACHE_PADDING)
 		var max_x := mini(
 			a.x * CHUNK_SIZE + CHUNK_SIZE + CACHE_PADDING - 1,
 			b.x * CHUNK_SIZE + CHUNK_SIZE + CACHE_PADDING - 1
 		)
-		var min_z := maxi(
-			a.y * CHUNK_SIZE - CACHE_PADDING,
-			b.y * CHUNK_SIZE - CACHE_PADDING
-		)
+		var min_z := maxi(a.y * CHUNK_SIZE - CACHE_PADDING, b.y * CHUNK_SIZE - CACHE_PADDING)
 		var max_z := mini(
 			a.y * CHUNK_SIZE + CHUNK_SIZE + CACHE_PADDING - 1,
 			b.y * CHUNK_SIZE + CHUNK_SIZE + CACHE_PADDING - 1
@@ -276,9 +254,7 @@ func _validate_halo(runtime) -> Dictionary:
 func _cache_index(coord: Vector2i, world_x: int, world_z: int) -> int:
 	var origin_x := coord.x * CHUNK_SIZE
 	var origin_z := coord.y * CHUNK_SIZE
-	var cache_x := world_x - origin_x + CACHE_PADDING
-	var cache_z := world_z - origin_z + CACHE_PADDING
-	return cache_z * CACHE_WIDTH + cache_x
+	return (world_z - origin_z + CACHE_PADDING) * CACHE_WIDTH + world_x - origin_x + CACHE_PADDING
 
 
 func _validate_determinism(runtime) -> Dictionary:
@@ -304,7 +280,6 @@ func _benchmark(runtime) -> Dictionary:
 	for _warmup in range(WARMUPS):
 		for coord in coords:
 			runtime._build_column_caches(coord)
-
 	var times: Array[int] = []
 	for repetition in range(REPEATS):
 		for index in range(coords.size()):
@@ -312,7 +287,6 @@ func _benchmark(runtime) -> Dictionary:
 			var started := Time.get_ticks_usec()
 			runtime._build_column_caches(coord)
 			times.append(maxi(1, Time.get_ticks_usec() - started))
-
 	times.sort()
 	var total := 0
 	for value in times:
