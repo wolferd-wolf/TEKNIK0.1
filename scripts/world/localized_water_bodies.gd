@@ -9,7 +9,7 @@ const WATER_SURFACE_OFFSET := 0.54
 @export var streaming_target_path := NodePath("../../Player")
 
 var _active := false
-var _center := Vector2i(2147483647, 0, 2147483647)
+var _center := Vector2i(2147483647, 2147483647)
 var _data = WORLD_DATA.new()
 var _material := StandardMaterial3D.new()
 var _chunks: Dictionary = {}
