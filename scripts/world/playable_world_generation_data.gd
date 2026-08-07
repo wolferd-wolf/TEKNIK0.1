@@ -11,6 +11,9 @@ const OVERHAUL_WORLD_HEIGHT := 150
 
 const STAGE2_CONTINENTAL_BASE_HEIGHT := 18.0
 const STAGE2_CONTINENTAL_HEIGHT_SCALE := 14.0
+const STAGE2_OCEAN_SHELF_START := -0.18
+const STAGE2_OCEAN_BASIN_FULL := -0.48
+const STAGE2_OCEAN_BASIN_DEPTH := 14.0
 const STAGE2_PLAINS_END := -0.28
 const STAGE2_ROLLING_START := -0.38
 const STAGE2_ROLLING_END := 0.22
@@ -42,7 +45,17 @@ func _smooth_range(value: float, start: float, finish: float) -> float:
 func continental_base_elevation(continentalness: float) -> float:
 	var c := clampf(continentalness, -1.0, 1.0)
 	var shaped := c * 0.35 + c * c * c * 0.65
-	return STAGE2_CONTINENTAL_BASE_HEIGHT + shaped * STAGE2_CONTINENTAL_HEIGHT_SCALE
+	var base_height := STAGE2_CONTINENTAL_BASE_HEIGHT + shaped * STAGE2_CONTINENTAL_HEIGHT_SCALE
+	if c < STAGE2_OCEAN_SHELF_START:
+		var basin_t := clampf(
+			(STAGE2_OCEAN_SHELF_START - c)
+			/ (STAGE2_OCEAN_SHELF_START - STAGE2_OCEAN_BASIN_FULL),
+			0.0,
+			1.0
+		)
+		basin_t = basin_t * basin_t * (3.0 - 2.0 * basin_t)
+		base_height -= basin_t * STAGE2_OCEAN_BASIN_DEPTH
+	return base_height
 
 
 func terrain_regime_weights(terrain_structure: float) -> Vector4:
@@ -80,6 +93,18 @@ func build_provisional_terrain(fields: Vector4) -> int:
 		STAGE2_CONTINENTAL_BASE_HEIGHT
 		+ shaped_continent * STAGE2_CONTINENTAL_HEIGHT_SCALE
 	)
+	# Strongly negative continentalness establishes low basin/coastal geography
+	# now so the existing localized water can still occupy real depressions.
+	# Stage 4 will replace this simple fill relationship with explicit water
+	# topology; no water classification is performed here.
+	if c < STAGE2_OCEAN_SHELF_START:
+		var basin_t := (STAGE2_OCEAN_SHELF_START - c) / (
+			STAGE2_OCEAN_SHELF_START - STAGE2_OCEAN_BASIN_FULL
+		)
+		basin_t = clampf(basin_t, 0.0, 1.0)
+		basin_t = basin_t * basin_t * (3.0 - 2.0 * basin_t)
+		base_height -= basin_t * STAGE2_OCEAN_BASIN_DEPTH
+
 	var rolling_target := base_height + 2.0 + absf(c) * STAGE2_ROLLING_RISE
 
 	if structure <= STAGE2_ROLLING_START:
