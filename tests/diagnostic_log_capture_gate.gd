@@ -61,7 +61,6 @@ func _run() -> void:
 		"WORKER_RESULT_MISSING",
 		"coord=(7, 0) revision=3 task_id=42 gate_sentinel"
 	)
-	capture.flush_now()
 
 	var buffer_text: String = capture.get_buffer_text()
 	for sentinel in [
@@ -74,11 +73,49 @@ func _run() -> void:
 		if not buffer_text.contains(sentinel):
 			_fail("In-memory diagnostic buffer missed sentinel: %s" % sentinel)
 
+	# WORKER_* events must persist synchronously; there is intentionally no
+	# explicit flush_now() before this read.
 	var persisted := FileAccess.get_file_as_string(capture.get_latest_log_path())
 	if persisted.is_empty():
 		_fail("Diagnostic snapshot file was not persisted")
 	elif not persisted.contains("WORKER_RESULT_MISSING"):
-		_fail("Persisted diagnostic snapshot missed worker failure marker")
+		_fail("Worker failure marker was not crash-safely persisted immediately")
+
+	# A pathological engine-log burst must not cause an unbounded temporary
+	# string allocation. The logger is allowed to drop old burst bytes, but it
+	# must retain the newest failure evidence and mark the truncation.
+	var burst := FileAccess.open(TEST_SOURCE_PATH, FileAccess.WRITE)
+	if burst == null:
+		_fail("Could not create engine-log burst fixture")
+	else:
+		burst.store_string(
+			"X".repeat(CAPTURE_SCRIPT.ENGINE_POLL_MAX_BYTES + 8192)
+			+ "\nERROR: ENGINE_BURST_TAIL_SENTINEL\n"
+		)
+		burst.flush()
+		burst = null
+		capture._test_set_source_log_path(TEST_SOURCE_PATH)
+		capture._test_poll_now()
+		var burst_buffer: String = capture.get_buffer_text()
+		if not burst_buffer.contains("ENGINE_BURST_TAIL_SENTINEL"):
+			_fail("Bounded engine-log polling lost newest failure evidence")
+		if not burst_buffer.contains("ENGINE LOG BURST TRIMMED"):
+			_fail("Bounded engine-log polling did not mark skipped burst bytes")
+
+	var clipboard_fixture := (
+		"C".repeat(CAPTURE_SCRIPT.CLIPBOARD_MAX_CHARS * 2)
+		+ "CLIPBOARD_TAIL_SENTINEL"
+	)
+	var clipboard_payload: String = capture._test_build_clipboard_payload(
+		clipboard_fixture,
+		CAPTURE_SCRIPT.CLIPBOARD_RETRY_CHARS
+	)
+	if clipboard_payload.length() > CAPTURE_SCRIPT.CLIPBOARD_RETRY_CHARS:
+		_fail("Android clipboard payload exceeded retry size bound")
+	if not clipboard_payload.contains("CLIPBOARD_TAIL_SENTINEL"):
+		_fail("Android clipboard payload did not preserve newest log tail")
+	if not clipboard_payload.contains("OLDER TEXT OMITTED FOR ANDROID CLIPBOARD"):
+		_fail("Android clipboard payload did not mark truncation")
 
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CAPTURE_SCRIPT.ENGINE_LOG_DIR))
 	var rotated := FileAccess.open(ROTATED_ENGINE_FIXTURE_PATH, FileAccess.WRITE)
@@ -111,6 +148,10 @@ func _run() -> void:
 		print("DIAGNOSTIC_LOG_CAPTURE_GATE_PASS")
 		print("DIAGNOSTIC_LOG_ENGINE_FILE_CAPTURE=warning+error")
 		print("DIAGNOSTIC_LOG_ROTATED_ENGINE_RECOVERY=pass")
+		print("DIAGNOSTIC_LOG_WORKER_IMMEDIATE_FLUSH=pass")
+		print("DIAGNOSTIC_LOG_BOUNDED_ENGINE_POLL_BYTES=%d" % CAPTURE_SCRIPT.ENGINE_POLL_MAX_BYTES)
+		print("DIAGNOSTIC_LOG_CLIPBOARD_PRIMARY_CHARS=%d" % CAPTURE_SCRIPT.CLIPBOARD_MAX_CHARS)
+		print("DIAGNOSTIC_LOG_CLIPBOARD_RETRY_CHARS=%d" % CAPTURE_SCRIPT.CLIPBOARD_RETRY_CHARS)
 		print("DIAGNOSTIC_LOG_TOP_INVENTORY_REMOVED=pass")
 		print("DIAGNOSTIC_LOG_BUFFER_MAX_CHARS=%d" % CAPTURE_SCRIPT.MAX_BUFFER_CHARS)
 		print("DIAGNOSTIC_LOG_PERSIST_PATH=%s" % capture.get_latest_log_path())
@@ -131,8 +172,14 @@ func _validate_static_wiring() -> void:
 		_fail("Main gameplay scene is missing the diagnostic copy-log UI")
 
 	var button_source := FileAccess.get_file_as_string(BUTTON_SOURCE_PATH)
-	if not button_source.contains("copy_to_clipboard"):
-		_fail("Diagnostic UI does not invoke clipboard capture")
+	for required in [
+		"copy_to_clipboard",
+		"InputEventScreenTouch",
+		"get_global_rect().has_point",
+		"COPY FAILED",
+	]:
+		if not button_source.contains(required):
+			_fail("Diagnostic button is missing Android touch/copy behavior: %s" % required)
 	var inventory_screen_source := FileAccess.get_file_as_string(INVENTORY_SCREEN_SOURCE_PATH)
 	if inventory_screen_source.contains("_toggle_button = Button.new()"):
 		_fail("Duplicate top inventory button is still created")
@@ -140,12 +187,17 @@ func _validate_static_wiring() -> void:
 	if not touch_action_source.contains("\"InventoryButton\": INVENTORY_ACTION"):
 		_fail("Bottom inventory touch button was removed unexpectedly")
 	var capture_source := FileAccess.get_file_as_string("res://scripts/debug/diagnostic_log_capture.gd")
-	if not capture_source.contains("DisplayServer.clipboard_set"):
-		_fail("Diagnostic capture service does not use the system clipboard")
-	if not capture_source.contains("PREVIOUS_LOG_PATH"):
-		_fail("Diagnostic capture service does not retain previous-session backup state")
-	if not capture_source.contains("_import_previous_engine_log"):
-		_fail("Diagnostic capture service does not recover rotated Godot crash logs")
+	for required in [
+		"DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD)",
+		"DisplayServer.clipboard_set",
+		"DisplayServer.clipboard_get",
+		"CLIPBOARD_RETRY_CHARS",
+		"ENGINE_POLL_MAX_BYTES",
+		"PREVIOUS_LOG_PATH",
+		"_import_previous_engine_log",
+	]:
+		if not capture_source.contains(required):
+			_fail("Diagnostic capture hardening is missing: %s" % required)
 
 	var runtime_source := FileAccess.get_file_as_string(RUNTIME_SOURCE_PATH)
 	for marker in [
