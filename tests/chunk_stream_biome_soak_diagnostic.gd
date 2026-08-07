@@ -178,8 +178,6 @@ func _run() -> void:
 		if not await _wait_for_window(manager, next_center, "shift_%d" % step_index):
 			_finish(test_root)
 			return
-		# Give queue_free() from unloaded chunks two frames to retire scene resources
-		# before the settled memory/object sample.
 		await process_frame
 		await process_frame
 		var sample := _validate_center_state(manager, next_center, "shift_%d" % step_index)
@@ -191,7 +189,7 @@ func _run() -> void:
 			return
 
 	if OS.get_environment("TEKNIK_WRITE_PERSISTED") == "1":
-		var surface := runtime.data.terrain_height(2, 2)
+		var surface: int = int(runtime.data.terrain_height(2, 2))
 		var save_cell := Vector3i(2, mini(surface + 10, WORLD_DATA.WORLD_HEIGHT - 1), 2)
 		if runtime.data.get_block(save_cell) != WORLD_DATA.BLOCK_AIR:
 			_fail("Could not find air fixture for persisted-save diagnostic at %s" % save_cell)
