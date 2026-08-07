@@ -1,4 +1,4 @@
-extends "res://scripts/world/playable_world_generation_data.gd"
+extends "res://scripts/world/playable_world_stage4_generation_data.gd"
 
 # Stage 5 rivers are deterministic continuous centerlines. Each corridor is a
 # graph in world space: x + diagonal_drift(z) + low-frequency meander(z).
