@@ -18,21 +18,45 @@ func _wait_for_world(manager: Variant, label: String) -> bool:
 	return false
 
 
-# Chunk roots can be swapped during a process frame while PhysicsServer3D only
-# exposes the new collision state after the next physics synchronization. Slow
-# hosted runners make that ordering visible. Keep polling the real shipping
-# player's raycast instead of replacing the assertion with a direct world-data
-# lookup: the gate still proves that a generated tree can actually be targeted
-# through gameplay collision.
-func _wait_for_block_target(player: Variant, expected: Vector3i, label: String) -> bool:
-	var started := Time.get_ticks_msec()
-	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
-		await physics_frame
-		await process_frame
-		var hit: Dictionary = player.get_block_target()
-		if not hit.is_empty() and hit.get("block_coord", Vector3i.ZERO) == expected:
-			return true
-	_fail("Timed out waiting for %s target at %s" % [label, expected])
+# Test the real shipping player's physics raycast from deterministic side views
+# around a known generated block. The preferred static-access direction is tried
+# first, then the remaining cardinal directions. This keeps the assertion on the
+# public gameplay targeting path while avoiding a brittle single camera pose.
+func _wait_for_block_target(
+	player: Variant,
+	camera: Camera3D,
+	expected: Vector3i,
+	preferred_access: Vector2i,
+	label: String
+) -> bool:
+	var directions: Array[Vector2i] = []
+	if preferred_access != Vector2i.ZERO:
+		directions.append(preferred_access)
+	for direction: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		if not directions.has(direction):
+			directions.append(direction)
+
+	var target_center := Vector3(expected) + Vector3.ONE * 0.5
+	var distances: Array[float] = [2.25, 1.75]
+	var height_offsets: Array[float] = [0.0, 0.20, -0.20]
+	for direction: Vector2i in directions:
+		var horizontal := Vector3(float(direction.x), 0.0, float(direction.y))
+		for distance: float in distances:
+			for height_offset: float in height_offsets:
+				camera.global_position = (
+					target_center
+					+ horizontal * distance
+					+ Vector3.UP * height_offset
+				)
+				camera.look_at(target_center, Vector3.UP)
+				# Collision roots may have been swapped during the preceding process
+				# frame, so cross a physics synchronization before reading the target.
+				await physics_frame
+				await process_frame
+				var hit: Dictionary = player.get_block_target()
+				if not hit.is_empty() and hit.get("block_coord", Vector3i.ZERO) == expected:
+					return true
+	_fail("Could not acquire %s target at %s from any clear side" % [label, expected])
 	return false
 
 
@@ -123,11 +147,13 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 	if manager.get_block_world(base_log) != BLOCK_LOG:
 		_fail("Generated tree fixture no longer contains its base log")
 		return
-	camera.look_at(
-		Vector3(tree_origin.x + 0.5, tree_surface + 1.5, tree_origin.y + 0.5),
-		Vector3.UP
-	)
-	if not await _wait_for_block_target(player, base_log, "generated tree base log"):
+	if not await _wait_for_block_target(
+		player,
+		camera,
+		base_log,
+		access,
+		"generated tree base log"
+	):
 		return
 	var inventory: Variant = player.get_inventory()
 	if inventory == null:
