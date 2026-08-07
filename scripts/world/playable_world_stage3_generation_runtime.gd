@@ -74,13 +74,12 @@ static func _stage3_worker_build_chunk(
 		STAGE3_DATA.SEA_LEVEL,
 		biomes
 	)
-	var mesh_usec := Time.get_ticks_usec() - mesh_started_usec
 	var result := {
 		"coord": coord,
 		"revision": revision,
 		"mesh_data": mesh_data,
 		"cache_usec": cache_usec,
-		"mesh_usec": mesh_usec,
+		"mesh_usec": Time.get_ticks_usec() - mesh_started_usec,
 		"mesh_height": mesh_height,
 		"compute_usec": Time.get_ticks_usec() - started_usec,
 	}
@@ -95,10 +94,10 @@ static func _stage3_smooth01(value: float) -> float:
 
 
 static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) -> Dictionary:
-	# Broad terrain structure uses a 4-block lattice. Terrain-only climate is
-	# slower-changing and uses an 8-block lattice. Both node sets are shared by
-	# every padded column; biome climate remains full-resolution so this Stage 3
-	# optimization does not alter accepted biome identity or transitions.
+	# Terrain structure is sampled on a 4-block lattice. The much coarser
+	# 64-block warp vectors are cached once for the padded chunk, so neighboring
+	# structure nodes reuse the same deterministic hash results instead of
+	# rebuilding four warp corners each time.
 	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var column_count := width * width
 	var field_cache := PackedFloat32Array()
@@ -107,6 +106,7 @@ static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 	field_cache.resize(column_count * FIELD_STRIDE)
 	heights.resize(column_count)
 	biomes.resize(column_count)
+
 	var origin_x := coord.x * CHUNK_SIZE
 	var origin_z := coord.y * CHUNK_SIZE
 	var min_world_x := origin_x - MESH_CACHE_PADDING
@@ -126,43 +126,53 @@ static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 	) * structure_spacing
 	var structure_width := int((structure_max_x - structure_min_x) / structure_spacing) + 1
 	var structure_height := int((structure_max_z - structure_min_z) / structure_spacing) + 1
+
+	var warp_spacing: int = sampler.STAGE3_WARP_LATTICE_SPACING
+	var warp_reciprocal: float = sampler.STAGE3_WARP_LATTICE_RECIPROCAL
+	var warp_min_lx := floori(float(structure_min_x) * warp_reciprocal)
+	var warp_min_lz := floori(float(structure_min_z) * warp_reciprocal)
+	var warp_max_lx := floori(float(structure_max_x) * warp_reciprocal) + 1
+	var warp_max_lz := floori(float(structure_max_z) * warp_reciprocal) + 1
+	var warp_width := warp_max_lx - warp_min_lx + 1
+	var warp_height := warp_max_lz - warp_min_lz + 1
+	var warp_nodes := PackedVector2Array()
+	warp_nodes.resize(warp_width * warp_height)
+	for warp_z_index in range(warp_height):
+		var lattice_z := warp_min_lz + warp_z_index
+		for warp_x_index in range(warp_width):
+			var lattice_x := warp_min_lx + warp_x_index
+			warp_nodes[warp_z_index * warp_width + warp_x_index] = (
+				sampler.stage3_warp_lattice_vector(lattice_x, lattice_z)
+			)
+
 	var structure_nodes := PackedFloat32Array()
 	structure_nodes.resize(structure_width * structure_height)
 	for node_z_index in range(structure_height):
 		var node_world_z := structure_min_z + node_z_index * structure_spacing
+		var warp_lz := floori(float(node_world_z) * warp_reciprocal)
+		var warp_origin_z := warp_lz * warp_spacing
+		var warp_tz := _stage3_smooth01(float(node_world_z - warp_origin_z) * warp_reciprocal)
+		var warp_z_index := warp_lz - warp_min_lz
 		for node_x_index in range(structure_width):
 			var node_world_x := structure_min_x + node_x_index * structure_spacing
+			var warp_lx := floori(float(node_world_x) * warp_reciprocal)
+			var warp_origin_x := warp_lx * warp_spacing
+			var warp_tx := _stage3_smooth01(float(node_world_x - warp_origin_x) * warp_reciprocal)
+			var warp_x_index := warp_lx - warp_min_lx
+			var warp_nw := warp_nodes[warp_z_index * warp_width + warp_x_index]
+			var warp_ne := warp_nodes[warp_z_index * warp_width + warp_x_index + 1]
+			var warp_sw := warp_nodes[(warp_z_index + 1) * warp_width + warp_x_index]
+			var warp_se := warp_nodes[(warp_z_index + 1) * warp_width + warp_x_index + 1]
+			var warp := warp_nw.lerp(warp_ne, warp_tx).lerp(
+				warp_sw.lerp(warp_se, warp_tx),
+				warp_tz
+			)
 			structure_nodes[node_z_index * structure_width + node_x_index] = (
-				sampler.stage3_sample_structure_node(node_world_x, node_world_z)
+				sampler.terrain_shape_noise.get_noise_2d(
+					float(node_world_x) + warp.x,
+					float(node_world_z) + warp.y
+				)
 			)
-
-	var climate_spacing: int = sampler.STAGE3_TERRAIN_CLIMATE_LATTICE_SPACING
-	var climate_reciprocal: float = sampler.STAGE3_TERRAIN_CLIMATE_LATTICE_RECIPROCAL
-	var climate_min_x := floori(float(min_world_x) * climate_reciprocal) * climate_spacing
-	var climate_min_z := floori(float(min_world_z) * climate_reciprocal) * climate_spacing
-	var climate_max_x := (
-		floori(float(max_world_x) * climate_reciprocal) + 1
-	) * climate_spacing
-	var climate_max_z := (
-		floori(float(max_world_z) * climate_reciprocal) + 1
-	) * climate_spacing
-	var climate_width := int((climate_max_x - climate_min_x) / climate_spacing) + 1
-	var climate_height := int((climate_max_z - climate_min_z) / climate_spacing) + 1
-	var temperature_nodes := PackedFloat32Array()
-	var moisture_nodes := PackedFloat32Array()
-	temperature_nodes.resize(climate_width * climate_height)
-	moisture_nodes.resize(climate_width * climate_height)
-	for node_z_index in range(climate_height):
-		var node_world_z := climate_min_z + node_z_index * climate_spacing
-		for node_x_index in range(climate_width):
-			var node_world_x := climate_min_x + node_x_index * climate_spacing
-			var climate: Vector2 = sampler.stage3_sample_terrain_climate_node(
-				node_world_x,
-				node_world_z
-			)
-			var node_index := node_z_index * climate_width + node_x_index
-			temperature_nodes[node_index] = climate.x
-			moisture_nodes[node_index] = climate.y
 
 	for local_z in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
 		for local_x in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
@@ -174,7 +184,6 @@ static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 			var field_index := column_index * FIELD_STRIDE
 			var world_x := origin_x + local_x
 			var world_z := origin_z + local_z
-
 			var structure_x_index := floori(
 				float(world_x - structure_min_x) * structure_reciprocal
 			)
@@ -183,58 +192,19 @@ static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 			)
 			var structure_origin_x := structure_min_x + structure_x_index * structure_spacing
 			var structure_origin_z := structure_min_z + structure_z_index * structure_spacing
-			var structure_tx := _stage3_smooth01(
-				float(world_x - structure_origin_x) * structure_reciprocal
-			)
-			var structure_tz := _stage3_smooth01(
-				float(world_z - structure_origin_z) * structure_reciprocal
-			)
-			var structure_nw := structure_nodes[
-				structure_z_index * structure_width + structure_x_index
-			]
-			var structure_ne := structure_nodes[
-				structure_z_index * structure_width + structure_x_index + 1
-			]
-			var structure_sw := structure_nodes[
-				(structure_z_index + 1) * structure_width + structure_x_index
-			]
-			var structure_se := structure_nodes[
-				(structure_z_index + 1) * structure_width + structure_x_index + 1
-			]
-			var structure := lerpf(
-				lerpf(structure_nw, structure_ne, structure_tx),
-				lerpf(structure_sw, structure_se, structure_tx),
-				structure_tz
-			)
-
-			var climate_x_index := floori(float(world_x - climate_min_x) * climate_reciprocal)
-			var climate_z_index := floori(float(world_z - climate_min_z) * climate_reciprocal)
-			var climate_origin_x := climate_min_x + climate_x_index * climate_spacing
-			var climate_origin_z := climate_min_z + climate_z_index * climate_spacing
-			var climate_tx := _stage3_smooth01(
-				float(world_x - climate_origin_x) * climate_reciprocal
-			)
-			var climate_tz := _stage3_smooth01(
-				float(world_z - climate_origin_z) * climate_reciprocal
-			)
-			var climate_nw := climate_z_index * climate_width + climate_x_index
-			var climate_ne := climate_nw + 1
-			var climate_sw := (climate_z_index + 1) * climate_width + climate_x_index
-			var climate_se := climate_sw + 1
-			var terrain_temperature := lerpf(
-				lerpf(temperature_nodes[climate_nw], temperature_nodes[climate_ne], climate_tx),
-				lerpf(temperature_nodes[climate_sw], temperature_nodes[climate_se], climate_tx),
-				climate_tz
-			)
-			var terrain_moisture := lerpf(
-				lerpf(moisture_nodes[climate_nw], moisture_nodes[climate_ne], climate_tx),
-				lerpf(moisture_nodes[climate_sw], moisture_nodes[climate_se], climate_tx),
-				climate_tz
-			)
+			var tx := _stage3_smooth01(float(world_x - structure_origin_x) * structure_reciprocal)
+			var tz := _stage3_smooth01(float(world_z - structure_origin_z) * structure_reciprocal)
+			var nw := structure_nodes[structure_z_index * structure_width + structure_x_index]
+			var ne := structure_nodes[structure_z_index * structure_width + structure_x_index + 1]
+			var sw := structure_nodes[(structure_z_index + 1) * structure_width + structure_x_index]
+			var se := structure_nodes[(structure_z_index + 1) * structure_width + structure_x_index + 1]
+			var structure := lerpf(lerpf(nw, ne, tx), lerpf(sw, se, tx), tz)
 
 			var world_xf := float(world_x)
 			var world_zf := float(world_z)
 			var continentalness: float = sampler.continentalness_noise.get_noise_2d(world_xf, world_zf)
+			var terrain_temperature: float = sampler.temperature_noise.get_noise_2d(world_xf, world_zf)
+			var terrain_moisture: float = sampler.moisture_noise.get_noise_2d(world_xf, world_zf)
 			var biome_temperature: float = sampler.biome_temperature_noise.get_noise_2d(world_xf, world_zf)
 			var biome_moisture: float = sampler.biome_moisture_noise.get_noise_2d(world_xf, world_zf)
 			var terrain_fields := Vector4(
@@ -244,20 +214,14 @@ static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 				terrain_moisture
 			)
 			var biome_climate := Vector2(biome_temperature, biome_moisture)
-
 			field_cache[field_index + FIELD_CONTINENTALNESS] = continentalness
 			field_cache[field_index + FIELD_TERRAIN_STRUCTURE] = structure
 			field_cache[field_index + FIELD_TERRAIN_TEMPERATURE] = terrain_temperature
 			field_cache[field_index + FIELD_TERRAIN_MOISTURE] = terrain_moisture
 			field_cache[field_index + FIELD_BIOME_TEMPERATURE] = biome_temperature
 			field_cache[field_index + FIELD_BIOME_MOISTURE] = biome_moisture
-
 			heights[column_index] = sampler.build_provisional_terrain(terrain_fields)
-			biomes[column_index] = sampler.classify_biome(
-				biome_climate,
-				world_x,
-				world_z
-			)
+			biomes[column_index] = sampler.classify_biome(biome_climate, world_x, world_z)
 
 	return _decorate_surface(field_cache, heights, biomes)
 
