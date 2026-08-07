@@ -47,9 +47,8 @@ func _activate_for_mobile_world() -> void:
 		call_deferred("_activate_for_mobile_world")
 		return
 	# Water classification must use the exact generation facade the playable
-	# runtime uses. Stage 1 matched the legacy terrain, so the old local data
-	# instance happened to work; Stage 2 intentionally changes terrain shape.
-	# Sharing runtime.data here keeps rendered water aligned with the blocks.
+	# runtime uses. Stage 4 exposes explicit ocean topology there; older oracle
+	# data still falls back to the accepted low-basin classifier below.
 	_data = runtime.data
 	var global_plane := runtime.get_node_or_null("Water")
 	if is_instance_valid(global_plane):
@@ -102,6 +101,11 @@ func _create_chunk(coord: Vector2i) -> void:
 
 
 static func is_water_column(data, x: int, z: int) -> bool:
+	# Stage 4 shipping data owns water topology. This prevents arbitrary inland
+	# depressions from being filled just because they happen to sit below sea
+	# level. The fallback preserves the legacy oracle and pre-overhaul tests.
+	if data.has_method("is_ocean_column"):
+		return bool(data.is_ocean_column(x, z))
 	if data.terrain_height(x, z) >= WORLD_DATA.SEA_LEVEL:
 		return false
 	var connected_neighbors := 0
