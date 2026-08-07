@@ -6,6 +6,7 @@ const MAIN_SCENE_PATH := "res://scenes/main.tscn"
 const BUTTON_SOURCE_PATH := "res://scripts/ui/diagnostic_log_button.gd"
 const RUNTIME_SOURCE_PATH := "res://scripts/world/playable_world_runtime.gd"
 const TEST_SOURCE_PATH := "user://diagnostic_capture_gate_source.log"
+const ROTATED_ENGINE_FIXTURE_PATH := "user://logs/godot-crash-gate.log"
 
 var failures: Array[String] = []
 
@@ -77,6 +78,26 @@ func _run() -> void:
 	elif not persisted.contains("WORKER_RESULT_MISSING"):
 		_fail("Persisted diagnostic snapshot missed worker failure marker")
 
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CAPTURE_SCRIPT.ENGINE_LOG_DIR))
+	var rotated := FileAccess.open(ROTATED_ENGINE_FIXTURE_PATH, FileAccess.WRITE)
+	if rotated == null:
+		_fail("Could not create rotated engine-log recovery fixture")
+	else:
+		rotated.store_string("ERROR: ROTATED_ENGINE_CRASH_SENTINEL\n")
+		rotated.flush()
+		rotated = null
+		var recovery_capture = CAPTURE_SCRIPT.new()
+		recovery_capture.name = "DiagnosticLogRecoveryGateService"
+		root.add_child(recovery_capture)
+		await process_frame
+		var recovered: String = recovery_capture.get_buffer_text()
+		if not recovered.contains("ROTATED_ENGINE_CRASH_SENTINEL"):
+			_fail("Previous rotated Godot engine log was not recovered on relaunch")
+		if not recovered.contains("PREVIOUS GODOT ENGINE LOG"):
+			_fail("Recovered engine-log tail is missing its session marker")
+		recovery_capture.queue_free()
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(ROTATED_ENGINE_FIXTURE_PATH))
+
 	capture.record_event("GATE", "X".repeat(CAPTURE_SCRIPT.MAX_BUFFER_CHARS + 4096))
 	var bounded: String = capture.get_buffer_text()
 	if bounded.length() > CAPTURE_SCRIPT.MAX_BUFFER_CHARS:
@@ -87,6 +108,7 @@ func _run() -> void:
 	if failures.is_empty():
 		print("DIAGNOSTIC_LOG_CAPTURE_GATE_PASS")
 		print("DIAGNOSTIC_LOG_ENGINE_FILE_CAPTURE=warning+error")
+		print("DIAGNOSTIC_LOG_ROTATED_ENGINE_RECOVERY=pass")
 		print("DIAGNOSTIC_LOG_BUFFER_MAX_CHARS=%d" % CAPTURE_SCRIPT.MAX_BUFFER_CHARS)
 		print("DIAGNOSTIC_LOG_PERSIST_PATH=%s" % capture.get_latest_log_path())
 	_finish()
@@ -113,6 +135,8 @@ func _validate_static_wiring() -> void:
 		_fail("Diagnostic capture service does not use the system clipboard")
 	if not capture_source.contains("PREVIOUS_LOG_PATH"):
 		_fail("Diagnostic capture service does not retain previous-session backup state")
+	if not capture_source.contains("_import_previous_engine_log"):
+		_fail("Diagnostic capture service does not recover rotated Godot crash logs")
 
 	var runtime_source := FileAccess.get_file_as_string(RUNTIME_SOURCE_PATH)
 	for marker in ["WORKER_SUBMIT_FAILURE", "WORKER_WAIT_FAILURE", "WORKER_RESULT_MISSING"]:
