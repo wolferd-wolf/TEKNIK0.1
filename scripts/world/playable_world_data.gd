@@ -31,8 +31,10 @@ const ROCKY_MOUNTAIN_BASE_RISE := 6.0
 const ROCKY_MOUNTAIN_RUGGEDNESS := 20.0
 const ROCKY_MOUNTAIN_LAND_BLEND_START := 6.0
 const ROCKY_MOUNTAIN_LAND_BLEND_END := 9.0
-const TEMPERATURE_NOISE_FREQUENCY := 0.0012
-const MOISTURE_NOISE_FREQUENCY := 0.0014
+const TERRAIN_TEMPERATURE_NOISE_FREQUENCY := 0.0024
+const TERRAIN_MOISTURE_NOISE_FREQUENCY := 0.0028
+const BIOME_TEMPERATURE_NOISE_FREQUENCY := 0.0012
+const BIOME_MOISTURE_NOISE_FREQUENCY := 0.0014
 
 const BIOME_PLAINS := 0
 const BIOME_FOREST := 1
@@ -54,8 +56,14 @@ var save_delay := 0.0
 
 var continentalness_noise := FastNoiseLite.new()
 var terrain_shape_noise := FastNoiseLite.new()
+# These two retain the accepted terrain-shape climate scale. Rocky mountain
+# elevation depends on samples.z/w, so changing these would alter terrain.
 var temperature_noise := FastNoiseLite.new()
 var moisture_noise := FastNoiseLite.new()
+# Biome classification has its own slower climate samplers so biome zone size
+# can change without changing the accepted terrain-height field.
+var biome_temperature_noise := FastNoiseLite.new()
+var biome_moisture_noise := FastNoiseLite.new()
 
 # Compatibility aliases for existing diagnostics that still refer to the
 # pre-Stage-1 names.
@@ -76,23 +84,39 @@ func _init() -> void:
 	terrain_shape_noise.fractal_octaves = 2
 	_configure_domain_warp(terrain_shape_noise)
 
-	temperature_noise.seed = WORLD_SEED ^ 0x68bc21eb
-	temperature_noise.frequency = TEMPERATURE_NOISE_FREQUENCY
-	temperature_noise.fractal_octaves = 3
-	temperature_noise.fractal_gain = 0.5
-	temperature_noise.fractal_lacunarity = 2.0
-	_configure_domain_warp(temperature_noise)
-
-	moisture_noise.seed = WORLD_SEED ^ 0x02e5be93
-	moisture_noise.frequency = MOISTURE_NOISE_FREQUENCY
-	moisture_noise.fractal_octaves = 3
-	moisture_noise.fractal_gain = 0.5
-	moisture_noise.fractal_lacunarity = 2.0
-	_configure_domain_warp(moisture_noise)
+	_configure_climate_noise(
+		temperature_noise,
+		WORLD_SEED ^ 0x68bc21eb,
+		TERRAIN_TEMPERATURE_NOISE_FREQUENCY
+	)
+	_configure_climate_noise(
+		moisture_noise,
+		WORLD_SEED ^ 0x02e5be93,
+		TERRAIN_MOISTURE_NOISE_FREQUENCY
+	)
+	_configure_climate_noise(
+		biome_temperature_noise,
+		WORLD_SEED ^ 0x68bc21eb,
+		BIOME_TEMPERATURE_NOISE_FREQUENCY
+	)
+	_configure_climate_noise(
+		biome_moisture_noise,
+		WORLD_SEED ^ 0x02e5be93,
+		BIOME_MOISTURE_NOISE_FREQUENCY
+	)
 
 	height_noise = continentalness_noise
 	region_noise = terrain_shape_noise
 	load_save()
+
+
+func _configure_climate_noise(noise: FastNoiseLite, seed_value: int, frequency: float) -> void:
+	noise.seed = seed_value
+	noise.frequency = frequency
+	noise.fractal_octaves = 3
+	noise.fractal_gain = 0.5
+	noise.fractal_lacunarity = 2.0
+	_configure_domain_warp(noise)
 
 
 func _configure_domain_warp(noise: FastNoiseLite) -> void:
@@ -114,6 +138,15 @@ func sample_column_noise(x: int, z: int) -> Vector4:
 		terrain_shape_noise.get_noise_2d(world_x, world_z),
 		temperature_noise.get_noise_2d(world_x, world_z),
 		moisture_noise.get_noise_2d(world_x, world_z)
+	)
+
+
+func sample_biome_climate(x: int, z: int) -> Vector2:
+	var world_x := float(x)
+	var world_z := float(z)
+	return Vector2(
+		biome_temperature_noise.get_noise_2d(world_x, world_z),
+		biome_moisture_noise.get_noise_2d(world_x, world_z)
 	)
 
 
@@ -259,13 +292,22 @@ func blended_biome_from_weights(weights: Vector4, x: int, z: int) -> int:
 	return BIOME_ROCKY
 
 
-func blended_biome_from_samples(samples: Vector4, x: int, z: int) -> int:
-	return blended_biome_from_weights(biome_weights_from_samples(samples), x, z)
+func blended_biome_from_samples(_samples: Vector4, x: int, z: int) -> int:
+	var climate := sample_biome_climate(x, z)
+	return blended_biome_from_weights(
+		biome_weights_from_climate(climate.x, climate.y),
+		x,
+		z
+	)
 
 
 func biome_at(x: int, z: int) -> int:
-	var samples := sample_column_noise(x, z)
-	return blended_biome_from_samples(samples, x, z)
+	var climate := sample_biome_climate(x, z)
+	return blended_biome_from_weights(
+		biome_weights_from_climate(climate.x, climate.y),
+		x,
+		z
+	)
 
 
 func biome_name(biome: int) -> String:
