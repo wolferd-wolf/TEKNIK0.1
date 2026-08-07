@@ -12,6 +12,7 @@ const EDIT_DEBOUNCE_MSEC := 75
 const MESH_CACHE_PADDING := 2
 const MAX_ACTIVE_BUILD_TASKS := 2
 const MAX_BUILD_APPLIES_PER_FRAME := 1
+const WORKER_STALL_DIAGNOSTIC_USEC := 5000000
 
 var target: Node3D
 var target_physics_enabled := false
@@ -50,6 +51,7 @@ var stale_results_discarded := 0
 var worker_submit_failures := 0
 var worker_wait_failures := 0
 var worker_missing_results := 0
+var worker_stall_warnings := 0
 var max_background_compute_usec := 0
 var max_pump_usec := 0
 
@@ -216,6 +218,7 @@ func diagnostics() -> Dictionary:
 		"worker_submit_failures": worker_submit_failures,
 		"worker_wait_failures": worker_wait_failures,
 		"worker_missing_results": worker_missing_results,
+		"worker_stall_warnings": worker_stall_warnings,
 		"coalesced_requests": coalesced_edits,
 		"active_tasks": active_build_tasks.size(),
 		"pending_applies": build_apply_queue.size() + build_queue.size() + pending_rebuilds.size(),
@@ -244,6 +247,7 @@ func reset_diagnostics() -> bool:
 	worker_submit_failures = 0
 	worker_wait_failures = 0
 	worker_missing_results = 0
+	worker_stall_warnings = 0
 	max_background_compute_usec = 0
 	max_pump_usec = 0
 	return true
@@ -356,6 +360,7 @@ func _start_build_task(coord: Vector2i, revision: int, replacing: bool) -> void:
 		"result_key": result_key,
 		"replacing": replacing,
 		"queued_at_usec": Time.get_ticks_usec(),
+		"stall_reported": false,
 	}
 	build_tasks_started += 1
 	last_build_usec = maxi(last_build_usec, Time.get_ticks_usec() - queue_start)
@@ -426,7 +431,26 @@ func _collect_completed_build_tasks() -> void:
 		var coord: Vector2i = coord_value
 		var task_data: Dictionary = active_build_tasks.get(coord, {})
 		var task_id := int(task_data.get("task_id", -1))
-		if task_id < 0 or not WorkerThreadPool.is_task_completed(task_id):
+		if task_id < 0:
+			continue
+		if not WorkerThreadPool.is_task_completed(task_id):
+			var queued_at_usec := int(task_data.get("queued_at_usec", Time.get_ticks_usec()))
+			var task_age_usec := Time.get_ticks_usec() - queued_at_usec
+			if (
+				task_age_usec >= WORKER_STALL_DIAGNOSTIC_USEC
+				and not bool(task_data.get("stall_reported", false))
+			):
+				task_data["stall_reported"] = true
+				active_build_tasks[coord] = task_data
+				worker_stall_warnings += 1
+				_report_worker_failure(
+					"WORKER_TASK_STALL",
+					coord,
+					int(task_data.get("revision", 0)),
+					task_id,
+					"task still incomplete after %.3f s"
+					% (task_age_usec / 1000000.0)
+				)
 			continue
 		var wait_error := WorkerThreadPool.wait_for_task_completion(task_id)
 		var result_key := String(task_data.get("result_key", ""))
@@ -518,7 +542,10 @@ func _report_worker_failure(
 			detail,
 		]
 	)
-	push_error(message)
+	if marker == "WORKER_TASK_STALL":
+		push_warning(message)
+	else:
+		push_error(message)
 	var capture := get_node_or_null("/root/DiagnosticLogCapture")
 	if capture != null and capture.has_method("record_event"):
 		capture.record_event(marker, message)
