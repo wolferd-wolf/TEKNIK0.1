@@ -110,6 +110,19 @@ jobs:
           grep -Fq 'MULTI_NOISE_STEP1_GATE_PASS' artifacts/multi-noise-step1-benchmark.log
           grep -Fq 'MULTI_NOISE_STEP1_BENCHMARK_JSON=' artifacts/multi-noise-step1-benchmark.log
 
+      - name: Gate 60-block terrain and real chunk meshing
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-world-height-60" \
+            timeout 300 /tmp/godot/godot \
+              --headless \
+              --audio-driver Dummy \
+              --path . \
+              --script res://tests/world_height_60_gate.gd \
+              2>&1 | tee artifacts/world-height-60.log
+          grep -Fq 'WORLD_HEIGHT_60_GATE_PASS' artifacts/world-height-60.log
+          grep -Fq 'WORLD_HEIGHT_60_GATE_JSON=' artifacts/world-height-60.log
+
       - name: Prove desktop and headless use the shipping world
         run: |
           set -o pipefail
