@@ -6,11 +6,12 @@ const WORLD_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SOURCE_PATH := "res://scripts/world/playable_world_port.gd"
-const FRAME_LIMIT := 600
+const WAIT_TIMEOUT_MSEC := 30000
 const CHUNK_SIZE := 12
 const RENDER_RADIUS := 3
 const BLOCK_AIR := 0
 const BLOCK_STONE := 3
+const STALE_TEST_CENTER := Vector2i(5, 0)
 
 var failures: Array[String] = []
 
@@ -25,7 +26,8 @@ func _fail(message: String) -> void:
 
 
 func _wait_for_collision_ring(manager) -> bool:
-	for _frame in range(FRAME_LIMIT):
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
 		await process_frame
 		if manager.is_playable_world_collision_ring_ready():
 			return true
@@ -34,7 +36,8 @@ func _wait_for_collision_ring(manager) -> bool:
 
 
 func _wait_for_atomic_swap(manager, previous_swap_count: int, context: String) -> bool:
-	for _frame in range(FRAME_LIMIT):
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
 		await process_frame
 		var diagnostics: Dictionary = manager.get_remesh_diagnostics()
 		if int(diagnostics.get("atomic_swaps", 0)) > previous_swap_count:
@@ -44,7 +47,8 @@ func _wait_for_atomic_swap(manager, previous_swap_count: int, context: String) -
 
 
 func _wait_for_render_window(manager, center: Vector2i, context: String) -> bool:
-	for _frame in range(FRAME_LIMIT):
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
 		await process_frame
 		if _render_window_ready(manager, center) and manager.is_remesh_idle():
 			return true
@@ -175,6 +179,12 @@ func _run_gate() -> void:
 	elif player.get("_chunk_manager") != scene_manager:
 		_fail("Player did not bind to the standalone world contract")
 
+	# Remove the second shipping-world fixture before timing so its background
+	# workers cannot contaminate the Step-1 frame-time measurement.
+	main.queue_free()
+	await process_frame
+	await process_frame
+
 	if not await _wait_for_render_window(manager, Vector2i.ZERO, "chunk-stream diagnosis baseline"):
 		_finish()
 		return
@@ -189,6 +199,7 @@ func _run_gate() -> void:
 
 	if failures.is_empty():
 		print("PLAYABLE_WORLD_STANDALONE_GATE_PASS")
+		print("CHUNK_STREAM_THREADING_STEP1_GATE_PASS")
 		print("STANDALONE_INHERITANCE=Node3D only; no legacy fallback")
 		print("STANDALONE_STARTUP_CHUNKS=%d" % manager.chunk_count())
 		print("STANDALONE_PLACE_MINE=%s -> stone -> air" % edit_coord)
@@ -207,6 +218,8 @@ func _measure_chunk_streaming(manager, target: Node3D) -> Dictionary:
 	var architecture := {
 		"background_compute_ms": float(initial_diagnostics.get("max_background_compute_ms", -1.0)),
 		"build_budget_usec": int(WORLD_RUNTIME.BUILD_BUDGET_USEC),
+		"max_active_build_tasks": int(WORLD_RUNTIME.MAX_ACTIVE_BUILD_TASKS),
+		"max_build_applies_per_frame": int(WORLD_RUNTIME.MAX_BUILD_APPLIES_PER_FRAME),
 		"world_height": int(WORLD_DATA.WORLD_HEIGHT),
 		"chunk_size": CHUNK_SIZE,
 		"render_radius": RENDER_RADIUS,
@@ -239,14 +252,52 @@ func _measure_chunk_streaming(manager, target: Node3D) -> Dictionary:
 	var mesh_ms: Array[float] = []
 	var commit_ms: Array[float] = []
 	var collision_ms: Array[float] = []
+	var sync_main_thread_ms: Array[float] = []
 	for sample in phase_samples:
-		cache_ms.append(float(sample.get("column_cache_ms", 0.0)))
-		mesh_ms.append(float(sample.get("mesh_data_ms", 0.0)))
-		commit_ms.append(float(sample.get("arraymesh_entry_ms", 0.0)))
+		var cache_value := float(sample.get("column_cache_ms", 0.0))
+		var mesh_value := float(sample.get("mesh_data_ms", 0.0))
+		var commit_value := float(sample.get("arraymesh_entry_ms", 0.0))
+		cache_ms.append(cache_value)
+		mesh_ms.append(mesh_value)
+		commit_ms.append(commit_value)
 		collision_ms.append(float(sample.get("collision_ms", 0.0)))
+		sync_main_thread_ms.append(cache_value + mesh_value + commit_value)
+
+	var before_stats := _stats(sync_main_thread_ms)
+	var after_frame_p95_max := 0.0
+	var after_frame_max := 0.0
+	var queue_max := 0.0
+	var apply_max := 0.0
+	var pump_max := 0.0
+	var background_max := 0.0
+	for shift in shifts:
+		if int(shift.get("requested_missing_count", 0)) <= 0:
+			continue
+		var frame_stats: Dictionary = shift.get("frame_wall_ms", {})
+		after_frame_p95_max = maxf(after_frame_p95_max, float(frame_stats.get("p95", 0.0)))
+		after_frame_max = maxf(after_frame_max, float(frame_stats.get("max", 0.0)))
+		var shift_diag: Dictionary = shift.get("diagnostics", {})
+		queue_max = maxf(queue_max, float(shift_diag.get("max_queue_ms", 0.0)))
+		apply_max = maxf(apply_max, float(shift_diag.get("max_apply_ms", 0.0)))
+		pump_max = maxf(pump_max, float(shift_diag.get("max_pump_ms", 0.0)))
+		background_max = maxf(background_max, float(shift_diag.get("max_background_compute_ms", 0.0)))
+
+	var baseline_p95 := float(before_stats.get("p95", 0.0))
+	if background_max <= 0.0:
+		_fail("Step 1 did not report any background chunk computation")
+	if baseline_p95 <= 0.0:
+		_fail("Step 1 synchronous baseline did not produce a measurable p95")
+	elif pump_max >= baseline_p95 * 0.25:
+		_fail("Threaded main-thread pump %.3f ms did not improve enough over %.3f ms synchronous p95" % [pump_max, baseline_p95])
+	if baseline_p95 > 0.0 and after_frame_p95_max >= baseline_p95 * 0.50:
+		_fail("Threaded stream frame p95 %.3f ms remained too close to %.3f ms synchronous p95" % [after_frame_p95_max, baseline_p95])
+
+	var stale_report: Dictionary = await _measure_stale_rejection(manager)
+	if stale_report.is_empty():
+		return {}
 
 	return {
-		"measurement_scope": "shipping initial chunk stream path; no mining/placement remesh",
+		"measurement_scope": "Step 1 initial chunk streaming before/after; no directional lookahead or LRU cache",
 		"proxy": "Godot 4.3 hosted Linux headless runtime",
 		"architecture": architecture,
 		"live_shifts": shifts,
@@ -257,11 +308,24 @@ func _measure_chunk_streaming(manager, target: Node3D) -> Dictionary:
 			"arraymesh_entry": _stats(commit_ms),
 			"collision": _stats(collision_ms),
 		},
+		"before_after_main_thread_ms": {
+			"before_sync_chunk_build": before_stats,
+			"after_stream_frame_p95_max": after_frame_p95_max,
+			"after_stream_frame_max": after_frame_max,
+			"after_queue_max": queue_max,
+			"after_apply_max": apply_max,
+			"after_pump_max": pump_max,
+			"background_compute_max": background_max,
+		},
+		"stale_result_gate": stale_report,
 		"backtrack_regenerated_chunks": backtrack_missing,
 	}
 
 
 func _measure_live_shift(manager, target: Node3D, next_center: Vector2i) -> Dictionary:
+	if not manager.reset_remesh_diagnostics():
+		_fail("Could not reset chunk-stream diagnostics before shift to %s" % next_center)
+		return {}
 	var runtime = manager.get_playable_world_runtime()
 	var missing: Array[Vector2i] = []
 	for z in range(next_center.y - RENDER_RADIUS, next_center.y + RENDER_RADIUS + 1):
@@ -282,7 +346,7 @@ func _measure_live_shift(manager, target: Node3D, next_center: Vector2i) -> Dict
 		target.global_position.y,
 		next_center.y * CHUNK_SIZE + 0.5
 	)
-	for _frame in range(FRAME_LIMIT):
+	while Time.get_ticks_usec() - start_usec < WAIT_TIMEOUT_MSEC * 1000:
 		if pending.is_empty() and _render_window_ready(manager, next_center) and manager.is_remesh_idle():
 			break
 		var frame_start := Time.get_ticks_usec()
@@ -300,14 +364,17 @@ func _measure_live_shift(manager, target: Node3D, next_center: Vector2i) -> Dict
 			var diag: Dictionary = manager.get_remesh_diagnostics()
 			if newly_loaded.size() == 1:
 				build_ms.append(float(diag.get("max_queue_ms", 0.0)))
-			collision_ms.append(float(diag.get("max_apply_ms", 0.0)))
+			collision_ms.append(float(diag.get("max_collision_ms", 0.0)))
 	if not pending.is_empty() or not _render_window_ready(manager, next_center):
-		_fail("Chunk-stream shift to %s did not finish within the frame limit" % next_center)
+		_fail("Chunk-stream shift to %s did not finish within %d ms" % [next_center, WAIT_TIMEOUT_MSEC])
 		return {}
 	var total_ms := (Time.get_ticks_usec() - start_usec) / 1000.0
 	var missing_json: Array[Array] = []
 	for coord in missing:
 		missing_json.append([coord.x, coord.y])
+	var diagnostics: Dictionary = manager.get_remesh_diagnostics()
+	if not missing.is_empty() and float(diagnostics.get("max_background_compute_ms", 0.0)) <= 0.0:
+		_fail("Shift to %s completed without background compute evidence" % next_center)
 	return {
 		"center": [next_center.x, next_center.y],
 		"requested_missing_count": missing.size(),
@@ -315,10 +382,46 @@ func _measure_live_shift(manager, target: Node3D, next_center: Vector2i) -> Dict
 		"requested_missing_coords_json": missing_json,
 		"stream_total_ms": total_ms,
 		"observed_single_chunk_build_ms": _stats(build_ms),
+		"main_thread_queue_ms": _stats(build_ms),
 		"frame_wall_ms": _stats(frame_ms),
 		"collision_build_ms": _stats(collision_ms),
 		"max_new_chunks_in_one_frame": _max_int(loaded_per_frame),
+		"diagnostics": diagnostics,
 	}
+
+
+func _measure_stale_rejection(manager) -> Dictionary:
+	if not manager.reset_remesh_diagnostics():
+		_fail("Could not reset diagnostics before stale-result gate")
+		return {}
+	var runtime = manager.get_playable_world_runtime()
+	var original_center: Vector2i = runtime.center
+	runtime.set_center(STALE_TEST_CENTER)
+	runtime._pump_builds()
+	var started_tasks := int(manager.get_remesh_diagnostics().get("active_tasks", 0))
+	if started_tasks <= 0:
+		_fail("Stale-result gate did not start any background tasks")
+		return {}
+	runtime.set_center(original_center)
+	var start_usec := Time.get_ticks_usec()
+	while Time.get_ticks_usec() - start_usec < WAIT_TIMEOUT_MSEC * 1000:
+		await process_frame
+		var diagnostics: Dictionary = manager.get_remesh_diagnostics()
+		if (
+			int(diagnostics.get("stale_results_discarded", 0)) > 0
+			and _render_window_ready(manager, original_center)
+			and manager.is_remesh_idle()
+		):
+			return {
+				"jump_center": [STALE_TEST_CENTER.x, STALE_TEST_CENTER.y],
+				"return_center": [original_center.x, original_center.y],
+				"active_tasks_started": started_tasks,
+				"stale_results_discarded": int(diagnostics.get("stale_results_discarded", 0)),
+				"results_applied": int(diagnostics.get("results_applied", 0)),
+				"final_window_ready": true,
+			}
+	_fail("Stale worker results were not rejected and recovered within %d ms" % WAIT_TIMEOUT_MSEC)
+	return {}
 
 
 func _measure_chunk_phases(runtime, coord: Vector2i) -> Dictionary:
