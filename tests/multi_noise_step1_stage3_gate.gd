@@ -60,6 +60,39 @@ func _wait_for_block_target(
 	return false
 
 
+# The historical Step 5 integration scan assumes every water surface is the
+# global sea level. Stage 5 rivers and Stage 6 lakes/ponds intentionally use
+# local water levels, so preserve every historical assertion except that stale
+# sea-level comparison and replace it with the stricter general invariant:
+# every classified water column must have terrain below its own water surface.
+func _scan_static_integration() -> Dictionary:
+	var failure_start := failures.size()
+	var report: Dictionary = super._scan_static_integration()
+	var retained: Array[String] = []
+	for index in range(failure_start, failures.size()):
+		var message: String = failures[index]
+		if not message.begins_with("Water classification escaped its terrain basin at "):
+			retained.append(message)
+	failures.resize(failure_start)
+	failures.append_array(retained)
+	_validate_shipping_water_containment()
+	return report
+
+
+func _validate_shipping_water_containment() -> void:
+	for z in range(-SCAN_RADIUS, SCAN_RADIUS + 1):
+		for x in range(-SCAN_RADIUS, SCAN_RADIUS + 1):
+			var water_info: Vector2i = LOCALIZED_WATER.water_info(data, x, z)
+			if water_info.x == 0:
+				continue
+			var surface: int = data.terrain_height(x, z)
+			if surface >= water_info.y:
+				_fail(
+					"Water classification is not contained below its local surface at (%d, %d): terrain=%d water=%d type=%d"
+					% [x, z, surface, water_info.y, water_info.x]
+				)
+
+
 # Stage 4/5-era static fixture discovery can nominate a historical tree origin
 # whose column is later occupied by Stage 6 surface water. Shipping generation
 # intentionally suppresses trees in generated water columns. Resolve the test
