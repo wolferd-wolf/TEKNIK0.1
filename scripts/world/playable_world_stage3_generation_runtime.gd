@@ -155,11 +155,11 @@ static func _stage3_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 			)
 			var world_xf := float(world_x)
 			var world_zf := float(world_z)
-			var continentalness := sampler.continentalness_noise.get_noise_2d(world_xf, world_zf)
-			var terrain_temperature := sampler.temperature_noise.get_noise_2d(world_xf, world_zf)
-			var terrain_moisture := sampler.moisture_noise.get_noise_2d(world_xf, world_zf)
-			var biome_temperature := sampler.biome_temperature_noise.get_noise_2d(world_xf, world_zf)
-			var biome_moisture := sampler.biome_moisture_noise.get_noise_2d(world_xf, world_zf)
+			var continentalness: float = sampler.continentalness_noise.get_noise_2d(world_xf, world_zf)
+			var terrain_temperature: float = sampler.temperature_noise.get_noise_2d(world_xf, world_zf)
+			var terrain_moisture: float = sampler.moisture_noise.get_noise_2d(world_xf, world_zf)
+			var biome_temperature: float = sampler.biome_temperature_noise.get_noise_2d(world_xf, world_zf)
+			var biome_moisture: float = sampler.biome_moisture_noise.get_noise_2d(world_xf, world_zf)
 			var terrain_fields := Vector4(
 				continentalness,
 				structure,
