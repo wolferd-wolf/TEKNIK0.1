@@ -57,9 +57,9 @@ func _validate_contract(data) -> void:
 	if DATA.STAGE2_SAFE_TERRAIN_TOP >= DATA.OVERHAUL_WORLD_HEIGHT - 4:
 		_fail("Stage 2 terrain leaves insufficient headroom below the build ceiling")
 
-	# Stage 3 deliberately subclasses the accepted Stage 2 terrain implementation.
-	# Validate Stage 2 where it now lives instead of requiring those symbols to be
-	# duplicated physically into every later-stage wrapper.
+	# Later stages deliberately subclass the accepted Stage 2 terrain
+	# implementation. Validate Stage 2 where it lives instead of requiring those
+	# symbols to be duplicated physically into every later-stage wrapper.
 	var stage2_source := FileAccess.get_file_as_string(
 		"res://scripts/world/playable_world_stage2_generation_data.gd"
 	)
@@ -82,11 +82,21 @@ func _validate_contract(data) -> void:
 	if not stage3_runtime_source.contains("sampler.build_provisional_terrain(terrain_fields)"):
 		_fail("Shipping cache bypasses the accepted Stage 2 terrain formula")
 
+	# Stage 4 is allowed to reshape the accepted Stage 2 provisional land in the
+	# ocean/coast band. The public height must therefore compose Stage 2 through
+	# the later water/finalization stages, rather than equal provisional height.
 	for point in [Vector2i.ZERO, Vector2i(31, -47), Vector2i(-96, 73)]:
 		var fields: Vector4 = data.sample_world_fields(point.x, point.y)
-		var expected: int = data.finalize_height(data.build_provisional_terrain(fields))
+		var provisional: int = data.build_provisional_terrain(fields)
+		var water_shaped: int = data.apply_water_topology(
+			fields,
+			provisional,
+			point.x,
+			point.y
+		)
+		var expected: int = data.finalize_height(water_shaped)
 		if data.terrain_height(point.x, point.y) != expected:
-			_fail("Public terrain_height bypasses Stage 2 shaping at %s" % point)
+			_fail("Public terrain_height bypasses the staged terrain pipeline at %s" % point)
 
 
 func _validate_synthetic_landforms(data) -> Dictionary:
@@ -167,8 +177,12 @@ func _audit_world(data) -> Dictionary:
 			if is_mountain and row_index > 0 and previous_row[column_index]:
 				mountain_adjacencies += 1
 			previous_mountain = is_mountain
-			var east_height: int = data.terrain_height(x + spacing, z)
-			var south_height: int = data.terrain_height(x, z + spacing)
+			# Keep this Stage 2 audit scoped to provisional terrain. Stage 4 owns
+			# coastal/ocean relief after this layer.
+			var east_fields: Vector4 = data.sample_world_fields(x + spacing, z)
+			var south_fields: Vector4 = data.sample_world_fields(x, z + spacing)
+			var east_height: int = data.build_provisional_terrain(east_fields)
+			var south_height: int = data.build_provisional_terrain(south_fields)
 			var local_delta := maxi(absi(east_height - height), absi(south_height - height))
 			if regime == 0 and local_delta <= 3:
 				flat_samples += 1
