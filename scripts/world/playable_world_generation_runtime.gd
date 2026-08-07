@@ -145,19 +145,58 @@ static func _effective_mesh_height(
 
 
 static func _stage1_build_column_caches_for_sampler(coord: Vector2i, sampler) -> Dictionary:
-	var field_cache := _sample_world_fields(coord, sampler)
-	var provisional_heights := _build_provisional_terrain(field_cache, sampler)
-	var water_shaped_heights := _apply_water_topology(
-		field_cache,
-		provisional_heights,
-		coord,
-		sampler
-	)
-	var heights := _finalize_height(water_shaped_heights, coord, sampler)
-	var biomes := _classify_biomes(field_cache, coord, sampler)
+	# The first implementation kept sampling, height and biome classification as
+	# three separate 256-column passes. That proved correct but measured 1.046 ms
+	# p95. Stage boundaries remain explicit in the data facade; the shipping hot
+	# path fuses their per-column work so the field cache costs only writes, not
+	# repeated iteration and Vector reconstruction.
+	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
+	var column_count := width * width
+	var field_cache := PackedFloat32Array()
+	var heights := PackedInt32Array()
+	var biomes := PackedByteArray()
+	field_cache.resize(column_count * FIELD_STRIDE)
+	heights.resize(column_count)
+	biomes.resize(column_count)
+	var origin_x := coord.x * CHUNK_SIZE
+	var origin_z := coord.y * CHUNK_SIZE
+
+	for local_z in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
+		for local_x in range(-MESH_CACHE_PADDING, CHUNK_SIZE + MESH_CACHE_PADDING):
+			var column_index := (
+				(local_z + MESH_CACHE_PADDING) * width
+				+ local_x
+				+ MESH_CACHE_PADDING
+			)
+			var field_index := column_index * FIELD_STRIDE
+			var world_x := origin_x + local_x
+			var world_z := origin_z + local_z
+			var terrain_fields: Vector4 = sampler.sample_world_fields(world_x, world_z)
+			var biome_climate: Vector2 = sampler.sample_biome_climate(world_x, world_z)
+
+			field_cache[field_index + FIELD_CONTINENTALNESS] = terrain_fields.x
+			field_cache[field_index + FIELD_TERRAIN_STRUCTURE] = terrain_fields.y
+			field_cache[field_index + FIELD_TERRAIN_TEMPERATURE] = terrain_fields.z
+			field_cache[field_index + FIELD_TERRAIN_MOISTURE] = terrain_fields.w
+			field_cache[field_index + FIELD_BIOME_TEMPERATURE] = biome_climate.x
+			field_cache[field_index + FIELD_BIOME_MOISTURE] = biome_climate.y
+
+			# apply_water_topology() and finalize_height() are intentional Stage 1
+			# identity boundaries. Skipping no-op calls here avoids interpreted-call
+			# overhead while their public stage contracts remain exercised elsewhere.
+			heights[column_index] = sampler.build_provisional_terrain(terrain_fields)
+			biomes[column_index] = sampler.classify_biome(
+				biome_climate,
+				world_x,
+				world_z
+			)
+
 	return _decorate_surface(field_cache, heights, biomes)
 
 
+# Reference stage helpers remain callable for diagnostics and later stages.
+# Shipping Stage 1 uses the fused loop above after CI showed the split-pass
+# version exceeded the fixed 1.0 ms p95 gate by 46 microseconds.
 static func _sample_world_fields(coord: Vector2i, sampler) -> PackedFloat32Array:
 	var width := CHUNK_SIZE + MESH_CACHE_PADDING * 2
 	var field_cache := PackedFloat32Array()
