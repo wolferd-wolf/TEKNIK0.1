@@ -85,7 +85,7 @@ func _validate_current_model_equivalence(data) -> Dictionary:
 				var x: int = center.x + dx
 				var z: int = center.y + dz
 				var modeled := _resolve_biome(data, temperature, moisture, WORLD_DATA.BIOME_BLEND_PATCH_SIZE, x, z)
-				var shipping := data.biome_at(x, z)
+				var shipping: int = data.biome_at(x, z)
 				probes += 1
 				if modeled != shipping:
 					mismatches += 1
