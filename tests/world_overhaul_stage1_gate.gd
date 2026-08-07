@@ -129,7 +129,7 @@ func _validate_height_limit(pipeline_data, pipeline_runtime) -> void:
 	var high_override := {
 		"0,%d,0" % (PIPELINE_DATA.OVERHAUL_WORLD_HEIGHT - 1): PIPELINE_DATA.BLOCK_STONE,
 	}
-	var mesh_height := pipeline_runtime._effective_mesh_height(
+	var mesh_height: int = pipeline_runtime._effective_mesh_height(
 		Vector2i.ZERO,
 		empty_heights,
 		high_override
@@ -280,7 +280,7 @@ func _validate_mesh_equivalence(legacy_data, pipeline_runtime) -> Dictionary:
 		var pipeline: Dictionary = pipeline_runtime._build_column_caches(coord)
 		var heights: PackedInt32Array = pipeline["heights"]
 		var biomes: PackedByteArray = pipeline["biomes"]
-		var active_height := pipeline_runtime._effective_mesh_height(coord, heights, {})
+		var active_height: int = pipeline_runtime._effective_mesh_height(coord, heights, {})
 		active_height_max = maxi(active_height_max, active_height)
 		if active_height >= PIPELINE_DATA.OVERHAUL_WORLD_HEIGHT:
 			_fail("Fresh Stage 1 chunk unexpectedly scans the full 150-block height")
