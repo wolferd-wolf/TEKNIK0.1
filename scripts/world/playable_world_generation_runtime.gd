@@ -182,9 +182,9 @@ static func _stage1_build_column_caches_for_sampler(coord: Vector2i, sampler) ->
 			field_cache[field_index + FIELD_BIOME_MOISTURE] = biome_climate.y
 
 			# apply_water_topology() and finalize_height() are intentional Stage 1
-			# identity boundaries. Skipping no-op calls here avoids interpreted-call
-			# overhead while their public stage contracts remain exercised elsewhere.
-			heights[column_index] = sampler.build_provisional_terrain(terrain_fields)
+			# identity boundaries. The accepted terrain formula is called directly
+			# here to avoid one interpreted wrapper call per padded column.
+			heights[column_index] = sampler.terrain_height_from_samples(terrain_fields)
 			biomes[column_index] = sampler.classify_biome(
 				biome_climate,
 				world_x,
