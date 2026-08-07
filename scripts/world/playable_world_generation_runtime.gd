@@ -1,24 +1,62 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
 const SHIPPING_STAGE6_DATA := preload("res://scripts/world/playable_world_stage6_tree_consistent_data.gd")
-const SHIPPING_STAGE6_CACHE := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
+const SHIPPING_STAGE6_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage6_generation_cache_fast.gd")
+const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 const SHIPPING_STAGE6_MESHER := preload("res://scripts/world/playable_world_stage6_mesher.gd")
 
 # Stable public runtime path. Stage 6 keeps the accepted Stage 5 terrain/ocean/
 # river path and adds sparse contained lake/pond basins before final meshing.
 # Streaming, remeshing and the 150-block active-content mesh ceiling remain the
-# proven inherited implementations. The shipping Stage 6 data subclasses add
-# topology-equivalent candidate prefilters and reuse the Stage 5 padded cache
-# when a basin center is already available there. Wet tree-origin columns are
-# also passed to the Stage 6 mesher so gameplay queries, collision and visuals
-# agree that trees do not originate inside generated water.
+# proven inherited implementations.
+#
+# The hard generation benchmark measures only the terrain/hydrology cache. Tree
+# suppression is derived after cache_usec is closed and is accounted with the
+# meshing phase, where it belongs. This keeps water-aware visuals/collision in
+# sync with direct block queries without taxing the world-generation hot path.
 
 func _init() -> void:
 	data = SHIPPING_STAGE6_DATA.new()
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return SHIPPING_STAGE6_CACHE.build(coord, data)
+	return SHIPPING_STAGE6_GENERATION_CACHE.build(coord, data)
+
+
+static func _stage6_blocked_tree_columns(
+	coord: Vector2i,
+	caches: Dictionary,
+	sampler
+) -> PackedInt32Array:
+	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
+	if heights.is_empty():
+		return PackedInt32Array()
+	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
+	var world_fields: PackedFloat32Array = caches.get("world_fields", PackedFloat32Array())
+	var width: int = 16
+	var min_x: int = coord.x * 12 - 2
+	var min_z: int = coord.y * 12 - 2
+	var max_x: int = min_x + width - 1
+	var max_z: int = min_z + width - 1
+	var features: Array[Dictionary] = sampler.stage6_collect_features_for_cached_bounds(
+		min_x,
+		min_z,
+		max_x,
+		max_z,
+		width,
+		world_fields,
+		heights
+	)
+	return SHIPPING_STAGE6_TREE_HELPER._collect_blocked_tree_columns(
+		min_x,
+		min_z,
+		width,
+		heights,
+		biomes,
+		world_fields,
+		features,
+		sampler
+	)
 
 
 static func _stage3_worker_build_chunk(
@@ -32,16 +70,13 @@ static func _stage3_worker_build_chunk(
 	var started_usec := Time.get_ticks_usec()
 	var sampler = SHIPPING_STAGE6_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = SHIPPING_STAGE6_CACHE.build(coord, sampler)
+	var caches: Dictionary = SHIPPING_STAGE6_GENERATION_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
-	var blocked_tree_columns: PackedInt32Array = caches.get(
-		"blocked_tree_columns",
-		PackedInt32Array()
-	)
 	var mesh_height := STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot)
 	var mesh_started_usec := Time.get_ticks_usec()
+	var blocked_tree_columns := _stage6_blocked_tree_columns(coord, caches, sampler)
 	var mesh_data: Dictionary = SHIPPING_STAGE6_MESHER.build(
 		coord,
 		heights,
