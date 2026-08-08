@@ -1,7 +1,7 @@
 extends "res://scripts/world/playable_world_stage11_generation_runtime.gd"
 
 const SHIPPING_DATA := preload("res://scripts/world/playable_world_carpathian_data.gd")
-const SHIPPING_GENERATION_CACHE := preload("res://scripts/world/playable_world_carpathian_generation_cache.gd")
+const SHIPPING_GENERATION_CACHE := preload("res://scripts/world/playable_world_carpathian_generation_cache_fast.gd")
 const SHIPPING_STAGE12_CACHE := preload("res://scripts/world/playable_world_stage12_cache_fast.gd")
 const SHIPPING_STAGE12_MESHER := preload("res://scripts/world/playable_world_stage12_mesher.gd")
 const FROZEN_STAGE11_RUNTIME := preload("res://scripts/world/playable_world_stage11_generation_runtime.gd")
