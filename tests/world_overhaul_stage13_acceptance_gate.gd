@@ -164,7 +164,8 @@ func _audit_seed(seed_value: int) -> Dictionary:
 					sampled_columns += 1
 					if height < 3 or height >= sampler.OVERHAUL_WORLD_HEIGHT:
 						_fail("Seed %d produced invalid terrain height %d at (%d,%d)" % [seed_value, height, world_x, world_z])
-					height_hist[mini(height / 10, 14)] += 1
+					var height_bin := mini(int(height / 10), 14)
+					height_hist[height_bin] += 1
 					var slope := 0
 					slope = maxi(slope, absi(int(heights[index - 1]) - height))
 					slope = maxi(slope, absi(int(heights[index + 1]) - height))
@@ -403,9 +404,10 @@ func _generate_diagnostic_maps() -> Array:
 	var paths: Array = []
 	for name in maps.keys():
 		var path := "%s/%s.png" % [out_dir, name]
-		var error := maps[name].save_png(path)
-		if error != OK:
-			_fail("Failed to save Stage 13 diagnostic map %s: %s" % [name, error])
+		var image: Image = maps[name]
+		var save_error: Error = image.save_png(path)
+		if save_error != OK:
+			_fail("Failed to save Stage 13 diagnostic map %s: %s" % [name, save_error])
 		paths.append(path)
 	return paths
 
