@@ -8,6 +8,7 @@ const MAP_HALF_PIXELS := 24
 const MAP_BUTTON_SIZE := Vector2(94.0, 46.0)
 const MAP_BUTTON_MARGIN := Vector2(18.0, 18.0)
 const BIOME_REFRESH_SECONDS := 0.25
+const MAP_MIN_LOCAL_ELEVATION_SPAN := 12.0
 const WATER_NONE := 0
 const WATER_OCEAN := 1
 const WATER_RIVER := 2
@@ -278,6 +279,20 @@ func _display_name(value: String) -> String:
 	return value.replace("_", " ").to_upper()
 
 
+static func local_elevation_shade(height: int, local_min_height: int, local_max_height: int) -> float:
+	# Normalize visible relief against the local map footprint, not the legal
+	# 150-block world ceiling. A minimum span prevents one-block noise on nearly
+	# flat terrain from being exaggerated to the full brightness range.
+	var local_midpoint := (float(local_min_height) + float(local_max_height)) * 0.5
+	var local_span := maxf(
+		MAP_MIN_LOCAL_ELEVATION_SPAN,
+		float(maxi(0, local_max_height - local_min_height))
+	)
+	var local_floor := local_midpoint - local_span * 0.5
+	var elevation := clampf((float(height) - local_floor) / local_span, 0.0, 1.0)
+	return lerpf(0.82, 1.14, elevation)
+
+
 func _refresh_map() -> void:
 	if not is_instance_valid(_player) or _world == null:
 		return
@@ -292,10 +307,13 @@ func _refresh_map() -> void:
 	water_types.resize(sample_count)
 	water_surfaces.resize(sample_count)
 	surface_blocks.resize(sample_count)
+	var local_land_min_height := 2147483647
+	var local_land_max_height := -2147483648
 
 	# First pass samples the real Stage 13 world. Water classification is explicit;
 	# low dry terrain is no longer incorrectly painted as ocean just because its
-	# elevation is near sea level.
+	# elevation is near sea level. Dry-land min/max are collected at the same map
+	# resolution and become the elevation-normalization range for this local view.
 	for pixel_z in range(MAP_PIXEL_DIAMETER):
 		var world_z := center_z + (pixel_z - MAP_HALF_PIXELS) * MAP_SAMPLE_SPACING
 		var row := pixel_z * MAP_PIXEL_DIAMETER
@@ -309,6 +327,9 @@ func _refresh_map() -> void:
 				info = _world.get_playable_world_water_info(world_x, world_z)
 			water_types[index] = clampi(info.x, 0, 255)
 			water_surfaces[index] = info.y
+			if info.x == WATER_NONE:
+				local_land_min_height = mini(local_land_min_height, height)
+				local_land_max_height = maxi(local_land_max_height, height)
 			surface_blocks[index] = clampi(
 				int(_world.get_block_world(Vector3i(world_x, height, world_z))),
 				0,
@@ -321,6 +342,9 @@ func _refresh_map() -> void:
 	var world_height := 150
 	if _world.has_method("get_playable_world_height_limit"):
 		world_height = int(_world.get_playable_world_height_limit())
+	if local_land_min_height > local_land_max_height:
+		local_land_min_height = sea_level
+		local_land_max_height = sea_level
 
 	var image := Image.create(MAP_PIXEL_DIAMETER, MAP_PIXEL_DIAMETER, false, Image.FORMAT_RGBA8)
 	for pixel_z in range(MAP_PIXEL_DIAMETER):
@@ -348,7 +372,9 @@ func _refresh_map() -> void:
 					int(water_surfaces[index]),
 					sea_level,
 					world_height,
-					terrain_light
+					terrain_light,
+					local_land_min_height,
+					local_land_max_height
 				)
 			)
 
@@ -366,7 +392,9 @@ func _map_color(
 	water_surface: int,
 	sea_level: int,
 	world_height: int,
-	terrain_light: float
+	terrain_light: float,
+	local_min_height: int = 2147483647,
+	local_max_height: int = -2147483648
 ) -> Color:
 	if water_type != WATER_NONE:
 		return _water_map_color(water_type, maxi(1, water_surface - height))
@@ -384,9 +412,15 @@ func _map_color(
 		WORLD_DATA.BLOCK_LEAVES:
 			base = Color(0.12, 0.48, 0.10, 1.0)
 
-	var usable_height := maxf(1.0, float(world_height - sea_level - 1))
-	var elevation := clampf(float(height - sea_level) / usable_height, 0.0, 1.0)
-	var elevation_shade := lerpf(0.82, 1.14, elevation)
+	var elevation_shade: float
+	if local_min_height <= local_max_height:
+		elevation_shade = local_elevation_shade(height, local_min_height, local_max_height)
+	else:
+		# Compatibility fallback for direct callers that do not supply a local map
+		# range. The shipping map always takes the local branch above.
+		var usable_height := maxf(1.0, float(world_height - sea_level - 1))
+		var elevation := clampf(float(height - sea_level) / usable_height, 0.0, 1.0)
+		elevation_shade = lerpf(0.82, 1.14, elevation)
 	var shade := clampf(elevation_shade * terrain_light, 0.62, 1.24)
 	return Color(
 		clampf(base.r * shade, 0.0, 1.0),
