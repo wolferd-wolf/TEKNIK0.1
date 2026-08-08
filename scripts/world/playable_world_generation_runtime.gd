@@ -8,8 +8,9 @@ const FROZEN_STAGE11_RUNTIME := preload("res://scripts/world/playable_world_stag
 const STAGE12_STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
 # Stable public Stage 12 runtime. The hard generation/cache path remains the
-# exact accepted Stage 10 cache used by Stage 11. Stage 12 only reduces
-# post-generation expression preparation and mesher bookkeeping overhead.
+# exact accepted Stage 10 cache used by Stage 11 (the frozen path was
+# SHIPPING_STAGE10_GENERATION_CACHE.build). Stage 12 only reduces post-generation
+# expression preparation and mesher bookkeeping overhead.
 # build_expression_codes internally preserves the accepted build_transition_codes
 # + build_hydrology_codes contract from Stage 11.
 
