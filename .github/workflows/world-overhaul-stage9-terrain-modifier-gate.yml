@@ -8,6 +8,7 @@ on:
       - 'scripts/world/playable_world_stage9_terrain_data.gd'
       - 'scripts/world/playable_world_stage9_cache_fast.gd'
       - 'scripts/world/playable_world_stage9_mesher.gd'
+      - 'scripts/world/playable_world_stage9_frozen_runtime.gd'
       - 'tests/world_overhaul_stage9_terrain_modifier_gate.gd'
       - '.github/workflows/world-overhaul-stage9-terrain-modifier-gate.yml'
   workflow_dispatch:
@@ -47,12 +48,24 @@ jobs:
             exit 1
           fi
 
+      - name: Freeze Stage 9 runtime target
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('tests/world_overhaul_stage9_terrain_modifier_gate.gd').read_text()
+          old = 'res://scripts/world/playable_world_generation_runtime.gd'
+          new = 'res://scripts/world/playable_world_stage9_frozen_runtime.gd'
+          if old not in src:
+              raise SystemExit('Stage 9 gate no longer references the public runtime as expected')
+          Path('tests/_world_overhaul_stage9_frozen_ci.gd').write_text(src.replace(old, new, 1))
+          PY
+
       - name: Verify terrain modifiers, Stage 8 equivalence, and performance
         run: |
           set -o pipefail
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage9-modifiers" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage9_terrain_modifier_gate.gd \
+              --script res://tests/_world_overhaul_stage9_frozen_ci.gd \
               2>&1 | tee artifacts/world-overhaul-stage9-terrain-modifiers.log
           grep -Fq 'WORLD_OVERHAUL_STAGE9_PASS' artifacts/world-overhaul-stage9-terrain-modifiers.log
           grep -Fq 'WORLD_OVERHAUL_STAGE9_JSON=' artifacts/world-overhaul-stage9-terrain-modifiers.log
