@@ -44,12 +44,19 @@ func carpathian_generate_grid(
 	var native: Object = _native_carpathian()
 	if native == null:
 		return PackedInt32Array()
-	var raw: PackedInt32Array = native.call(
-		"generate_grid", origin_x, origin_z, width, depth, step
+	# Translation/clamp happen inside the native batch. This removes the old
+	# per-column GDScript post-loop while preserving exactly the same heights.
+	return native.call(
+		"generate_grid_shifted",
+		origin_x,
+		origin_z,
+		width,
+		depth,
+		step,
+		CARPATHIAN_HEIGHT_OFFSET,
+		3,
+		STAGE2_SAFE_TERRAIN_TOP
 	)
-	for i in range(raw.size()):
-		raw[i] = carpathian_height_from_raw(raw[i])
-	return raw
 
 
 func carpathian_provisional_height_at(x: int, z: int) -> int:
