@@ -1,5 +1,6 @@
 extends "res://tests/acceptance_gate_core.gd"
 
+const SHIPPING_WORLD_DATA := preload("res://scripts/world/playable_world_generation_data.gd")
 const BLOCK_STONE := 3
 const ASYNC_WORLD_WAIT_TIMEOUT_MSEC := 30000
 
@@ -33,8 +34,11 @@ func _test_terrain_and_features(manager) -> void:
 	for sample in [Vector2i(0, 0), Vector2i(28, 7), Vector2i(-19, 31), Vector2i(47, -23), Vector2i(-64, -64)]:
 		var height: int = manager.get_playable_world_height(sample.x, sample.y)
 		heights[height] = true
-		if height < 3 or height > 27:
-			_fail("Terrain height %d was outside playable-world bounds at %s" % [height, sample])
+		# The separate WORLD_HEIGHT 60 gate remains the legacy terrain oracle.
+		# This acceptance gate validates the world the game actually ships, which
+		# Stage 2 intentionally expands under the overhaul's 150-block contract.
+		if height < 3 or height > SHIPPING_WORLD_DATA.STAGE2_SAFE_TERRAIN_TOP:
+			_fail("Terrain height %d was outside shipping-world bounds at %s" % [height, sample])
 		var surface_block: int = manager.get_block_world(Vector3i(sample.x, height, sample.y))
 		if surface_block != BLOCK_GRASS and surface_block != BLOCK_SAND and surface_block != BLOCK_STONE:
 			_fail("Terrain surface at %s used unexpected block ID %d" % [sample, surface_block])

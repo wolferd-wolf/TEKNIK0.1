@@ -1,0 +1,337 @@
+name: TEKNIK Screenshot Coordinate Diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot-coordinate-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Godot 4.3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+      - name: Create typed screenshot-matched diagnostic
+        shell: bash
+        run: |
+          cat > tests/.screenshot_coordinate_diagnostic.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const DATA = preload("res://scripts/world/playable_world_stage13_data.gd")
+          const CACHE = preload("res://scripts/world/playable_world_stage13_generation_cache_fast.gd")
+          const EXPR_CACHE = preload("res://scripts/world/playable_world_stage12_cache_fast.gd")
+          const MESHER = preload("res://scripts/world/playable_world_stage12_mesher.gd")
+          const STAGE11_RUNTIME = preload("res://scripts/world/playable_world_stage11_generation_runtime.gd")
+          const STAGE2_RUNTIME = preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
+
+          const CENTER := Vector2i(83, 56)
+          const CHUNK_SIZE := 12
+          const PADDING := 2
+          const CACHE_WIDTH := 16
+          const MAP_RADIUS := 48
+          const RENDER_RADIUS := 3
+          const MOD_NAMES := ["none", "hill", "plateau", "mountain", "valley"]
+          const BLOCK_LOG := 5
+          const BLOCK_LEAVES := 6
+
+          var sampler: Variant
+          var caches: Dictionary = {}
+
+          func _init() -> void:
+              sampler = DATA.new()
+              var report: Dictionary = {
+                  "source": "current Stage 13 shipping generator at screenshot coordinate X83 Z56",
+                  "center": _column_report(CENTER.x, CENTER.y),
+                  "footprint": _footprint_report(),
+                  "raised_points": _raised_points(),
+                  "trees": _tree_report(),
+                  "mesh": _mesh_report(),
+              }
+              print("SCREENSHOT_COORDINATE_DIAGNOSTIC_JSON=" + JSON.stringify(report))
+              print("SCREENSHOT_COORDINATE_DIAGNOSTIC_PASS")
+              quit(0)
+
+          func _chunk_for(x: int, z: int) -> Vector2i:
+              return Vector2i(floori(float(x) / float(CHUNK_SIZE)), floori(float(z) / float(CHUNK_SIZE)))
+
+          func _cache(coord: Vector2i) -> Dictionary:
+              if not caches.has(coord):
+                  caches[coord] = CACHE.build(coord, sampler)
+              return caches[coord]
+
+          func _cv(x: int, z: int) -> Dictionary:
+              var coord: Vector2i = _chunk_for(x, z)
+              var cache: Dictionary = _cache(coord)
+              var lx: int = x - coord.x * CHUNK_SIZE
+              var lz: int = z - coord.y * CHUNK_SIZE
+              var index: int = (lz + PADDING) * CACHE_WIDTH + (lx + PADDING)
+              var heights: PackedInt32Array = cache["heights"]
+              var biomes: PackedByteArray = cache["biomes"]
+              var waters: PackedByteArray = cache["stage7_water_types"]
+              var modifiers: PackedByteArray = cache["stage9_terrain_modifiers"]
+              return {"height": int(heights[index]), "biome": int(biomes[index]), "water": int(waters[index]), "modifier": int(modifiers[index])}
+
+          func _column_report(x: int, z: int) -> Dictionary:
+              var c: Dictionary = _cv(x, z)
+              var fields: Vector4 = sampler.sample_world_fields(x, z)
+              var direct_height: int = int(sampler.terrain_height(x, z))
+              var direct_biome: int = int(sampler.biome_at(x, z))
+              var direct_modifier: int = int(sampler.stage9_terrain_modifier_at(x, z))
+              var water: Vector2i = sampler.water_info_at(x, z)
+              var slope: float = float(sampler.stage7_surface_slope_at(x, z, direct_height))
+              var transition_code: int = int(sampler.stage10_transition_code_at(x, z))
+              var hydrology: int = int(sampler.stage11_hydrology_modifier_at(x, z))
+              return {
+                  "x": x, "z": z,
+                  "direct_height": direct_height,
+                  "cache_height": int(c["height"]),
+                  "height_match": direct_height == int(c["height"]),
+                  "biome": String(sampler.biome_name(direct_biome)),
+                  "cache_biome": String(sampler.biome_name(int(c["biome"]))),
+                  "modifier": String(sampler.terrain_modifier_name(direct_modifier)),
+                  "cache_modifier": String(sampler.terrain_modifier_name(int(c["modifier"]))),
+                  "modifier_match": direct_modifier == int(c["modifier"]),
+                  "water_type": water.x,
+                  "water_surface": water.y,
+                  "continentalness": fields.x,
+                  "terrain_structure": fields.y,
+                  "slope": slope,
+                  "transition_partner": int(sampler.stage10_transition_partner(transition_code)),
+                  "transition_strength": float(sampler.stage10_transition_strength(transition_code)),
+                  "hydrology": String(sampler.hydrology_modifier_name(hydrology)),
+              }
+
+          func _footprint_report() -> Dictionary:
+              var min_h: int = 999
+              var max_h: int = -999
+              var max_positions: Array = []
+              var mismatches: int = 0
+              var modifiers: Array = [0, 0, 0, 0, 0]
+              for z in range(CENTER.y - MAP_RADIUS, CENTER.y + MAP_RADIUS + 1):
+                  for x in range(CENTER.x - MAP_RADIUS, CENTER.x + MAP_RADIUS + 1):
+                      var c: Dictionary = _cv(x, z)
+                      var h: int = int(c["height"])
+                      if h != int(sampler.terrain_height(x, z)):
+                          mismatches += 1
+                      if int(c["water"]) == int(sampler.WATER_NONE):
+                          modifiers[int(c["modifier"])] = int(modifiers[int(c["modifier"])]) + 1
+                      min_h = mini(min_h, h)
+                      if h > max_h:
+                          max_h = h
+                          max_positions = [Vector2i(x, z)]
+                      elif h == max_h and max_positions.size() < 12:
+                          max_positions.append(Vector2i(x, z))
+
+              var sampled: Dictionary = {}
+              var sample_min: int = 999
+              var sample_max: int = -999
+              var elevation_shade_min: float = 99.0
+              var elevation_shade_max: float = -99.0
+              for pz in range(-24, 25):
+                  for px in range(-24, 25):
+                      var x: int = CENTER.x + px * 2
+                      var z: int = CENTER.y + pz * 2
+                      var h: int = int(_cv(x, z)["height"])
+                      sampled[Vector2i(px, pz)] = h
+                      sample_min = mini(sample_min, h)
+                      sample_max = maxi(sample_max, h)
+                      var usable: float = float(sampler.OVERHAUL_WORLD_HEIGHT - sampler.SEA_LEVEL - 1)
+                      var elevation: float = clampf(float(h - sampler.SEA_LEVEL) / usable, 0.0, 1.0)
+                      var shade: float = lerpf(0.82, 1.14, elevation)
+                      elevation_shade_min = minf(elevation_shade_min, shade)
+                      elevation_shade_max = maxf(elevation_shade_max, shade)
+              var relief_min: float = 99.0
+              var relief_max: float = -99.0
+              for pz in range(-24, 25):
+                  for px in range(-24, 25):
+                      var west: int = int(sampled[Vector2i(maxi(-24, px - 1), pz)])
+                      var east: int = int(sampled[Vector2i(mini(24, px + 1), pz)])
+                      var north: int = int(sampled[Vector2i(px, maxi(-24, pz - 1))])
+                      var south: int = int(sampled[Vector2i(px, mini(24, pz + 1))])
+                      var light: float = clampf(1.0 + float((west - east) + (north - south)) * 0.035, 0.72, 1.20)
+                      relief_min = minf(relief_min, light)
+                      relief_max = maxf(relief_max, light)
+              return {
+                  "full_resolution_height_min": min_h,
+                  "full_resolution_height_max": max_h,
+                  "full_resolution_height_range": max_h - min_h,
+                  "max_height_positions": max_positions,
+                  "direct_cache_height_mismatches": mismatches,
+                  "land_modifier_counts": _mods(modifiers),
+                  "map_sampling_spacing": 2,
+                  "sampled_height_min": sample_min,
+                  "sampled_height_max": sample_max,
+                  "sampled_height_range": sample_max - sample_min,
+                  "map_elevation_shade_min": elevation_shade_min,
+                  "map_elevation_shade_max": elevation_shade_max,
+                  "map_elevation_shade_span": elevation_shade_max - elevation_shade_min,
+                  "map_directional_light_min": relief_min,
+                  "map_directional_light_max": relief_max,
+              }
+
+          func _raised_points() -> Array:
+              var result: Array = []
+              for z in range(CENTER.y - 36, CENTER.y + 37):
+                  for x in range(CENTER.x - 36, CENTER.x + 37):
+                      var c: Dictionary = _cv(x, z)
+                      if int(c["water"]) != int(sampler.WATER_NONE):
+                          continue
+                      var h: int = int(c["height"])
+                      var ring_min: int = 999
+                      for dz in [-6, 0, 6]:
+                          for dx in [-6, 0, 6]:
+                              if dx == 0 and dz == 0:
+                                  continue
+                              ring_min = mini(ring_min, int(_cv(x + int(dx), z + int(dz))["height"]))
+                      var prominence: int = h - ring_min
+                      if prominence >= 4:
+                          result.append({"x": x, "z": z, "height": h, "prominence": prominence, "biome": String(sampler.biome_name(int(c["biome"]))), "modifier": MOD_NAMES[int(c["modifier"])]})
+              result.sort_custom(func(a: Variant, b: Variant) -> bool: return int(a["prominence"]) > int(b["prominence"]))
+              if result.size() > 20:
+                  result.resize(20)
+              return result
+
+          func _tree_report() -> Dictionary:
+              var plains_columns: int = 0
+              var stage8_count: int = 0
+              var stage10_count: int = 0
+              var shipping_count: int = 0
+              var transition_added: int = 0
+              var hydrology_added: int = 0
+              var forest_partner_columns: int = 0
+              for z in range(CENTER.y - MAP_RADIUS, CENTER.y + MAP_RADIUS + 1):
+                  for x in range(CENTER.x - MAP_RADIUS, CENTER.x + MAP_RADIUS + 1):
+                      var c: Dictionary = _cv(x, z)
+                      if int(c["water"]) != int(sampler.WATER_NONE) or int(c["biome"]) != int(sampler.BIOME_PLAINS):
+                          continue
+                      plains_columns += 1
+                      var h: int = int(c["height"])
+                      var mod: int = int(c["modifier"])
+                      var slope: float = float(sampler.stage7_surface_slope_at(x, z, h))
+                      var tc: int = int(sampler.stage10_transition_code_at(x, z))
+                      var hc: int = int(sampler.stage11_hydrology_modifier_at(x, z))
+                      var s8: bool = bool(sampler.stage8_tree_candidate_for_biome(x, z, h, sampler.BIOME_PLAINS))
+                      var s10: bool = bool(sampler.stage10_tree_candidate_for_biome(x, z, h, sampler.BIOME_PLAINS, tc, mod, slope))
+                      var s11: bool = bool(sampler.stage11_tree_candidate_for_biome(x, z, h, sampler.BIOME_PLAINS, tc, mod, slope, hc))
+                      if s8: stage8_count += 1
+                      if s10: stage10_count += 1
+                      if s11: shipping_count += 1
+                      if s10 and not s8: transition_added += 1
+                      if s11 and not s10: hydrology_added += 1
+                      if int(sampler.stage10_transition_partner(tc)) == int(sampler.BIOME_FOREST): forest_partner_columns += 1
+              return {
+                  "plains_columns": plains_columns,
+                  "TREE_SPACING": int(sampler.TREE_SPACING),
+                  "TREE_OFFSET": int(sampler.TREE_OFFSET),
+                  "stage8_rule": "one 7x7 baseline-grid candidate, accepted when hash % 4 != 0",
+                  "nominal_stage8_origin_percent": 100.0 * 3.0 / 196.0,
+                  "stage8_origins": stage8_count,
+                  "stage8_origin_percent": _pct(stage8_count, plains_columns),
+                  "stage10_origins": stage10_count,
+                  "stage10_origin_percent": _pct(stage10_count, plains_columns),
+                  "shipping_stage11_origins": shipping_count,
+                  "shipping_origin_percent": _pct(shipping_count, plains_columns),
+                  "transition_added_origins": transition_added,
+                  "hydrology_added_origins": hydrology_added,
+                  "forest_transition_partner_columns": forest_partner_columns,
+              }
+
+          func _mesh_report() -> Dictionary:
+              var center_chunk: Vector2i = _chunk_for(CENTER.x, CENTER.y)
+              var above_faces: int = 0
+              var tree_faces: int = 0
+              var unexpected_faces: int = 0
+              var center_up_faces: Array = []
+              var chunks_built: int = 0
+              for cz in range(center_chunk.y - RENDER_RADIUS, center_chunk.y + RENDER_RADIUS + 1):
+                  for cx in range(center_chunk.x - RENDER_RADIUS, center_chunk.x + RENDER_RADIUS + 1):
+                      var coord := Vector2i(cx, cz)
+                      var cache: Dictionary = _cache(coord)
+                      var heights: PackedInt32Array = cache["heights"]
+                      var biomes: PackedByteArray = cache["biomes"]
+                      var waters: PackedByteArray = cache["stage7_water_types"]
+                      var modifiers: PackedByteArray = cache["stage9_terrain_modifiers"]
+                      var expr: Dictionary = EXPR_CACHE.build_expression_codes(cache, sampler)
+                      var transitions: PackedByteArray = expr["transition_codes"]
+                      var hydrology: PackedByteArray = expr["hydrology_codes"]
+                      var blocked: PackedInt32Array = STAGE11_RUNTIME._stage6_blocked_tree_columns(coord, cache, sampler)
+                      var effective: int = int(STAGE2_RUNTIME._effective_mesh_height(coord, heights, {}))
+                      var mesh_h: int = mini(int(sampler.OVERHAUL_WORLD_HEIGHT), effective + 2)
+                      var mesh: Dictionary = MESHER.build(coord, heights, {}, CHUNK_SIZE, mesh_h, int(sampler.SEA_LEVEL), biomes, waters, modifiers, transitions, hydrology, sampler, blocked)
+                      chunks_built += 1
+                      var vertices: PackedVector3Array = mesh["vertices"]
+                      var normals: PackedVector3Array = mesh["normals"]
+                      for vi in range(0, vertices.size(), 4):
+                          if normals[vi] != Vector3.UP:
+                              continue
+                          var min_x: float = minf(minf(vertices[vi].x, vertices[vi + 1].x), minf(vertices[vi + 2].x, vertices[vi + 3].x))
+                          var min_z: float = minf(minf(vertices[vi].z, vertices[vi + 1].z), minf(vertices[vi + 2].z, vertices[vi + 3].z))
+                          var wx: int = cx * CHUNK_SIZE + floori(min_x + 0.001)
+                          var wz: int = cz * CHUNK_SIZE + floori(min_z + 0.001)
+                          var cell_y: int = roundi(vertices[vi].y) - 1
+                          var terrain_h: int = int(_cv(wx, wz)["height"])
+                          if wx == CENTER.x and wz == CENTER.y:
+                              center_up_faces.append(cell_y)
+                          if cell_y > terrain_h:
+                              above_faces += 1
+                              var block: int = int(sampler.get_block(Vector3i(wx, cell_y, wz)))
+                              if block == BLOCK_LOG or block == BLOCK_LEAVES:
+                                  tree_faces += 1
+                              else:
+                                  unexpected_faces += 1
+              return {
+                  "chunks_built_exact_shipping_mesher": chunks_built,
+                  "center_chunk": center_chunk,
+                  "center_column_up_face_cell_y": center_up_faces,
+                  "up_faces_above_cached_terrain_height": above_faces,
+                  "tree_up_faces_above_height": tree_faces,
+                  "unexpected_non_tree_up_faces_above_height": unexpected_faces,
+              }
+
+          func _mods(values: Array) -> Dictionary:
+              var out: Dictionary = {}
+              for i in range(5): out[MOD_NAMES[i]] = int(values[i])
+              return out
+
+          func _pct(value: int, total: int) -> float:
+              return float(value) * 100.0 / float(total) if total > 0 else 0.0
+          GDSCRIPT
+
+      - name: Parse project strictly
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-coordinate-parse" timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/parse.log; then exit 1; fi
+
+      - name: Reproduce X83 Z56 and shipping mesh
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-coordinate" timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/.screenshot_coordinate_diagnostic.gd 2>&1 | tee artifacts/diagnostic.log
+          grep -Fq 'SCREENSHOT_COORDINATE_DIAGNOSTIC_PASS' artifacts/diagnostic.log
+
+      - name: Record exact source revision
+        run: git rev-parse HEAD | tee artifacts/source-commit.txt
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-coordinate-diagnostic
+          path: artifacts/
+          if-no-files-found: error

@@ -5,8 +5,7 @@ const BLOCK_AIR := 0
 const BLOCK_GRASS := 1
 const BLOCK_DIRT := 2
 const BLOCK_SAND := 4
-const DIRT_TARGET := Vector3i(0, 20, 0)
-const FULL_TARGET := Vector3i(4, 20, 0)
+const FIXTURE_CLEARANCE := 8
 const WAIT_TIMEOUT_MSEC := 30000
 const AIM_TIMEOUT_MSEC := 3000
 
@@ -80,9 +79,31 @@ func _run_gate() -> void:
 	if not await _wait_for_world_ready(manager, "inventory mining startup"):
 		_finish()
 		return
-	if not manager.set_block_world(DIRT_TARGET, BLOCK_DIRT):
+
+	# These are transaction fixtures, not terrain assertions. Derive their Y
+	# positions from the shipping surface so Stage 2+ terrain changes cannot
+	# turn a formerly empty hard-coded cell into natural terrain. Eight blocks
+	# of clearance also keeps them above generated tree canopies.
+	var dirt_target := Vector3i(
+		0,
+		manager.get_playable_world_height(0, 0) + FIXTURE_CLEARANCE,
+		0
+	)
+	var full_target := Vector3i(
+		4,
+		manager.get_playable_world_height(4, 0) + FIXTURE_CLEARANCE,
+		0
+	)
+	if manager.get_block_world(dirt_target) != BLOCK_AIR:
+		_fail("Derived dirt mining fixture is not empty")
+	if manager.get_block_world(full_target) != BLOCK_AIR:
+		_fail("Derived full-inventory mining fixture is not empty")
+	if not failures.is_empty():
+		_finish()
+		return
+	if not manager.set_block_world(dirt_target, BLOCK_DIRT):
 		_fail("Could not create dirt mining target")
-	if not manager.set_block_world(FULL_TARGET, BLOCK_GRASS):
+	if not manager.set_block_world(full_target, BLOCK_GRASS):
 		_fail("Could not create full-inventory mining target")
 	if not await _wait_for_remesh_idle(manager, "inventory mining fixture rebuild"):
 		_finish()
@@ -90,11 +111,11 @@ func _run_gate() -> void:
 
 	if not inventory.add_item(BLOCK_DIRT, 63):
 		_fail("Could not seed 63 dirt")
-	if not await _aim_at_block(player, camera, DIRT_TARGET):
+	if not await _aim_at_block(player, camera, dirt_target):
 		_finish()
 		return
 	await _press_mine_action(manager, "dirt mining")
-	if manager.get_block_world(DIRT_TARGET) != BLOCK_AIR:
+	if manager.get_block_world(dirt_target) != BLOCK_AIR:
 		_fail("Mining did not remove dirt target")
 	_assert_slot(inventory.get_slot(0), BLOCK_DIRT, 64, "mined dirt stack")
 
@@ -103,22 +124,22 @@ func _run_gate() -> void:
 	if not inventory.is_full():
 		_fail("36-slot runtime inventory did not report full")
 	var full_snapshot: Array[Dictionary] = inventory.get_slots()
-	if not await _aim_at_block(player, camera, FULL_TARGET):
+	if not await _aim_at_block(player, camera, full_target):
 		_finish()
 		return
 	await _press_mine_action(manager, "full-inventory blocked mining")
-	if manager.get_block_world(FULL_TARGET) != BLOCK_GRASS:
+	if manager.get_block_world(full_target) != BLOCK_GRASS:
 		_fail("Full inventory did not block mining")
 	if inventory.get_slots() != full_snapshot:
 		_fail("Blocked full-inventory mining mutated inventory")
 
 	if not inventory.remove_from_slot(35, 64):
 		_fail("Could not free final storage slot")
-	if not await _aim_at_block(player, camera, FULL_TARGET):
+	if not await _aim_at_block(player, camera, full_target):
 		_finish()
 		return
 	await _press_mine_action(manager, "grass mining retry")
-	if manager.get_block_world(FULL_TARGET) != BLOCK_AIR:
+	if manager.get_block_world(full_target) != BLOCK_AIR:
 		_fail("Mining did not resume after freeing storage")
 	_assert_slot(inventory.get_slot(35), BLOCK_GRASS, 1, "retried grass pickup")
 

@@ -1,0 +1,213 @@
+name: TEKNIK Luanti Carpathian Native Benchmark
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'native/carpathian/**'
+      - '.github/workflows/luanti-carpathian-native-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Fetch Godot 4.3 C++ bindings
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+
+      - name: Build native Carpathian GDExtension
+        run: |
+          cat > native/carpathian/SConstruct <<'PY'
+          #!/usr/bin/env python
+          env = SConscript("godot-cpp/SConstruct")
+          env.Append(CPPPATH=["src/"])
+          sources = Glob("src/*.cpp")
+          library = env.SharedLibrary(
+              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+              source=sources,
+          )
+          env.NoCache(library)
+          Default(library)
+          PY
+          scons -C native/carpathian platform=linux target=template_debug arch=x86_64 -j2
+          find native/carpathian/bin -maxdepth 1 -type f -print
+
+      - name: Install Godot 4.3 runtime
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+      - name: Create runtime descriptor and benchmark gate
+        run: |
+          LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
+          test -n "$LIB_PATH"
+          LIB_NAME="$(basename "$LIB_PATH")"
+          cat > native/carpathian/teknik_carpathian.gdextension <<EOF
+          [configuration]
+          entry_symbol = "teknik_carpathian_library_init"
+          compatibility_minimum = "4.3"
+
+          [libraries]
+          linux.debug.x86_64 = "res://native/carpathian/bin/$LIB_NAME"
+          EOF
+
+          cat > tests/_native_carpathian_runtime_gate.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const GRID := 256
+          const STEP := 8
+          const CHUNK := 16
+          const PADDED := 18
+          const TARGET_P95: Array[int] = [16, 28, 26]
+          const TARGET_SLOPE1: Array[float] = [76.4252, 66.3467, 62.0941]
+
+          func _init() -> void:
+              if not ClassDB.class_exists("TeknikCarpathianSampler"):
+                  push_error("Native TeknikCarpathianSampler class was not registered")
+                  quit(1)
+                  return
+              DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://artifacts/native-carpathian"))
+              var sampler: Object = ClassDB.instantiate("TeknikCarpathianSampler")
+              var seeds: Array[int] = [734921, 19088743, 11235813]
+              var ok := true
+              for seed_index in range(seeds.size()):
+                  sampler.call("set_seed", seeds[seed_index])
+                  var heights: PackedInt32Array = sampler.call("generate_grid", -1024, -1024, GRID, GRID, STEP)
+                  if heights.size() != GRID * GRID:
+                      push_error("Native grid returned wrong size")
+                      ok = false
+                      continue
+                  var metrics := _metrics(heights)
+                  var p95_error: int = absi(int(metrics["p95"]) - TARGET_P95[seed_index])
+                  var slope_error: float = absf(float(metrics["slope1"]) - TARGET_SLOPE1[seed_index])
+                  print("NATIVE_CARPATHIAN seed=%d min=%d max=%d mean=%.4f p95=%d p95_error=%d slope_le1_pct=%.4f slope_error=%.4f" % [
+                      seeds[seed_index], metrics["min"], metrics["max"], metrics["mean"], metrics["p95"],
+                      p95_error, metrics["slope1"], slope_error
+                  ])
+                  # The Y=12 shortcut is already reference-validated to <=1 block for
+                  # 97.46% of columns. These broad-stat bounds catch implementation drift.
+                  if p95_error > 3 or slope_error > 6.0:
+                      push_error("Native adapter drifted too far from exact Carpathian reference")
+                      ok = false
+                  _save_height_map(heights, int(metrics["min"]), int(metrics["max"]), seeds[seed_index])
+
+              sampler.call("set_seed", 734921)
+              var exact_point: int = int(sampler.call("sample_height", 83, 56))
+              var one: PackedInt32Array = sampler.call("generate_grid", 83, 56, 1, 1, 1)
+              if one.size() != 1 or one[0] != exact_point:
+                  push_error("sample_height and generate_grid disagree at X83 Z56")
+                  ok = false
+              print("NATIVE_CARPATHIAN_X83_Z56 height=%d" % exact_point)
+
+              var chunk_bench := _benchmark(sampler, CHUNK, 120)
+              var padded_bench := _benchmark(sampler, PADDED, 120)
+              print("NATIVE_CARPATHIAN_CHUNK16_MS min=%.4f mean=%.4f p95=%.4f max=%.4f samples=%d" % [
+                  chunk_bench["min"], chunk_bench["mean"], chunk_bench["p95"], chunk_bench["max"], chunk_bench["count"]
+              ])
+              print("NATIVE_CARPATHIAN_PADDED18_MS min=%.4f mean=%.4f p95=%.4f max=%.4f samples=%d" % [
+                  padded_bench["min"], padded_bench["mean"], padded_bench["p95"], padded_bench["max"], padded_bench["count"]
+              ])
+              if float(chunk_bench["p95"]) >= 1.0 or float(padded_bench["p95"]) >= 1.0:
+                  push_error("Native Carpathian batch generation missed 1.0ms p95 target")
+                  ok = false
+              if not ok:
+                  quit(1)
+                  return
+              print("LUANTI_CARPATHIAN_NATIVE_BENCHMARK_PASS")
+              quit(0)
+
+          func _metrics(heights: PackedInt32Array) -> Dictionary:
+              var sorted := heights.duplicate()
+              sorted.sort()
+              var min_h: int = sorted[0]
+              var max_h: int = sorted[sorted.size() - 1]
+              var p95: int = sorted[int(floor(float(sorted.size() - 1) * 0.95))]
+              var sum_h := 0.0
+              for h in heights:
+                  sum_h += h
+              var slope1 := 0
+              for z in range(GRID):
+                  for x in range(GRID):
+                      var i := z * GRID + x
+                      var slope := 0
+                      if x > 0: slope = maxi(slope, absi(heights[i] - heights[i - 1]))
+                      if x + 1 < GRID: slope = maxi(slope, absi(heights[i] - heights[i + 1]))
+                      if z > 0: slope = maxi(slope, absi(heights[i] - heights[i - GRID]))
+                      if z + 1 < GRID: slope = maxi(slope, absi(heights[i] - heights[i + GRID]))
+                      if slope <= 1: slope1 += 1
+              return {
+                  "min": min_h, "max": max_h, "p95": p95,
+                  "mean": sum_h / float(heights.size()),
+                  "slope1": 100.0 * float(slope1) / float(heights.size()),
+              }
+
+          func _benchmark(sampler: Object, size: int, repetitions: int) -> Dictionary:
+              var samples := PackedFloat64Array()
+              for warm in range(8):
+                  sampler.call("generate_grid", warm * 31, warm * -23, size, size, 1)
+              for rep in range(repetitions):
+                  var started := Time.get_ticks_usec()
+                  var values: PackedInt32Array = sampler.call("generate_grid", rep * 37, rep * -29, size, size, 1)
+                  var ended := Time.get_ticks_usec()
+                  if values.size() != size * size:
+                      push_error("Native benchmark returned wrong grid size")
+                  samples.append(float(ended - started) / 1000.0)
+              samples.sort()
+              var total := 0.0
+              for value in samples: total += value
+              var p95_index := mini(samples.size() - 1, int(ceil(float(samples.size()) * 0.95)) - 1)
+              return {
+                  "min": samples[0], "mean": total / float(samples.size()),
+                  "p95": samples[p95_index], "max": samples[samples.size() - 1], "count": samples.size(),
+              }
+
+          func _save_height_map(heights: PackedInt32Array, min_h: int, max_h: int, seed: int) -> void:
+              var image := Image.create(GRID, GRID, false, Image.FORMAT_L8)
+              var denom := maxf(1.0, float(max_h - min_h))
+              for z in range(GRID):
+                  for x in range(GRID):
+                      var v := clampf(float(heights[z * GRID + x] - min_h) / denom, 0.0, 1.0)
+                      image.set_pixel(x, z, Color(v, v, v))
+              image.save_png("res://artifacts/native-carpathian/height_seed_%d.png" % seed)
+          GDSCRIPT
+
+      - name: Load extension and run native gate
+        run: |
+          mkdir -p artifacts/native-carpathian
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/native-carpathian-import" timeout 120 \
+            /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/native-carpathian/import.log
+          if grep -E 'GDExtension.*failed|Could not load library|SCRIPT ERROR: Parse Error|Failed to load script' artifacts/native-carpathian/import.log; then
+            exit 1
+          fi
+          XDG_DATA_HOME="$RUNNER_TEMP/native-carpathian-run" timeout 900 \
+            /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/_native_carpathian_runtime_gate.gd \
+            2>&1 | tee artifacts/native-carpathian/native.log
+          grep -Fq 'LUANTI_CARPATHIAN_NATIVE_BENCHMARK_PASS' artifacts/native-carpathian/native.log
+          cp native/carpathian/teknik_carpathian.gdextension artifacts/native-carpathian/
+          cp native/carpathian/bin/*.so artifacts/native-carpathian/
+
+      - name: Upload native benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luanti-carpathian-native-benchmark-evidence
+          path: artifacts/native-carpathian/
+          if-no-files-found: error

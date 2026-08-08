@@ -1,0 +1,43 @@
+name: TEKNIK Luanti Carpathian Surface Adapter Study
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tools/reference/luanti_carpathian_reference.cpp'
+      - 'tools/reference/luanti_carpathian_surface_adapter_study.cpp'
+      - '.github/workflows/luanti-carpathian-surface-adapter-study.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  study:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build exact-reference adapter study
+        run: |
+          mkdir -p build/reference artifacts/carpathian-surface-adapter
+          g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Werror \
+            tools/reference/luanti_carpathian_surface_adapter_study.cpp \
+            -o build/reference/luanti_carpathian_surface_adapter_study
+
+      - name: Compare simplified surface to exact Carpathian
+        run: |
+          set -o pipefail
+          /usr/bin/time -v build/reference/luanti_carpathian_surface_adapter_study \
+            2>&1 | tee artifacts/carpathian-surface-adapter/study.log
+          grep -Fq 'CARPATHIAN_SURFACE_ADAPTER_STUDY_COMPLETE' artifacts/carpathian-surface-adapter/study.log
+
+      - name: Upload study evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luanti-carpathian-surface-adapter-study
+          path: artifacts/carpathian-surface-adapter/
+          if-no-files-found: error
