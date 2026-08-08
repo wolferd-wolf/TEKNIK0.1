@@ -1,15 +1,15 @@
-extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
+extends "res://scripts/world/playable_world_stage11_generation_runtime.gd"
 
 const SHIPPING_STAGE11_DATA := preload("res://scripts/world/playable_world_stage11_water_biome_data.gd")
 const SHIPPING_STAGE10_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage10_generation_cache_fast.gd")
-const SHIPPING_STAGE11_CACHE := preload("res://scripts/world/playable_world_stage11_cache_fast.gd")
-const SHIPPING_STAGE11_MESHER := preload("res://scripts/world/playable_world_stage11_mesher.gd")
-const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
+const SHIPPING_STAGE12_CACHE := preload("res://scripts/world/playable_world_stage12_cache_fast.gd")
+const SHIPPING_STAGE12_MESHER := preload("res://scripts/world/playable_world_stage12_mesher.gd")
+const FROZEN_STAGE11_RUNTIME := preload("res://scripts/world/playable_world_stage11_generation_runtime.gd")
+const STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
-# Stable public runtime path. Stage 11 deliberately leaves the accepted Stage 10
-# generation cache untouched. Water-aware biome expression is derived afterward
-# from already cached water ownership and therefore does not spend generation
-# budget or add procedural noise sampling.
+# Stable public Stage 12 runtime. The hard generation/cache path remains the
+# exact accepted Stage 10 cache used by Stage 11. Stage 12 only reduces
+# post-generation expression preparation and mesher bookkeeping overhead.
 
 func _init() -> void:
 	data = SHIPPING_STAGE11_DATA.new()
@@ -17,44 +17,6 @@ func _init() -> void:
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
 	return SHIPPING_STAGE10_GENERATION_CACHE.build(coord, data)
-
-
-static func _stage6_blocked_tree_columns(
-	coord: Vector2i,
-	caches: Dictionary,
-	sampler
-) -> PackedInt32Array:
-	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
-	if heights.is_empty():
-		return PackedInt32Array()
-	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
-	var world_fields: PackedFloat32Array = caches.get("world_fields", PackedFloat32Array())
-	var width: int = 16
-	var min_x: int = coord.x * 12 - 2
-	var min_z: int = coord.y * 12 - 2
-	var max_x: int = min_x + width - 1
-	var max_z: int = min_z + width - 1
-	var features: Array = caches.get("stage6_features", [])
-	if features.is_empty():
-		features = sampler.stage6_collect_features_for_cached_bounds(
-			min_x,
-			min_z,
-			max_x,
-			max_z,
-			width,
-			world_fields,
-			heights
-		)
-	return SHIPPING_STAGE6_TREE_HELPER._collect_blocked_tree_columns(
-		min_x,
-		min_z,
-		width,
-		heights,
-		biomes,
-		world_fields,
-		features,
-		sampler
-	)
 
 
 static func _stage3_worker_build_chunk(
@@ -77,23 +39,29 @@ static func _stage3_worker_build_chunk(
 		"stage9_terrain_modifiers",
 		PackedByteArray()
 	)
-	# Stage 11 adds no taller tree silhouettes. Stage 8's existing two-block
-	# active mesh headroom remains sufficient and legal world height stays 150.
 	var mesh_height := mini(
 		SHIPPING_STAGE11_DATA.OVERHAUL_WORLD_HEIGHT,
 		STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
 	)
 	var mesh_started_usec := Time.get_ticks_usec()
-	var transition_codes: PackedByteArray = SHIPPING_STAGE11_CACHE.build_transition_codes(
+	var expression_codes: Dictionary = SHIPPING_STAGE12_CACHE.build_expression_codes(
 		caches,
 		sampler
 	)
-	var hydrology_codes: PackedByteArray = SHIPPING_STAGE11_CACHE.build_hydrology_codes(
+	var transition_codes: PackedByteArray = expression_codes.get(
+		"transition_codes",
+		PackedByteArray()
+	)
+	var hydrology_codes: PackedByteArray = expression_codes.get(
+		"hydrology_codes",
+		PackedByteArray()
+	)
+	var blocked_tree_columns: PackedInt32Array = FROZEN_STAGE11_RUNTIME._stage6_blocked_tree_columns(
+		coord,
 		caches,
 		sampler
 	)
-	var blocked_tree_columns := _stage6_blocked_tree_columns(coord, caches, sampler)
-	var mesh_data: Dictionary = SHIPPING_STAGE11_MESHER.build(
+	var mesh_data: Dictionary = SHIPPING_STAGE12_MESHER.build(
 		coord,
 		heights,
 		overrides_snapshot,
