@@ -7,8 +7,6 @@ const PADDING := 2
 const WIDTH := CHUNK_SIZE + PADDING * 2
 const FIELD_STRIDE := 6
 
-# Stage 8 ecology envelope and Stage 9 modifier constants, frozen from the
-# accepted Stage 10 cache. Stage 13 changes river geography only.
 const PLAINS_FOREST_MOISTURE_BOUNDARY := 0.18
 const DENSE_FOREST_ENVELOPE_START := 0.348326996197719
 const FOREST_ENVELOPE_END := 0.671395348837208
@@ -30,31 +28,62 @@ static func _smooth(value: float) -> float:
 	return t * t * (3.0 - 2.0 * t)
 
 
-static func build(coord: Vector2i, sampler) -> Dictionary:
-	# Reuse Stage 10's highly optimized noise/warp field production. Stage 13 then
-	# rebuilds only the cheap scalar terrain/hydrology/ecology pass from those
-	# cached fields, replacing periodic rivers with independent lane centerlines.
-	var stage10: Dictionary = STAGE10_CACHE.build(coord, sampler)
-	var fields: PackedFloat32Array = stage10.get("world_fields", PackedFloat32Array())
-	if fields.is_empty():
-		return stage10
+static func _mark_range(dirty: PackedByteArray, row: int, min_x: int, max_x: int) -> void:
+	if min_x > max_x:
+		return
+	for x in range(min_x, max_x + 1):
+		dirty[row + x] = 1
 
-	var count := WIDTH * WIDTH
-	var heights := PackedInt32Array()
-	var biomes := PackedByteArray()
-	var water_types := PackedByteArray()
-	var modifiers := PackedByteArray()
-	heights.resize(count)
-	biomes.resize(count)
-	water_types.resize(count)
-	modifiers.resize(count)
+
+static func _mark_feature_bounds(
+	dirty: PackedByteArray,
+	feature: Dictionary,
+	min_x: int,
+	min_z: int,
+	max_x: int,
+	max_z: int
+) -> void:
+	if feature.is_empty():
+		return
+	var center_x := int(feature["center_x"])
+	var center_z := int(feature["center_z"])
+	var radius_x := float(feature["radius_x"])
+	var radius_z := float(feature["radius_z"])
+	var feature_min_x := maxi(min_x, floori(float(center_x) - radius_x))
+	var feature_max_x := mini(max_x, ceili(float(center_x) + radius_x))
+	var feature_min_z := maxi(min_z, floori(float(center_z) - radius_z))
+	var feature_max_z := mini(max_z, ceili(float(center_z) + radius_z))
+	for world_z in range(feature_min_z, feature_max_z + 1):
+		var row := (world_z - min_z) * WIDTH
+		_mark_range(
+			dirty,
+			row,
+			feature_min_x - min_x,
+			feature_max_x - min_x
+		)
+
+
+static func build(coord: Vector2i, sampler) -> Dictionary:
+	# Stage 10 still owns the expensive noise/warp pass. Stage 13 mutates only
+	# columns that could have been influenced by an old periodic river, a new
+	# independent river lane, or an old Stage 6 basin. This removes the previous
+	# full 256-column rebuild and keeps the final correction inside the 1 ms budget.
+	var result: Dictionary = STAGE10_CACHE.build(coord, sampler)
+	var fields: PackedFloat32Array = result.get("world_fields", PackedFloat32Array())
+	if fields.is_empty():
+		return result
+
+	var heights: PackedInt32Array = result["heights"]
+	var biomes: PackedByteArray = result["biomes"]
+	var water_types: PackedByteArray = result["stage7_water_types"]
+	var modifiers: PackedByteArray = result["stage9_terrain_modifiers"]
+	var old_features: Array = result.get("stage6_features", [])
 
 	var min_x := coord.x * CHUNK_SIZE - PADDING
 	var min_z := coord.y * CHUNK_SIZE - PADDING
 	var max_x := min_x + WIDTH - 1
 	var max_z := min_z + WIDTH - 1
 
-	# Stage 2 constants.
 	var continental_base: float = sampler.STAGE2_CONTINENTAL_BASE_HEIGHT
 	var continental_scale: float = sampler.STAGE2_CONTINENTAL_HEIGHT_SCALE
 	var shelf_start: float = sampler.STAGE2_OCEAN_SHELF_START
@@ -76,7 +105,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var upland_blend_reciprocal := 1.0 / (mountain_start - rolling_end)
 	var mountain_blend_reciprocal := 1.0 / (mountain_full - mountain_start)
 
-	# Stage 4 ocean constants.
 	var ocean_start: float = sampler.STAGE4_OCEAN_WATER_START
 	var ocean_full: float = sampler.STAGE4_OCEAN_BASIN_FULL
 	var coast_end: float = sampler.STAGE4_COAST_INLAND_END
@@ -86,9 +114,12 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal := 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal := 1.0 / (coast_end - ocean_start)
 
-	# Stage 13 river layout + accepted Stage 5 shaping constants.
 	var river_spacing: float = sampler.STAGE5_RIVER_SPACING
+	var river_half_spacing: float = sampler.STAGE5_RIVER_HALF_SPACING
+	var river_lattice_reciprocal: float = sampler.STAGE5_RIVER_LATTICE_RECIPROCAL
+	var river_lattice_spacing: int = sampler.STAGE5_RIVER_LATTICE_SPACING
 	var river_diagonal_slope: float = sampler.STAGE5_RIVER_DIAGONAL_SLOPE
+	var river_meander_amplitude: float = sampler.STAGE5_RIVER_MEANDER_AMPLITUDE
 	var channel_inner: float = sampler.STAGE5_CHANNEL_INNER
 	var channel_outer: float = sampler.STAGE5_CHANNEL_OUTER
 	var channel_cutoff: float = sampler.STAGE5_CHANNEL_WATER_CUTOFF
@@ -100,7 +131,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var max_carve: int = sampler.STAGE5_MAX_VALLEY_CARVE
 	var channel_depth: int = sampler.STAGE5_CHANNEL_DEPTH
 	var relief_fraction: float = sampler.STAGE5_VALLEY_RELIEF_FRACTION
-	var river_early_out: float = valley_outer * coast_width
+	var river_early_out := valley_outer * coast_width
 
 	var biome_plains: int = sampler.BIOME_PLAINS
 	var biome_forest: int = sampler.BIOME_FOREST
@@ -112,42 +143,85 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var water_ocean: int = sampler.WATER_OCEAN
 	var water_river: int = sampler.WATER_RIVER
 
+	var dirty := PackedByteArray()
+	dirty.resize(WIDTH * WIDTH)
+	var new_center_local := PackedFloat32Array()
+	new_center_local.resize(WIDTH)
 	var chunk_mid_x := float(min_x) + float(WIDTH - 1) * 0.5
+
 	for cz in range(WIDTH):
 		var world_z := min_z + cz
 		var zf := float(world_z)
+		var row := cz * WIDTH
+
+		# Mark the exact old periodic Stage 5 active band so its carve can be erased.
+		var lattice_index := floori(zf * river_lattice_reciprocal)
+		var lattice_origin := lattice_index * river_lattice_spacing
+		var river_t := _smooth(float(world_z - lattice_origin) * river_lattice_reciprocal)
+		var old_meander := lerpf(
+			sampler.stage5_river_lattice_value(lattice_index),
+			sampler.stage5_river_lattice_value(lattice_index + 1),
+			river_t
+		)
+		var old_phase := zf * river_diagonal_slope + old_meander * river_meander_amplitude
+		var old_signed_start := (
+			fposmod(float(min_x) + old_phase + river_half_spacing, river_spacing)
+			- river_half_spacing
+		)
+		_mark_range(
+			dirty,
+			row,
+			maxi(0, ceili(-river_early_out - old_signed_start)),
+			mini(WIDTH - 1, floori(river_early_out - old_signed_start))
+		)
+
+		# Mark the corrected Stage 13 lane band. Adjacent centers are far enough apart
+		# that only the lane nearest the chunk midpoint can touch this padded chunk.
 		var lane_estimate := roundi(
 			(chunk_mid_x + zf * river_diagonal_slope) / river_spacing
 		)
 		var best_center := 0.0
 		var best_mid_distance := INF
 		for lane_index in range(lane_estimate - 1, lane_estimate + 2):
-			var center_x: float = sampler.stage13_river_center_x(lane_index, zf)
-			var mid_distance := absf(chunk_mid_x - center_x)
+			var center := float(sampler.stage13_river_center_x(lane_index, zf))
+			var mid_distance := absf(chunk_mid_x - center)
 			if mid_distance < best_mid_distance:
 				best_mid_distance = mid_distance
-				best_center = center_x
+				best_center = center
 		var center_local := best_center - float(min_x)
-		var river_active_min := maxi(0, ceili(center_local - river_early_out))
-		var river_active_max := mini(WIDTH - 1, floori(center_local + river_early_out))
-		var row := cz * WIDTH
+		new_center_local[cz] = center_local
+		_mark_range(
+			dirty,
+			row,
+			maxi(0, ceili(center_local - river_early_out)),
+			mini(WIDTH - 1, floori(center_local + river_early_out))
+		)
 
+	# Stage 10 may already have shaped sparse lakes/ponds using the old river field.
+	# Reset every old basin footprint before feature discovery is repeated against
+	# the corrected Stage 13 river baseline.
+	for feature in old_features:
+		_mark_feature_bounds(dirty, feature, min_x, min_z, max_x, max_z)
+
+	for cz in range(WIDTH):
+		var row := cz * WIDTH
+		var center_local := float(new_center_local[cz])
 		for cx in range(WIDTH):
 			var column := row + cx
+			if dirty[column] == 0:
+				continue
 			var field := column * FIELD_STRIDE
 			var continentalness := float(fields[field])
 			var structure := float(fields[field + 1])
 			var temperature := float(fields[field + 2])
 			var moisture := float(fields[field + 3])
 
-			# Exact Stage 2 scalar shaping from accepted Stage 10.
 			var c := clampf(continentalness, -1.0, 1.0)
 			var s := clampf(structure, -1.0, 1.0)
 			var shaped_continent := c * 0.35 + c * c * c * 0.65
 			var base_height := continental_base + shaped_continent * continental_scale
 			if c < shelf_start:
-				var basin_t := clampf((shelf_start - c) * basin_reciprocal, 0.0, 1.0)
-				basin_t = _smooth(basin_t)
+				var basin_t := _smooth((shelf_start - c) * basin_reciprocal)
 				base_height -= basin_t * basin_depth
 			var rolling_target := base_height + 2.0 + absf(c) * rolling_rise
 			var height: int
@@ -176,7 +250,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 					else:
 						height = clampi(roundi(mountain_target), 3, safe_top)
 
-			# Stage 4 ocean/coast shaping.
 			var water_type := water_none
 			if continentalness <= ocean_start:
 				var ocean_t := _smooth((ocean_start - continentalness) * ocean_reciprocal)
@@ -190,8 +263,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				var inland_t := _smooth((continentalness - ocean_start) * coast_reciprocal)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			# Stage 13 lane-independent river layout, Stage 5 shaping contract.
-			if continentalness > ocean_start and cx >= river_active_min and cx <= river_active_max:
+			if continentalness > ocean_start:
 				var river_value := absf(float(cx) - center_local)
 				var width_t := _smooth((continentalness - ocean_start) / width_range)
 				var width_scale := coast_width + (inland_width - coast_width) * width_t
@@ -218,11 +290,11 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			heights[column] = height
 			water_types[column] = water_type
 
-			# Exact Stage 8 ecology classification.
 			if water_type != water_none:
 				biomes[column] = biome_plains
 				modifiers[column] = MODIFIER_NONE
 				continue
+
 			var biome: int
 			if moisture <= PLAINS_FOREST_MOISTURE_BOUNDARY:
 				if 1.04 * temperature < 0.72 * moisture - 0.3856:
@@ -262,8 +334,8 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			if structure >= MOUNTAIN_START:
 				var mountain_strength := 1.0
 				if structure < MOUNTAIN_FULL:
-					var mountain_t := _smooth((structure - MOUNTAIN_START) * MOUNTAIN_RANGE_RECIPROCAL)
-					mountain_strength = mountain_t
+					var mountain_t := (structure - MOUNTAIN_START) * MOUNTAIN_RANGE_RECIPROCAL
+					mountain_strength = _smooth(mountain_t)
 				var ridge_base := 1.0 - absf(continentalness)
 				var ridge := ridge_base * ridge_base
 				var modifier_valley_strength := mountain_strength * (1.0 - ridge)
@@ -274,10 +346,15 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				modifier = MODIFIER_HILL
 			modifiers[column] = modifier
 
-	# Re-run Stage 6 sparse feature discovery against the corrected Stage 13 river
-	# terrain, then apply exactly the accepted lake/pond basin/rim shaping.
+	# Re-run Stage 6 feature selection against the corrected Stage 5 baseline.
 	var features: Array[Dictionary] = sampler.stage6_collect_features_for_cached_bounds(
-		min_x, min_z, max_x, max_z, WIDTH, fields, heights
+		min_x,
+		min_z,
+		max_x,
+		max_z,
+		WIDTH,
+		fields,
+		heights
 	)
 	for feature in features:
 		var center_x: int = int(feature["center_x"])
@@ -327,17 +404,15 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 					(distance_squared - hard_rim_squared) * inverse_outer_rim_range
 				)
 				var blended_rim := roundi(lerpf(
-					float(water_level_plus_one), float(stage5_height), rim_t
+					float(water_level_plus_one),
+					float(stage5_height),
+					rim_t
 				))
 				heights[index] = clampi(maxi(stage5_height, blended_rim), 3, safe_top)
 
-	return {
-		"world_fields": fields,
-		"heights": heights,
-		"biomes": biomes,
-		"stage7_water_types": water_types,
-		"stage6_features": features,
-		"stage8_active_biome_count": sampler.STAGE8_ACTIVE_BIOME_COUNT,
-		"stage9_terrain_modifiers": modifiers,
-		"stage9_terrain_modifier_count": sampler.STAGE9_TERRAIN_MODIFIER_COUNT,
-	}
+	result["heights"] = heights
+	result["biomes"] = biomes
+	result["stage7_water_types"] = water_types
+	result["stage6_features"] = features
+	result["stage9_terrain_modifiers"] = modifiers
+	return result
