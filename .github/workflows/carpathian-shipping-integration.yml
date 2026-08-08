@@ -34,6 +34,7 @@ jobs:
       - name: Build exact native Carpathian sampler
         run: |
           git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          printf '%s\n' '{"enabled_classes":["RefCounted"]}' > native/carpathian/build_profile.json
           cat > native/carpathian/SConstruct <<'PY'
           #!/usr/bin/env python
           env = SConscript("godot-cpp/SConstruct")
@@ -46,7 +47,7 @@ jobs:
           env.NoCache(library)
           Default(library)
           PY
-          scons -C native/carpathian platform=linux target=template_debug arch=x86_64 -j2
+          scons -C native/carpathian platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j2
           LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
           test -n "$LIB_PATH"
           LIB_NAME="$(basename "$LIB_PATH")"
