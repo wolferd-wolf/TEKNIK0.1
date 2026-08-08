@@ -29,11 +29,29 @@ func _run() -> void:
 	_assert(not WATER_BODIES.is_water_column(fake, 8, 8), "terrain at or above sea level must stay dry")
 
 	var mesh := WATER_BODIES.build_water_mesh(fake, Vector2i.ZERO, 12)
-	_assert(mesh != null, "localized low terrain must produce a water surface mesh")
+	_assert(mesh != null, "localized low terrain must produce a water mesh")
 	_assert(mesh.get_surface_count() == 1, "localized water mesh must contain exactly one render surface")
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	_assert(vertices.size() < 12 * 12 * 4, "water mesh must not cover every column in the chunk")
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	_assert(not vertices.is_empty(), "water block mesh must contain vertices")
+	_assert(colors.size() == vertices.size(), "water block mesh must carry per-vertex colors")
+
+	var has_top_face := false
+	var has_side_face := false
+	var all_y_block_aligned := true
+	for index in range(vertices.size()):
+		var normal := normals[index]
+		if normal.y > 0.9:
+			has_top_face = true
+		elif absf(normal.y) < 0.1:
+			has_side_face = true
+		if absf(vertices[index].y - roundf(vertices[index].y)) > 0.001:
+			all_y_block_aligned = false
+	_assert(has_top_face, "water block mesh must retain visible top faces")
+	_assert(has_side_face, "water must expose vertical voxel side faces instead of top-only quads")
+	_assert(all_y_block_aligned, "water geometry must align to full block-height boundaries")
 
 	var packed := load("res://scenes/main.tscn") as PackedScene
 	_assert(packed != null, "main scene must load")
@@ -55,6 +73,7 @@ func _run() -> void:
 	root.queue_free()
 	await process_frame
 	print("POLISH_WATER_GATE_PASS")
+	print("POLISH_WATER_GEOMETRY=full-block top plus exposed vertical voxel sides")
 	quit(0)
 
 
