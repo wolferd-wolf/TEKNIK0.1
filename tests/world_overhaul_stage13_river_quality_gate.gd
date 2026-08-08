@@ -100,7 +100,7 @@ func _determinism(data) -> Dictionary:
 
 
 func _direct_equivalence(data) -> Dictionary:
-	var coords := [Vector2i(-7, -5), Vector2i(0, 0), Vector2i(11, -9), Vector2i(23, 17)]
+	var coords: Array[Vector2i] = [Vector2i(-7, -5), Vector2i(0, 0), Vector2i(11, -9), Vector2i(23, 17)]
 	var columns := 0
 	var river_columns := 0
 	var water_columns := 0
@@ -108,13 +108,13 @@ func _direct_equivalence(data) -> Dictionary:
 		var cache: Dictionary = CACHE.build(coord, data)
 		var heights: PackedInt32Array = cache["heights"]
 		var waters: PackedByteArray = cache["stage7_water_types"]
-		var origin_x := coord.x * CHUNK_SIZE
-		var origin_z := coord.y * CHUNK_SIZE
+		var origin_x: int = coord.x * CHUNK_SIZE
+		var origin_z: int = coord.y * CHUNK_SIZE
 		for lz in range(-PADDING, CHUNK_SIZE + PADDING):
 			for lx in range(-PADDING, CHUNK_SIZE + PADDING):
 				var index := (lz + PADDING) * WIDTH + lx + PADDING
-				var wx := origin_x + lx
-				var wz := origin_z + lz
+				var wx: int = origin_x + lx
+				var wz: int = origin_z + lz
 				var direct_height := int(data.terrain_height(wx, wz))
 				var direct_water: Vector2i = data.water_info_at(wx, wz)
 				if int(heights[index]) != direct_height:
