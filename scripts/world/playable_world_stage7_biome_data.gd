@@ -18,11 +18,12 @@ const STAGE7_FOREST_TARGET := Vector2(-0.05, 0.58)
 const STAGE7_DESERT_TARGET := Vector2(0.68, -0.62)
 const STAGE7_ROCKY_TARGET := Vector2(-0.34, -0.24)
 
-# Rocky remains only as a compatibility ecology until Stage 8. It is no longer
-# allowed to *create* mountains or paint ordinary flat lowlands. Rugged terrain
-# is generated first by Stages 2–6; only then can cold/dry climate select Rocky.
-const STAGE7_ROCKY_MOUNTAIN_STRENGTH_MIN := 0.24
-const STAGE7_ROCKY_ELEVATION_MIN := 38
+# Rocky remains only as a compatibility ecology until Stage 8. It may be chosen
+# only after the terrain generator has already produced mountain structure. The
+# elevation fallback is intentionally disabled above the safe terrain ceiling so
+# a flat high plateau can never become "mountain" merely because of biome logic.
+const STAGE7_ROCKY_MOUNTAIN_STRENGTH_MIN := 0.08
+const STAGE7_ROCKY_ELEVATION_MIN := STAGE2_SAFE_TERRAIN_TOP + 1
 const STAGE7_ROCKY_COAST_PROXIMITY_MAX := 0.55
 
 
@@ -53,15 +54,12 @@ func stage7_coast_proximity_from_continentalness(continentalness: float) -> floa
 
 func stage7_rocky_eligible(
 	mountain_strength: float,
-	height: int,
+	_height: int,
 	coast_proximity: float
 ) -> bool:
 	if coast_proximity > STAGE7_ROCKY_COAST_PROXIMITY_MAX:
 		return false
-	return (
-		mountain_strength >= STAGE7_ROCKY_MOUNTAIN_STRENGTH_MIN
-		or height >= STAGE7_ROCKY_ELEVATION_MIN
-	)
+	return mountain_strength >= STAGE7_ROCKY_MOUNTAIN_STRENGTH_MIN
 
 
 func stage7_classify_with_context(
@@ -114,14 +112,15 @@ func stage7_surface_slope_at(x: int, z: int, center_height: int = -1) -> float:
 func stage7_context_at(x: int, z: int) -> Dictionary:
 	var fields: Vector4 = sample_world_fields(x, z)
 	var height: int = terrain_height(x, z)
+	var climate: Vector2 = sample_biome_climate(x, z)
 	return {
 		"height": height,
 		"mountain_strength": stage7_mountain_strength(fields.y),
 		"slope": stage7_surface_slope_at(x, z, height),
 		"water_type": water_type_at(x, z),
 		"coast_proximity": stage7_coast_proximity_from_continentalness(fields.x),
-		"temperature": sample_biome_climate(x, z).x,
-		"moisture": sample_biome_climate(x, z).y,
+		"temperature": climate.x,
+		"moisture": climate.y,
 	}
 
 
