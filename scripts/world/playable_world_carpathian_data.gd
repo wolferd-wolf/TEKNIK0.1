@@ -10,6 +10,14 @@ const CARPATHIAN_CLASS := &"TeknikCarpathianSampler"
 # Carpathian relief while placing its plains at TEKNIK's established altitude.
 const CARPATHIAN_HEIGHT_OFFSET := 12
 
+# Shipping-only tree jitter. Stage 8's fixed modulo origins made otherwise
+# natural-looking trees line up in rows. One deterministic random position is
+# chosen inside each ecology spacing cell instead, preserving controlled density
+# without changing tree silhouettes or biome ownership.
+const CARPATHIAN_TREE_JITTER_X_SALT := 0x4b1d53a7
+const CARPATHIAN_TREE_JITTER_Z_SALT := 0x7c29e411
+const CARPATHIAN_TREE_ACCEPT_SALT := 0x326f9bd5
+
 var _carpathian_sampler: Object = null
 
 
@@ -44,8 +52,6 @@ func carpathian_generate_grid(
 	var native: Object = _native_carpathian()
 	if native == null:
 		return PackedInt32Array()
-	# Translation/clamp happen inside the native batch. This removes the old
-	# per-column GDScript post-loop while preserving exactly the same heights.
 	return native.call(
 		"generate_grid_shifted",
 		origin_x,
@@ -158,6 +164,89 @@ func water_type_at(x: int, z: int) -> int:
 
 func water_surface_height_at(x: int, z: int) -> int:
 	return water_info_at(x, z).y
+
+
+func _carpathian_jittered_tree_origin(x: int, z: int, spacing: int, salt: int) -> bool:
+	var cell_x: int = floori(float(x) / float(spacing))
+	var cell_z: int = floori(float(z) / float(spacing))
+	var jitter_x: int = posmod(
+		_stage8_hash(cell_x, cell_z, CARPATHIAN_TREE_JITTER_X_SALT ^ salt),
+		spacing
+	)
+	var jitter_z: int = posmod(
+		_stage8_hash(cell_x, cell_z, CARPATHIAN_TREE_JITTER_Z_SALT ^ salt),
+		spacing
+	)
+	return (
+		x == cell_x * spacing + jitter_x
+		and z == cell_z * spacing + jitter_z
+	)
+
+
+func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -> bool:
+	if not carpathian_enabled():
+		return super.stage8_tree_candidate_for_biome(x, z, surface, biome)
+	if biome == BIOME_DESERT or biome == BIOME_ROCKY:
+		return false
+	var trunk_height: int = stage8_tree_trunk_height(biome)
+	if surface <= SEA_LEVEL + 1 or surface + trunk_height + 2 >= OVERHAUL_WORLD_HEIGHT:
+		return false
+
+	var spacing: int = TREE_SPACING
+	var biome_salt: int = biome * 0x1f123bb5
+	var accept_mod: int = 4
+	var accept_limit: int = 3
+	match biome:
+		BIOME_FOREST:
+			spacing = FOREST_TREE_SPACING
+			accept_mod = 6
+			accept_limit = 5
+		BIOME_DENSE_FOREST:
+			spacing = STAGE8_DENSE_TREE_SPACING
+			accept_mod = 5
+			accept_limit = 4
+		BIOME_DRY_GRASSLAND:
+			if stage8_dry_surface_is_sand(x, z):
+				return false
+			spacing = STAGE8_DRY_TREE_SPACING
+			accept_mod = 2
+			accept_limit = 1
+		BIOME_COLD_FOREST:
+			if stage8_cold_surface_is_stone(x, z):
+				return false
+			spacing = STAGE8_COLD_TREE_SPACING
+			accept_mod = 4
+			accept_limit = 3
+		BIOME_PLAINS:
+			pass
+		_:
+			return false
+
+	if not _carpathian_jittered_tree_origin(x, z, spacing, biome_salt):
+		return false
+	var accept_hash: int = absi(_stage8_hash(
+		x,
+		z,
+		CARPATHIAN_TREE_ACCEPT_SALT ^ biome_salt
+	))
+	return posmod(accept_hash, accept_mod) < accept_limit
+
+
+func stage9_surface_exposes_stone(
+	x: int,
+	z: int,
+	height: int,
+	modifier: int,
+	slope: float
+) -> bool:
+	if not carpathian_enabled():
+		return super.stage9_surface_exposes_stone(x, z, height, modifier, slope)
+	# The legacy modifier field is independent of Carpathian terrain. Do not let
+	# it scatter rock across physically gentle Carpathian plains. Real slopes and
+	# cliffs still use the existing geological expression rules.
+	if slope < 2.0:
+		return false
+	return super.stage9_surface_exposes_stone(x, z, height, modifier, slope)
 
 
 func get_block(cell: Vector3i) -> int:
