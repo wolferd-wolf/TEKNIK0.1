@@ -142,34 +142,39 @@ func _run_gate() -> void:
 	var root_before := entry_before.get("root") as Node3D
 	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 
-	# Drive the exact bound right-mouse event through Godot's InputMap, then run
-	# the shipping controller's real _process() exactly once while the just-pressed
-	# edge is alive. SceneTree test coroutines and normal node _process callbacks
-	# do not have a guaranteed relative order, so relying on a later frame can lose
-	# the one-frame edge without testing the controller at all.
+	# Prove the configured physical binding first. Godot 4.3's InputMap API can
+	# match a concrete event to an action without relying on a display/input pump.
+	# In headless mode Input.parse_input_event() does not synchronously mutate the
+	# Input singleton's pressed state, so action state is injected separately below
+	# while preserving the same shipping _process() dispatch path.
 	var place_press := InputEventMouseButton.new()
 	place_press.button_index = MOUSE_BUTTON_RIGHT
 	place_press.pressed = true
 	place_press.position = Vector2(640.0, 360.0)
-	Input.parse_input_event(place_press)
+	var binding_matches: bool = InputMap.event_is_action(place_press, "place_block", true)
+	print("PLACEMENT_RIGHT_MOUSE_BINDING_MATCH=%s" % binding_matches)
+	if not binding_matches:
+		_fail("Right mouse is no longer bound to the place_block InputMap action")
+		_finish()
+		return
+
+	# Now inject the already-proven action itself and execute the real shipping
+	# controller once immediately, eliminating SceneTree callback-order races while
+	# still testing the controller's Input.is_action_just_pressed() dispatch.
+	Input.action_press("place_block", 1.0)
 	print("PLACEMENT_ACTION_PRESSED=%s" % Input.is_action_pressed("place_block"))
 	print("PLACEMENT_ACTION_JUST_PRESSED=%s" % Input.is_action_just_pressed("place_block"))
 	if not Input.is_action_pressed("place_block") or not Input.is_action_just_pressed("place_block"):
-		_fail("Bound right-mouse event did not map to the place_block InputMap action")
+		_fail("Injected place_block action did not expose its pressed edge")
 		_finish()
 		return
 	player._process(0.0)
-
-	var place_release := InputEventMouseButton.new()
-	place_release.button_index = MOUSE_BUTTON_RIGHT
-	place_release.pressed = false
-	place_release.position = Vector2(640.0, 360.0)
-	Input.parse_input_event(place_release)
+	Input.action_release("place_block")
 	await _wait_frames(1)
 
 	if manager.get_block_world(placement_coord) != BLOCK_STONE:
-		_fail("shipping player _process did not place stone from the bound place_block event")
-	if not await _wait_for_atomic_swap(manager, swaps_before, "bound InputMap placement"):
+		_fail("shipping player _process did not place stone from the place_block action")
+	if not await _wait_for_atomic_swap(manager, swaps_before, "InputMap placement"):
 		_finish()
 		return
 	_assert_slot(inventory.get_slot(0), BLOCK_STONE, 1, "inventory after placement")
@@ -319,10 +324,6 @@ func _capture_screenshot() -> void:
 
 func _finish() -> void:
 	Input.action_release("place_block")
-	var place_release := InputEventMouseButton.new()
-	place_release.button_index = MOUSE_BUTTON_RIGHT
-	place_release.pressed = false
-	Input.parse_input_event(place_release)
 	if failures.is_empty():
 		quit(0)
 	else:
