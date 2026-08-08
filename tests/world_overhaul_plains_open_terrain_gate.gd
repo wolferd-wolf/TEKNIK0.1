@@ -141,7 +141,7 @@ func _audit_seed(seed_value: int) -> Dictionary:
 					var slope_hist: Array = acc["none_slope_histogram"]
 					slope_hist[slope] = int(slope_hist[slope]) + 1
 					acc["none_max_slope"] = maxi(int(acc["none_max_slope"]), slope)
-					var touches_water := (
+					var touches_water: bool = (
 						int(waters[index - 1]) != sampler.WATER_NONE
 						or int(waters[index + 1]) != sampler.WATER_NONE
 						or int(waters[index - WIDTH]) != sampler.WATER_NONE
