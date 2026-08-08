@@ -4,7 +4,9 @@ const MAIN_SCENE := "res://scenes/main.tscn"
 const SCREENSHOT_PATH := "res://artifacts/placement-step3.png"
 const BLOCK_AIR := 0
 const BLOCK_STONE := 3
+const WATER_NONE := 0
 const FRAME_LIMIT := 900
+const FIXTURE_CLEARANCE := 6
 
 var failures: Array[String] = []
 
@@ -85,13 +87,23 @@ func _run_gate() -> void:
 		_finish()
 		return
 
-	var surface_y := _find_surface_y(manager, 2, 2)
-	if surface_y == -2147483648:
-		_fail("No playable-world surface was found for placement")
+	# Historical fixture diagnostics: older versions treated the highest non-air
+	# block at (2,2) as terrain. With richer generated vegetation that can be a
+	# trunk/canopy block, so record both values and choose actual dry ground below.
+	var legacy_highest_y := _find_highest_non_air_y(manager, 2, 2)
+	var legacy_terrain_y := manager.get_playable_world_height(2, 2)
+	print("PLACEMENT_LEGACY_HIGHEST_NON_AIR_Y=%d" % legacy_highest_y)
+	print("PLACEMENT_LEGACY_TERRAIN_Y=%d" % legacy_terrain_y)
+
+	var base_coord := _find_clear_terrain_fixture(manager)
+	if base_coord.x == 2147483647:
+		_fail("No dry tree-clear playable-world terrain fixture was found for placement")
 		_finish()
 		return
-	var base_coord := Vector3i(2, surface_y, 2)
+	var surface_y := base_coord.y
 	var placement_coord := base_coord + Vector3i.UP
+	print("PLACEMENT_TERRAIN_FIXTURE=%s" % base_coord)
+
 	if manager.get_block_world(placement_coord) != BLOCK_AIR:
 		var clear_swaps := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 		if not manager.mine_block_world(placement_coord):
@@ -102,7 +114,7 @@ func _run_gate() -> void:
 			_finish()
 			return
 
-	player.global_position = Vector3(7.5, surface_y + 3.0, 2.5)
+	player.global_position = Vector3(base_coord.x + 5.5, surface_y + 3.0, base_coord.z + 0.5)
 	await _aim_at_block(player, camera, base_coord)
 	var target: Dictionary = player.get_block_target()
 	if target.get("block_coord", Vector3i(9999, 9999, 9999)) != base_coord:
@@ -118,7 +130,11 @@ func _run_gate() -> void:
 		_finish()
 		return
 
-	var entry_before: Dictionary = manager.get_playable_world_chunk_entry(Vector2i.ZERO)
+	var fixture_chunk := Vector2i(
+		floori(float(base_coord.x) / 12.0),
+		floori(float(base_coord.z) / 12.0)
+	)
+	var entry_before: Dictionary = manager.get_playable_world_chunk_entry(fixture_chunk)
 	var root_before := entry_before.get("root") as Node3D
 	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 	Input.action_press("place_block", 1.0)
@@ -136,7 +152,7 @@ func _run_gate() -> void:
 		_finish()
 		return
 	_assert_slot(inventory.get_slot(0), BLOCK_STONE, 1, "inventory after placement")
-	var entry_after: Dictionary = manager.get_playable_world_chunk_entry(Vector2i.ZERO)
+	var entry_after: Dictionary = manager.get_playable_world_chunk_entry(fixture_chunk)
 	var root_after := entry_after.get("root") as Node3D
 	if not is_instance_valid(root_after) or root_after == root_before:
 		_fail("Placement did not atomically replace the playable-world chunk root")
@@ -150,10 +166,13 @@ func _run_gate() -> void:
 	if inventory.get_slots() != inventory_before_occupied:
 		_fail("Occupied-placement rejection consumed inventory")
 
-	var overlap_coord := Vector3i(7, surface_y + 3, 2)
+	var overlap_coord := Vector3i(
+		floori(player.global_position.x),
+		floori(player.global_position.y),
+		floori(player.global_position.z)
+	)
 	if manager.get_block_world(overlap_coord) != BLOCK_AIR:
 		manager.set_block_world(overlap_coord, BLOCK_AIR)
-	player.global_position = Vector3(7.5, surface_y + 3.0, 2.5)
 	var inventory_before_overlap: Array[Dictionary] = inventory.get_slots()
 	if player.can_place_block_at(overlap_coord):
 		_fail("Capsule-overlapping coordinate was reported placeable: %s" % overlap_coord)
@@ -217,8 +236,31 @@ func _assert_collision_ray(player, coord: Vector3i, expected_hit: bool, context:
 		_fail("Collision ray for %s hit %s instead of %s" % [context, hit_coord, coord])
 
 
-func _find_surface_y(manager, world_x: int, world_z: int) -> int:
-	for world_y in range(29, -1, -1):
+func _find_clear_terrain_fixture(manager) -> Vector3i:
+	var runtime = manager.get_playable_world_runtime()
+	var sampler = runtime.data if runtime != null else null
+	for world_z in range(1, 11):
+		for world_x in range(1, 11):
+			if sampler != null and sampler.has_method("water_type_at"):
+				if int(sampler.water_type_at(world_x, world_z)) != WATER_NONE:
+					continue
+			var surface_y: int = manager.get_playable_world_height(world_x, world_z)
+			var base_coord := Vector3i(world_x, surface_y, world_z)
+			var base_block: int = manager.get_block_world(base_coord)
+			if base_block == BLOCK_AIR:
+				continue
+			var clear := true
+			for y in range(surface_y + 1, surface_y + FIXTURE_CLEARANCE + 1):
+				if manager.get_block_world(Vector3i(world_x, y, world_z)) != BLOCK_AIR:
+					clear = false
+					break
+			if clear:
+				return base_coord
+	return Vector3i(2147483647, 2147483647, 2147483647)
+
+
+func _find_highest_non_air_y(manager, world_x: int, world_z: int) -> int:
+	for world_y in range(149, -1, -1):
 		if manager.get_block_world(Vector3i(world_x, world_y, world_z)) != BLOCK_AIR:
 			return world_y
 	return -2147483648
