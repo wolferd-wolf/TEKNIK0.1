@@ -1,13 +1,14 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
 const SHIPPING_STAGE10_DATA := preload("res://scripts/world/playable_world_stage10_region_data.gd")
+const SHIPPING_STAGE10_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage10_generation_cache_fast.gd")
 const SHIPPING_STAGE10_CACHE := preload("res://scripts/world/playable_world_stage10_cache_fast.gd")
 const SHIPPING_STAGE10_MESHER := preload("res://scripts/world/playable_world_stage10_mesher.gd")
 const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 
 # Stable public runtime path. Stage 10 preserves Stage 2–9 terrain, hydrology,
-# base ecology and terrain modifiers while replacing Stage 9's redundant ecology
-# pass with the exact Stage 8 Voronoi envelope decision tree. Climate-boundary
+# base ecology and terrain modifiers while fusing the exact Stage 8 ecology and
+# Stage 9 modifier into the accepted Stage 7 geography loop. Climate-boundary
 # metadata affects only vegetation/ground expression and is derived after the hard
 # generation-cache timer as mesh preparation.
 
@@ -16,7 +17,7 @@ func _init() -> void:
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return SHIPPING_STAGE10_CACHE.build(coord, data)
+	return SHIPPING_STAGE10_GENERATION_CACHE.build(coord, data)
 
 
 static func _stage6_blocked_tree_columns(
@@ -68,7 +69,7 @@ static func _stage3_worker_build_chunk(
 	var started_usec := Time.get_ticks_usec()
 	var sampler = SHIPPING_STAGE10_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = SHIPPING_STAGE10_CACHE.build(coord, sampler)
+	var caches: Dictionary = SHIPPING_STAGE10_GENERATION_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
