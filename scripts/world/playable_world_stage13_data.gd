@@ -1,11 +1,101 @@
 extends "res://scripts/world/playable_world_stage11_water_biome_data.gd"
 
-# Stage 13 terrain-distribution correction. Keep the Stage 9 historical oracle
-# frozen, but narrow the live hill interval so broad low-structure land reads as
-# open terrain. Plateau, mountain, valley, terrain frequency and world height are
-# intentionally unchanged.
+# Stage 13 terrain-distribution correction.
+#
+# STAGE13_FLAT_TERRAIN_MAX is intentionally the single source of truth for the
+# flat->rolling transition. Both the physical height formula and the terrain
+# modifier classifier consume this same boundary so "none" can never become a
+# relabelled rolling-terrain interval again.
 const STAGE13_LEGACY_HILL_STRUCTURE_MIN := STAGE2_PLAINS_END
-const STAGE13_HILL_STRUCTURE_MIN := -0.10
+const STAGE13_FLAT_TERRAIN_MAX := -0.10
+# Compatibility name retained for existing audit/report code. Do not give this
+# an independent numeric value: it must remain an alias of the physical edge.
+const STAGE13_HILL_STRUCTURE_MIN := STAGE13_FLAT_TERRAIN_MAX
+
+
+func build_provisional_terrain(fields: Vector4) -> int:
+	# Stage 2 originally began the flat->rolling blend at -0.38 and reached full
+	# rolling terrain by -0.28. The prior Stage 13 distribution fix moved only the
+	# modifier label to -0.10, leaving physically rolling columns labelled none.
+	#
+	# The shipping Stage 13 terrain now stays on the base-height path through the
+	# shared -0.10 boundary, then smoothly ramps toward the existing rolling target
+	# between -0.10 and the accepted plateau boundary at STAGE2_ROLLING_END. This
+	# physically opens the complained-about -0.28..-0.10 band without changing
+	# plateau, mountain, valley, continentalness, hydrology, or world-height rules.
+	var c: float = clampf(fields.x, -1.0, 1.0)
+	var structure: float = clampf(fields.y, -1.0, 1.0)
+	var shaped_continent: float = c * 0.35 + c * c * c * 0.65
+	var base_height: float = (
+		STAGE2_CONTINENTAL_BASE_HEIGHT
+		+ shaped_continent * STAGE2_CONTINENTAL_HEIGHT_SCALE
+	)
+	if c < STAGE2_OCEAN_SHELF_START:
+		var basin_t: float = clampf(
+			(STAGE2_OCEAN_SHELF_START - c)
+			/ (STAGE2_OCEAN_SHELF_START - STAGE2_OCEAN_BASIN_FULL),
+			0.0,
+			1.0
+		)
+		basin_t = basin_t * basin_t * (3.0 - 2.0 * basin_t)
+		base_height -= basin_t * STAGE2_OCEAN_BASIN_DEPTH
+
+	if structure <= STAGE13_FLAT_TERRAIN_MAX:
+		return clampi(roundi(base_height), 3, STAGE2_SAFE_TERRAIN_TOP)
+
+	var rolling_target: float = base_height + 2.0 + absf(c) * STAGE2_ROLLING_RISE
+	if structure <= STAGE2_ROLLING_END:
+		var terrain_t: float = clampf(
+			(structure - STAGE13_FLAT_TERRAIN_MAX)
+			/ (STAGE2_ROLLING_END - STAGE13_FLAT_TERRAIN_MAX),
+			0.0,
+			1.0
+		)
+		terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+		return clampi(
+			roundi(lerpf(base_height, rolling_target, terrain_t)),
+			3,
+			STAGE2_SAFE_TERRAIN_TOP
+		)
+
+	var upland_target: float = base_height + 6.0 + STAGE2_UPLAND_RISE
+	if structure < STAGE2_MOUNTAIN_START:
+		var terrain_t: float = clampf(
+			(structure - STAGE2_ROLLING_END)
+			/ (STAGE2_MOUNTAIN_START - STAGE2_ROLLING_END),
+			0.0,
+			1.0
+		)
+		terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+		return clampi(
+			roundi(lerpf(rolling_target, upland_target, terrain_t)),
+			3,
+			STAGE2_SAFE_TERRAIN_TOP
+		)
+
+	var ridge_base: float = 1.0 - absf(c)
+	var ridge: float = ridge_base * ridge_base
+	var mountain_target: float = (
+		base_height
+		+ STAGE2_MOUNTAIN_BASE_RISE
+		+ ridge * STAGE2_MOUNTAIN_RIDGE_RISE
+		- (1.0 - ridge) * STAGE2_VALLEY_CUT
+	)
+	if structure < STAGE2_MOUNTAIN_FULL:
+		var terrain_t: float = clampf(
+			(structure - STAGE2_MOUNTAIN_START)
+			/ (STAGE2_MOUNTAIN_FULL - STAGE2_MOUNTAIN_START),
+			0.0,
+			1.0
+		)
+		terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+		return clampi(
+			roundi(lerpf(upland_target, mountain_target, terrain_t)),
+			3,
+			STAGE2_SAFE_TERRAIN_TOP
+		)
+
+	return clampi(roundi(mountain_target), 3, STAGE2_SAFE_TERRAIN_TOP)
 
 
 func stage9_terrain_modifier_from_fields(
@@ -21,7 +111,7 @@ func stage9_terrain_modifier_from_fields(
 		return TERRAIN_MODIFIER_MOUNTAIN
 	if terrain_structure >= STAGE9_PLATEAU_STRUCTURE_MIN:
 		return TERRAIN_MODIFIER_PLATEAU
-	if terrain_structure >= STAGE13_HILL_STRUCTURE_MIN:
+	if terrain_structure > STAGE13_FLAT_TERRAIN_MAX:
 		return TERRAIN_MODIFIER_HILL
 	return TERRAIN_MODIFIER_NONE
 
