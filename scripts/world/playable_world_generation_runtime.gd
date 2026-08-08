@@ -1,23 +1,21 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
-const SHIPPING_STAGE7_DATA := preload("res://scripts/world/playable_world_stage7_biome_data.gd")
-const SHIPPING_STAGE7_CACHE := preload("res://scripts/world/playable_world_stage7_cache_fast.gd")
+const SHIPPING_STAGE8_DATA := preload("res://scripts/world/playable_world_stage8_biome_data.gd")
+const SHIPPING_STAGE8_CACHE := preload("res://scripts/world/playable_world_stage8_cache_fast.gd")
+const SHIPPING_STAGE8_MESHER := preload("res://scripts/world/playable_world_stage8_mesher.gd")
 const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
-const SHIPPING_STAGE6_MESHER := preload("res://scripts/world/playable_world_stage6_mesher.gd")
 
-# Stable public runtime path. Stage 7 preserves the accepted Stage 6 terrain and
-# hydrology cache, then replaces only biome IDs using explicit terrain/water/
-# climate context and deterministic nearest-prototype classification.
-#
-# Water-aware tree suppression remains a meshing concern and is derived after
-# cache_usec is closed, exactly as in accepted Stage 6.
+# Stable public runtime path. Stage 8 keeps the accepted Stage 2–7 geography and
+# hydrology, replaces only base ecology IDs from already-cached climate, then
+# expresses the admitted ecology set using the current grass/dirt/stone/sand/
+# log/leaf block palette.
 
 func _init() -> void:
-	data = SHIPPING_STAGE7_DATA.new()
+	data = SHIPPING_STAGE8_DATA.new()
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return SHIPPING_STAGE7_CACHE.build(coord, data)
+	return SHIPPING_STAGE8_CACHE.build(coord, data)
 
 
 static func _stage6_blocked_tree_columns(
@@ -67,23 +65,26 @@ static func _stage3_worker_build_chunk(
 	result_key: String
 ) -> void:
 	var started_usec := Time.get_ticks_usec()
-	var sampler = SHIPPING_STAGE7_DATA.new()
+	var sampler = SHIPPING_STAGE8_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = SHIPPING_STAGE7_CACHE.build(coord, sampler)
+	var caches: Dictionary = SHIPPING_STAGE8_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
+	var water_types: PackedByteArray = caches.get("stage7_water_types", PackedByteArray())
 	var mesh_height := STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot)
 	var mesh_started_usec := Time.get_ticks_usec()
 	var blocked_tree_columns := _stage6_blocked_tree_columns(coord, caches, sampler)
-	var mesh_data: Dictionary = SHIPPING_STAGE6_MESHER.build(
+	var mesh_data: Dictionary = SHIPPING_STAGE8_MESHER.build(
 		coord,
 		heights,
 		overrides_snapshot,
 		12,
 		mesh_height,
-		SHIPPING_STAGE7_DATA.SEA_LEVEL,
+		SHIPPING_STAGE8_DATA.SEA_LEVEL,
 		biomes,
+		water_types,
+		sampler,
 		blocked_tree_columns
 	)
 	var result := {
