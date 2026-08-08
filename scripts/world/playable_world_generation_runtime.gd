@@ -1,6 +1,7 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
 const SHIPPING_STAGE10_DATA := preload("res://scripts/world/playable_world_stage10_region_data.gd")
+const SHIPPING_STAGE9_CACHE := preload("res://scripts/world/playable_world_stage9_cache_fast.gd")
 const SHIPPING_STAGE10_CACHE := preload("res://scripts/world/playable_world_stage10_cache_fast.gd")
 const SHIPPING_STAGE10_MESHER := preload("res://scripts/world/playable_world_stage10_mesher.gd")
 const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
@@ -9,13 +10,15 @@ const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world
 # base ecology and terrain modifiers. Climate-boundary metadata affects only
 # vegetation/ground expression, so it is derived after the hard generation-cache
 # timer and counted as mesh preparation instead of inflating world generation.
+# The hard cache calls the accepted Stage 9 implementation directly; Stage 10's
+# cache helper owns transition preparation only, avoiding a no-op wrapper dispatch.
 
 func _init() -> void:
 	data = SHIPPING_STAGE10_DATA.new()
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return SHIPPING_STAGE10_CACHE.build(coord, data)
+	return SHIPPING_STAGE9_CACHE.build(coord, data)
 
 
 static func _stage6_blocked_tree_columns(
@@ -67,7 +70,7 @@ static func _stage3_worker_build_chunk(
 	var started_usec := Time.get_ticks_usec()
 	var sampler = SHIPPING_STAGE10_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = SHIPPING_STAGE10_CACHE.build(coord, sampler)
+	var caches: Dictionary = SHIPPING_STAGE9_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
