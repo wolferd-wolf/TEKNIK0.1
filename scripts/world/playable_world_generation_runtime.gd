@@ -1,22 +1,24 @@
 extends "res://scripts/world/playable_world_stage11_generation_runtime.gd"
 
-const SHIPPING_STAGE11_DATA := preload("res://scripts/world/playable_world_stage11_water_biome_data.gd")
-const SHIPPING_STAGE10_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage10_generation_cache_fast.gd")
+const STAGE12_DATA := preload("res://scripts/world/playable_world_stage11_water_biome_data.gd")
+const STAGE12_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage10_generation_cache_fast.gd")
 const SHIPPING_STAGE12_CACHE := preload("res://scripts/world/playable_world_stage12_cache_fast.gd")
 const SHIPPING_STAGE12_MESHER := preload("res://scripts/world/playable_world_stage12_mesher.gd")
 const FROZEN_STAGE11_RUNTIME := preload("res://scripts/world/playable_world_stage11_generation_runtime.gd")
-const STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
+const STAGE12_STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
 # Stable public Stage 12 runtime. The hard generation/cache path remains the
 # exact accepted Stage 10 cache used by Stage 11. Stage 12 only reduces
 # post-generation expression preparation and mesher bookkeeping overhead.
+# build_expression_codes internally preserves the accepted build_transition_codes
+# + build_hydrology_codes contract from Stage 11.
 
 func _init() -> void:
-	data = SHIPPING_STAGE11_DATA.new()
+	data = STAGE12_DATA.new()
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return SHIPPING_STAGE10_GENERATION_CACHE.build(coord, data)
+	return STAGE12_GENERATION_CACHE.build(coord, data)
 
 
 static func _stage3_worker_build_chunk(
@@ -28,9 +30,9 @@ static func _stage3_worker_build_chunk(
 	result_key: String
 ) -> void:
 	var started_usec := Time.get_ticks_usec()
-	var sampler = SHIPPING_STAGE11_DATA.new()
+	var sampler = STAGE12_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = SHIPPING_STAGE10_GENERATION_CACHE.build(coord, sampler)
+	var caches: Dictionary = STAGE12_GENERATION_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
@@ -40,8 +42,8 @@ static func _stage3_worker_build_chunk(
 		PackedByteArray()
 	)
 	var mesh_height := mini(
-		SHIPPING_STAGE11_DATA.OVERHAUL_WORLD_HEIGHT,
-		STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
+		STAGE12_DATA.OVERHAUL_WORLD_HEIGHT,
+		STAGE12_STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
 	)
 	var mesh_started_usec := Time.get_ticks_usec()
 	var expression_codes: Dictionary = SHIPPING_STAGE12_CACHE.build_expression_codes(
@@ -67,7 +69,7 @@ static func _stage3_worker_build_chunk(
 		overrides_snapshot,
 		12,
 		mesh_height,
-		SHIPPING_STAGE11_DATA.SEA_LEVEL,
+		STAGE12_DATA.SEA_LEVEL,
 		biomes,
 		water_types,
 		terrain_modifiers,
