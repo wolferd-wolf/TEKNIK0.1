@@ -72,7 +72,12 @@ static func _stage3_worker_build_chunk(
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
 	var water_types: PackedByteArray = caches.get("stage7_water_types", PackedByteArray())
-	var mesh_height := STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot)
+	# Stage 1's dynamic ceiling reserved the historical 4-block trunk + one
+	# canopy layer. Stage 8's Dense/Cold trees can reach two blocks higher.
+	var mesh_height := mini(
+		SHIPPING_STAGE8_DATA.OVERHAUL_WORLD_HEIGHT,
+		STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
+	)
 	var mesh_started_usec := Time.get_ticks_usec()
 	var blocked_tree_columns := _stage6_blocked_tree_columns(coord, caches, sampler)
 	var mesh_data: Dictionary = SHIPPING_STAGE8_MESHER.build(
