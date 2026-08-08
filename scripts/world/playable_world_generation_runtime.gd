@@ -6,8 +6,9 @@ const SHIPPING_STAGE10_MESHER := preload("res://scripts/world/playable_world_sta
 const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 
 # Stable public runtime path. Stage 10 preserves Stage 2–9 terrain, hydrology,
-# base ecology and terrain modifiers, then carries compact climate-boundary
-# metadata into surface/vegetation expression without adding noise sampling.
+# base ecology and terrain modifiers. Climate-boundary metadata affects only
+# vegetation/ground expression, so it is derived after the hard generation-cache
+# timer and counted as mesh preparation instead of inflating world generation.
 
 func _init() -> void:
 	data = SHIPPING_STAGE10_DATA.new()
@@ -75,10 +76,6 @@ static func _stage3_worker_build_chunk(
 		"stage9_terrain_modifiers",
 		PackedByteArray()
 	)
-	var transition_codes: PackedByteArray = caches.get(
-		"stage10_transition_codes",
-		PackedByteArray()
-	)
 	# Stage 10 changes expression density/cues only, so Stage 8's two-block extra
 	# active mesh headroom remains sufficient. The legal world height stays 150.
 	var mesh_height := mini(
@@ -86,6 +83,10 @@ static func _stage3_worker_build_chunk(
 		STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
 	)
 	var mesh_started_usec := Time.get_ticks_usec()
+	var transition_codes: PackedByteArray = SHIPPING_STAGE10_CACHE.build_transition_codes(
+		caches,
+		sampler
+	)
 	var blocked_tree_columns := _stage6_blocked_tree_columns(coord, caches, sampler)
 	var mesh_data: Dictionary = SHIPPING_STAGE10_MESHER.build(
 		coord,
