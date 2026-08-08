@@ -201,6 +201,7 @@ protected:
 		ClassDB::bind_method(D_METHOD("get_seed"), &TeknikCarpathianSampler::get_seed);
 		ClassDB::bind_method(D_METHOD("sample_height", "x", "z"), &TeknikCarpathianSampler::sample_height);
 		ClassDB::bind_method(D_METHOD("generate_grid", "origin_x", "origin_z", "width", "depth", "step"), &TeknikCarpathianSampler::generate_grid, DEFVAL(1));
+		ClassDB::bind_method(D_METHOD("generate_grid_shifted", "origin_x", "origin_z", "width", "depth", "step", "height_offset", "min_height", "max_height"), &TeknikCarpathianSampler::generate_grid_shifted);
 		ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"), "set_seed", "get_seed");
 	}
 
@@ -229,6 +230,41 @@ public:
 			for (int x = 0; x < w; ++x) {
 				const int wx = static_cast<int>(origin_x) + x * spacing;
 				out[z * w + x] = surface_height_probe12(wx, wz, world_seed);
+			}
+		}
+		return result;
+	}
+
+	PackedInt32Array generate_grid_shifted(
+		int64_t origin_x,
+		int64_t origin_z,
+		int64_t width,
+		int64_t depth,
+		int64_t step,
+		int64_t height_offset,
+		int64_t min_height,
+		int64_t max_height) const {
+		const int w = std::clamp(static_cast<int>(width), 1, 4096);
+		const int d = std::clamp(static_cast<int>(depth), 1, 4096);
+		const int spacing = std::clamp(static_cast<int>(step), 1, 4096);
+		const int offset = static_cast<int>(height_offset);
+		int min_h = static_cast<int>(min_height);
+		int max_h = static_cast<int>(max_height);
+		if (min_h > max_h) {
+			std::swap(min_h, max_h);
+		}
+		PackedInt32Array result;
+		result.resize(w * d);
+		int32_t *out = result.ptrw();
+		for (int z = 0; z < d; ++z) {
+			const int wz = static_cast<int>(origin_z) + z * spacing;
+			for (int x = 0; x < w; ++x) {
+				const int wx = static_cast<int>(origin_x) + x * spacing;
+				out[z * w + x] = std::clamp(
+					surface_height_probe12(wx, wz, world_seed) + offset,
+					min_h,
+					max_h
+				);
 			}
 		}
 		return result;
