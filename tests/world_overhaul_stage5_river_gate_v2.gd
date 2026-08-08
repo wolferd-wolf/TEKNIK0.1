@@ -155,12 +155,22 @@ func _water(d,rc:Vector2i) -> Dictionary:
 			if info.x==DATA.WATER_RIVER: river+=1; if info.y>DATA.SEA_LEVEL: above+=1
 	var mesh:ArrayMesh=WATER.build_water_mesh(d,rc,SIZE)
 	if mesh==null: _fail("Inland river chunk has no water mesh"); return {}
-	var arr:Array=mesh.surface_get_arrays(0); var vertices:PackedVector3Array=arr[Mesh.ARRAY_VERTEX]; var indices:PackedInt32Array=arr[Mesh.ARRAY_INDEX]
-	if vertices.size()!=wet*4 or indices.size()!=wet*6: _fail("River water mesh cell count mismatch")
+	var arr:Array=mesh.surface_get_arrays(0)
+	var vertices:PackedVector3Array=arr[Mesh.ARRAY_VERTEX]
+	var normals:PackedVector3Array=arr[Mesh.ARRAY_NORMAL]
+	var indices:PackedInt32Array=arr[Mesh.ARRAY_INDEX]
+	var top_vertices:=0
+	var side_vertices:=0
+	for normal:Vector3 in normals:
+		if normal.y>0.9: top_vertices+=1
+		elif absf(normal.y)<0.1: side_vertices+=1
+	if top_vertices!=wet*4: _fail("River water top-face count mismatch")
+	if indices.size()<wet*6 or indices.size()%6!=0: _fail("River water voxel index topology is invalid")
+	if side_vertices==0: _fail("River water mesh has no exposed voxel side faces")
 	var maxy:float=-999999.0
 	for v:Vector3 in vertices: maxy=maxf(maxy,v.y)
 	if river==0 or above==0 or maxy<=float(DATA.SEA_LEVEL)+0.5: _fail("River water is flattened to ocean plane")
-	return {"water_cells":wet,"river_cells":river,"above_sea":above,"max_vertex_y":maxy}
+	return {"water_cells":wet,"river_cells":river,"above_sea":above,"max_vertex_y":maxy,"top_vertices":top_vertices,"side_vertices":side_vertices}
 
 func _bench(r) -> Dictionary:
 	var coords:Array[Vector2i]=[Vector2i(-4,-2),Vector2i(-2,1),Vector2i(0,0),Vector2i(1,0),Vector2i(2,-1),Vector2i(4,2),Vector2i(8,-4),Vector2i(11,-3),Vector2i(12,-2),Vector2i(13,-2),Vector2i(14,-1),Vector2i(15,0),Vector2i(16,1),Vector2i(18,-4),Vector2i(20,2),Vector2i(-8,5)]
