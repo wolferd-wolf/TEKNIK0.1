@@ -7,9 +7,12 @@ const SHIPPING_STAGE12_MESHER := preload("res://scripts/world/playable_world_sta
 const FROZEN_STAGE11_RUNTIME := preload("res://scripts/world/playable_world_stage11_generation_runtime.gd")
 const STAGE12_STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
-# Frozen accepted Stage 12 runtime. Stage 13 intentionally changes river
-# geography, so Stage 12's output-preserving oracle must no longer point at the
-# moving public runtime.
+# Stable public Stage 12 runtime. The hard generation/cache path remains the
+# exact accepted Stage 10 cache used by Stage 11 (the frozen path was
+# SHIPPING_STAGE10_GENERATION_CACHE.build). Stage 12 only reduces post-generation
+# expression preparation and mesher bookkeeping overhead.
+# build_expression_codes internally preserves the accepted build_transition_codes
+# + build_hydrology_codes contract from Stage 11.
 
 func _init() -> void:
 	data = STAGE12_DATA.new()
@@ -35,17 +38,31 @@ static func _stage3_worker_build_chunk(
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
 	var water_types: PackedByteArray = caches.get("stage7_water_types", PackedByteArray())
-	var terrain_modifiers: PackedByteArray = caches.get("stage9_terrain_modifiers", PackedByteArray())
+	var terrain_modifiers: PackedByteArray = caches.get(
+		"stage9_terrain_modifiers",
+		PackedByteArray()
+	)
 	var mesh_height := mini(
 		STAGE12_DATA.OVERHAUL_WORLD_HEIGHT,
 		STAGE12_STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
 	)
 	var mesh_started_usec := Time.get_ticks_usec()
-	var expression_codes: Dictionary = SHIPPING_STAGE12_CACHE.build_expression_codes(caches, sampler)
-	var transition_codes: PackedByteArray = expression_codes.get("transition_codes", PackedByteArray())
-	var hydrology_codes: PackedByteArray = expression_codes.get("hydrology_codes", PackedByteArray())
+	var expression_codes: Dictionary = SHIPPING_STAGE12_CACHE.build_expression_codes(
+		caches,
+		sampler
+	)
+	var transition_codes: PackedByteArray = expression_codes.get(
+		"transition_codes",
+		PackedByteArray()
+	)
+	var hydrology_codes: PackedByteArray = expression_codes.get(
+		"hydrology_codes",
+		PackedByteArray()
+	)
 	var blocked_tree_columns: PackedInt32Array = FROZEN_STAGE11_RUNTIME._stage6_blocked_tree_columns(
-		coord, caches, sampler
+		coord,
+		caches,
+		sampler
 	)
 	var mesh_data: Dictionary = SHIPPING_STAGE12_MESHER.build(
 		coord,
