@@ -192,12 +192,16 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 				return hash_value % 5 != 0
 			return baseline_grid and hash_value % 4 != 0
 		BIOME_DRY_GRASSLAND:
+			if stage8_dry_surface_is_sand(x, z):
+				return false
 			return (
 				posmod(x, STAGE8_DRY_TREE_SPACING) == STAGE8_DRY_TREE_OFFSET
 				and posmod(z, STAGE8_DRY_TREE_SPACING) == STAGE8_DRY_TREE_OFFSET
 				and hash_value % 2 == 0
 			)
 		BIOME_COLD_FOREST:
+			if stage8_cold_surface_is_stone(x, z):
+				return false
 			return (
 				posmod(x, STAGE8_COLD_TREE_SPACING) == STAGE8_COLD_TREE_OFFSET
 				and posmod(z, STAGE8_COLD_TREE_SPACING) == STAGE8_COLD_TREE_OFFSET
