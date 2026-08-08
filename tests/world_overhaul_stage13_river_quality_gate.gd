@@ -99,8 +99,25 @@ func _determinism(data) -> Dictionary:
 	return {"chunks": coords.size(), "arrays_compared": arrays}
 
 
+func _find_river_chunk(data) -> Vector2i:
+	for lane in range(-4, 5):
+		for world_z in range(-512, 513, 16):
+			var world_x := roundi(data.stage13_river_center_x(lane, float(world_z)))
+			var info: Vector2i = data.water_info_at(world_x, world_z)
+			if info.x == data.WATER_RIVER:
+				return Vector2i(
+					floori(float(world_x) / float(CHUNK_SIZE)),
+					floori(float(world_z) / float(CHUNK_SIZE))
+				)
+	_fail("Stage 13 river fixture search found no physical river along audited centerlines")
+	return Vector2i.ZERO
+
+
 func _direct_equivalence(data) -> Dictionary:
 	var coords: Array[Vector2i] = [Vector2i(-7, -5), Vector2i(0, 0), Vector2i(11, -9), Vector2i(23, 17)]
+	var river_coord := _find_river_chunk(data)
+	if not coords.has(river_coord):
+		coords.append(river_coord)
 	var columns := 0
 	var river_columns := 0
 	var water_columns := 0
@@ -127,8 +144,14 @@ func _direct_equivalence(data) -> Dictionary:
 					river_columns += 1
 				columns += 1
 	if river_columns == 0:
-		_fail("Stage 13 direct/cache equivalence fixtures did not exercise a river")
-	return {"chunks": coords.size(), "columns": columns, "water_columns": water_columns, "river_columns": river_columns}
+		_fail("Stage 13 direct/cache equivalence fixture search did not exercise a river")
+	return {
+		"chunks": coords.size(),
+		"columns": columns,
+		"water_columns": water_columns,
+		"river_columns": river_columns,
+		"river_chunk": river_coord,
+	}
 
 
 func _seam_checks(data) -> Dictionary:
