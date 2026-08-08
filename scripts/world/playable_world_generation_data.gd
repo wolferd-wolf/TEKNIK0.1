@@ -1,4 +1,4 @@
-extends "res://scripts/world/playable_world_stage10_region_data.gd"
+extends "res://scripts/world/playable_world_stage11_water_biome_data.gd"
 
 # Stable public generation-data facade. Stage-specific historical implementations
 # live in playable_world_stage{N}_*.gd files; this path always represents the
