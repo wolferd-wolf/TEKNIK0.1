@@ -1,0 +1,205 @@
+name: TEKNIK Physical Flatness Cause Diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flatness-cause:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Godot 4.3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+      - name: Create cause diagnostic
+        shell: bash
+        run: |
+          cat > tests/.flatness_cause_diagnostic.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const AUDIT_DATA := preload("res://tests/world_overhaul_stage13_audit_data.gd")
+          const CACHE := preload("res://scripts/world/playable_world_stage13_generation_cache_fast.gd")
+          const CHUNK_SIZE := 12
+          const PADDING := 2
+          const WIDTH := 16
+          const FIELD_STRIDE := 6
+          const RADIUS := 48
+          const SEEDS := [734921, 19088743, 11235813]
+          const MAX_SLOPE := 150
+
+          func _init() -> void:
+              var combined: Dictionary = _new_acc()
+              var per_seed: Array = []
+              for seed_value in SEEDS:
+                  var acc: Dictionary = _scan(int(seed_value))
+                  per_seed.append(_summary(acc))
+                  _merge(combined, acc)
+              print("FLATNESS_CAUSE_JSON=" + JSON.stringify({"per_seed": per_seed, "aggregate": _summary(combined)}))
+              print("FLATNESS_CAUSE_DIAGNOSTIC_PASS")
+              quit(0)
+
+          func _hist() -> Array:
+              var values: Array = []
+              for _i in range(MAX_SLOPE + 1): values.append(0)
+              return values
+
+          func _new_acc() -> Dictionary:
+              return {
+                  "none": 0,
+                  "same_none_5": 0,
+                  "pure_provisional_5": 0,
+                  "post_shaped_5": 0,
+                  "final_hist": _hist(),
+                  "provisional_hist": _hist(),
+                  "same_none_final_hist": _hist(),
+                  "pure_final_hist": _hist(),
+                  "pure_provisional_hist": _hist(),
+                  "post_shaped_final_hist": _hist(),
+              }
+
+          func _provisional_at(fields: PackedFloat32Array, index: int, sampler) -> int:
+              var field: int = index * FIELD_STRIDE
+              return int(sampler.build_provisional_terrain(Vector4(float(fields[field]), float(fields[field + 1]), 0.0, 0.0)))
+
+          func _slope(values: PackedInt32Array, index: int) -> int:
+              var h: int = int(values[index])
+              var slope: int = 0
+              slope = maxi(slope, absi(int(values[index - 1]) - h))
+              slope = maxi(slope, absi(int(values[index + 1]) - h))
+              slope = maxi(slope, absi(int(values[index - WIDTH]) - h))
+              slope = maxi(slope, absi(int(values[index + WIDTH]) - h))
+              return clampi(slope, 0, MAX_SLOPE)
+
+          func _provisional_slope(fields: PackedFloat32Array, index: int, sampler) -> int:
+              var h: int = _provisional_at(fields, index, sampler)
+              var slope: int = 0
+              slope = maxi(slope, absi(_provisional_at(fields, index - 1, sampler) - h))
+              slope = maxi(slope, absi(_provisional_at(fields, index + 1, sampler) - h))
+              slope = maxi(slope, absi(_provisional_at(fields, index - WIDTH, sampler) - h))
+              slope = maxi(slope, absi(_provisional_at(fields, index + WIDTH, sampler) - h))
+              return clampi(slope, 0, MAX_SLOPE)
+
+          func _scan(seed_value: int) -> Dictionary:
+              var sampler = AUDIT_DATA.new()
+              sampler.configure_audit_seed(seed_value)
+              var acc: Dictionary = _new_acc()
+              for cz in range(-RADIUS, RADIUS):
+                  for cx in range(-RADIUS, RADIUS):
+                      var cache: Dictionary = CACHE.build(Vector2i(cx, cz), sampler)
+                      var fields: PackedFloat32Array = cache["world_fields"]
+                      var heights: PackedInt32Array = cache["heights"]
+                      var waters: PackedByteArray = cache["stage7_water_types"]
+                      var mods: PackedByteArray = cache["stage9_terrain_modifiers"]
+                      for lz in range(CHUNK_SIZE):
+                          var z: int = lz + PADDING
+                          for lx in range(CHUNK_SIZE):
+                              var x: int = lx + PADDING
+                              var i: int = z * WIDTH + x
+                              if int(waters[i]) != sampler.WATER_NONE or int(mods[i]) != sampler.TERRAIN_MODIFIER_NONE:
+                                  continue
+                              acc["none"] = int(acc["none"]) + 1
+                              var final_slope: int = _slope(heights, i)
+                              var provisional_slope: int = _provisional_slope(fields, i, sampler)
+                              var final_hist: Array = acc["final_hist"]
+                              var provisional_hist: Array = acc["provisional_hist"]
+                              final_hist[final_slope] = int(final_hist[final_slope]) + 1
+                              provisional_hist[provisional_slope] = int(provisional_hist[provisional_slope]) + 1
+
+                              var neighbors: Array[int] = [i, i - 1, i + 1, i - WIDTH, i + WIDTH]
+                              var same_none: bool = true
+                              var pure: bool = true
+                              for n in neighbors:
+                                  if int(waters[n]) != sampler.WATER_NONE or int(mods[n]) != sampler.TERRAIN_MODIFIER_NONE:
+                                      same_none = false
+                                  if int(heights[n]) != _provisional_at(fields, n, sampler):
+                                      pure = false
+                              if same_none:
+                                  acc["same_none_5"] = int(acc["same_none_5"]) + 1
+                                  var same_hist: Array = acc["same_none_final_hist"]
+                                  same_hist[final_slope] = int(same_hist[final_slope]) + 1
+                              if pure:
+                                  acc["pure_provisional_5"] = int(acc["pure_provisional_5"]) + 1
+                                  var pure_final: Array = acc["pure_final_hist"]
+                                  var pure_provisional: Array = acc["pure_provisional_hist"]
+                                  pure_final[final_slope] = int(pure_final[final_slope]) + 1
+                                  pure_provisional[provisional_slope] = int(pure_provisional[provisional_slope]) + 1
+                              else:
+                                  acc["post_shaped_5"] = int(acc["post_shaped_5"]) + 1
+                                  var post_hist: Array = acc["post_shaped_final_hist"]
+                                  post_hist[final_slope] = int(post_hist[final_slope]) + 1
+              return acc
+
+          func _merge(target: Dictionary, source: Dictionary) -> void:
+              for key in ["none", "same_none_5", "pure_provisional_5", "post_shaped_5"]:
+                  target[key] = int(target[key]) + int(source[key])
+              for key in ["final_hist", "provisional_hist", "same_none_final_hist", "pure_final_hist", "pure_provisional_hist", "post_shaped_final_hist"]:
+                  var a: Array = target[key]
+                  var b: Array = source[key]
+                  for i in range(a.size()): a[i] = int(a[i]) + int(b[i])
+
+          func _p95(hist_value, total: int) -> int:
+              if total <= 0: return 0
+              var hist: Array = hist_value
+              var target: int = ceili(float(total) * 0.95)
+              var sum: int = 0
+              for i in range(hist.size()):
+                  sum += int(hist[i])
+                  if sum >= target: return i
+              return hist.size() - 1
+
+          func _le1(hist_value, total: int) -> float:
+              if total <= 0: return 0.0
+              var hist: Array = hist_value
+              return 100.0 * float(int(hist[0]) + int(hist[1])) / float(total)
+
+          func _summary(acc: Dictionary) -> Dictionary:
+              return {
+                  "none_columns": int(acc["none"]),
+                  "final_slope_p95": _p95(acc["final_hist"], int(acc["none"])),
+                  "final_slope_le1_percent": _le1(acc["final_hist"], int(acc["none"])),
+                  "provisional_slope_p95": _p95(acc["provisional_hist"], int(acc["none"])),
+                  "provisional_slope_le1_percent": _le1(acc["provisional_hist"], int(acc["none"])),
+                  "same_none_5_columns": int(acc["same_none_5"]),
+                  "same_none_final_slope_p95": _p95(acc["same_none_final_hist"], int(acc["same_none_5"])),
+                  "same_none_final_slope_le1_percent": _le1(acc["same_none_final_hist"], int(acc["same_none_5"])),
+                  "pure_provisional_5_columns": int(acc["pure_provisional_5"]),
+                  "pure_final_slope_p95": _p95(acc["pure_final_hist"], int(acc["pure_provisional_5"])),
+                  "pure_final_slope_le1_percent": _le1(acc["pure_final_hist"], int(acc["pure_provisional_5"])),
+                  "pure_provisional_slope_p95": _p95(acc["pure_provisional_hist"], int(acc["pure_provisional_5"])),
+                  "pure_provisional_slope_le1_percent": _le1(acc["pure_provisional_hist"], int(acc["pure_provisional_5"])),
+                  "post_shaped_5_columns": int(acc["post_shaped_5"]),
+                  "post_shaped_final_slope_p95": _p95(acc["post_shaped_final_hist"], int(acc["post_shaped_5"])),
+                  "post_shaped_final_slope_le1_percent": _le1(acc["post_shaped_final_hist"], int(acc["post_shaped_5"])),
+              }
+          GDSCRIPT
+
+      - name: Run cause diagnostic
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-flatness-cause" timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/.flatness_cause_diagnostic.gd 2>&1 | tee artifacts/flatness-cause.log
+          grep -Fq 'FLATNESS_CAUSE_DIAGNOSTIC_PASS' artifacts/flatness-cause.log
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: physical-flatness-cause-diagnostic
+          path: artifacts/
+          if-no-files-found: error
