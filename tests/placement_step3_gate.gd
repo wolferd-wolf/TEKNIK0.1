@@ -137,18 +137,27 @@ func _run_gate() -> void:
 	var entry_before: Dictionary = manager.get_playable_world_chunk_entry(fixture_chunk)
 	var root_before := entry_before.get("root") as Node3D
 	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
-	Input.action_press("place_block", 1.0)
-	# Keep the synthetic action pressed across two process-frame boundaries.
-	# A SceneTree coroutine waiting on `process_frame` can resume before node
-	# `_process()` callbacks in that frame; releasing after only one boundary can
-	# therefore erase `is_action_just_pressed()` before the shipping controller
-	# observes it. This exercises the real InputMap path without changing the
-	# placement contract or calling placement directly.
+
+	# Drive the exact bound desktop input event through Godot's input pipeline.
+	# Direct Input.action_press() mutates action state but does not exercise the
+	# real InputEvent-to-InputMap path and its one-frame edge can be process-order
+	# sensitive in a SceneTree coroutine. The shipping binding is right mouse.
+	var place_press := InputEventMouseButton.new()
+	place_press.button_index = MOUSE_BUTTON_RIGHT
+	place_press.pressed = true
+	place_press.position = Vector2(640.0, 360.0)
+	Input.parse_input_event(place_press)
 	await _wait_frames(2)
-	Input.action_release("place_block")
+	var place_release := InputEventMouseButton.new()
+	place_release.button_index = MOUSE_BUTTON_RIGHT
+	place_release.pressed = false
+	place_release.position = Vector2(640.0, 360.0)
+	Input.parse_input_event(place_release)
+	await _wait_frames(1)
+
 	if manager.get_block_world(placement_coord) != BLOCK_STONE:
-		_fail("place_block action did not write stone to the playable world")
-	if not await _wait_for_atomic_swap(manager, swaps_before, "InputMap placement"):
+		_fail("bound place_block mouse event did not write stone to the playable world")
+	if not await _wait_for_atomic_swap(manager, swaps_before, "bound InputMap placement"):
 		_finish()
 		return
 	_assert_slot(inventory.get_slot(0), BLOCK_STONE, 1, "inventory after placement")
@@ -283,7 +292,12 @@ func _capture_screenshot() -> void:
 
 
 func _finish() -> void:
+	# Release both synthetic action state and the bound mouse event defensively.
 	Input.action_release("place_block")
+	var place_release := InputEventMouseButton.new()
+	place_release.button_index = MOUSE_BUTTON_RIGHT
+	place_release.pressed = false
+	Input.parse_input_event(place_release)
 	if failures.is_empty():
 		quit(0)
 	else:
