@@ -1,0 +1,37 @@
+name: TEKNIK Luanti Carpathian Reference Study
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tools/reference/luanti_carpathian_reference.cpp'
+      - '.github/workflows/luanti-carpathian-reference.yml'
+  workflow_dispatch:
+
+jobs:
+  reference-study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build reference harness
+        run: |
+          mkdir -p build/reference artifacts/carpathian-reference
+          g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Werror \
+            tools/reference/luanti_carpathian_reference.cpp \
+            -o build/reference/luanti_carpathian_reference
+
+      - name: Run exact Carpathian reference study
+        run: |
+          /usr/bin/time -v build/reference/luanti_carpathian_reference artifacts/carpathian-reference \
+            2>&1 | tee artifacts/carpathian-reference/reference.log
+          grep -q 'LUANTI_CARPATHIAN_REFERENCE_COMPLETE' artifacts/carpathian-reference/reference.log
+
+      - name: Upload reference maps and log
+        uses: actions/upload-artifact@v4
+        with:
+          name: luanti-carpathian-reference-study
+          path: artifacts/carpathian-reference/
+          if-no-files-found: error
