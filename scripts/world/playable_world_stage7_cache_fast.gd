@@ -1,198 +1,454 @@
 extends RefCounted
 
-const STAGE6_CACHE := preload("res://scripts/world/playable_world_stage6_generation_cache_fast.gd")
 const CHUNK_SIZE := 12
 const PADDING := 2
-const WIDTH := CHUNK_SIZE + PADDING * 2
 const FIELD_STRIDE := 6
 
 
-static func _smooth01(value: float) -> float:
+static func _smooth(value: float) -> float:
 	var t: float = clampf(value, 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)
 
 
-static func _distance_sq(
-	temperature: float,
-	moisture: float,
-	target: Vector2
-) -> float:
-	var dx: float = temperature - target.x
-	var dy: float = moisture - target.y
-	return dx * dx + dy * dy
-
-
-static func _feature_water_type_at(
-	world_x: int,
-	world_z: int,
-	features: Array
-) -> int:
-	for raw_feature in features:
-		var feature: Dictionary = raw_feature
-		var radius_x: float = float(feature["radius_x"])
-		var radius_z: float = float(feature["radius_z"])
-		var dx: float = float(world_x - int(feature["center_x"])) / radius_x
-		var dz: float = float(world_z - int(feature["center_z"])) / radius_z
-		var water_radius: float = float(feature["water_radius"])
-		if dx * dx + dz * dz <= water_radius * water_radius:
-			return int(feature["type"])
-	return 0
-
-
 static func build(coord: Vector2i, sampler) -> Dictionary:
-	var result: Dictionary = STAGE6_CACHE.build(coord, sampler)
-	var heights: PackedInt32Array = result.get("heights", PackedInt32Array())
-	var fields: PackedFloat32Array = result.get("world_fields", PackedFloat32Array())
-	if heights.size() != WIDTH * WIDTH or fields.size() != WIDTH * WIDTH * FIELD_STRIDE:
-		return result
-
+	var width: int = CHUNK_SIZE + PADDING * 2
+	var count: int = width * width
+	var fields := PackedFloat32Array()
+	var heights := PackedInt32Array()
 	var biomes := PackedByteArray()
 	var water_types := PackedByteArray()
-	var slopes := PackedFloat32Array()
-	var mountain_strengths := PackedFloat32Array()
-	var coast_proximity := PackedFloat32Array()
-	biomes.resize(WIDTH * WIDTH)
-	water_types.resize(WIDTH * WIDTH)
-	slopes.resize(WIDTH * WIDTH)
-	mountain_strengths.resize(WIDTH * WIDTH)
-	coast_proximity.resize(WIDTH * WIDTH)
+	fields.resize(count * FIELD_STRIDE)
+	heights.resize(count)
+	biomes.resize(count)
+	water_types.resize(count)
 
-	var features: Array = result.get("stage6_features", [])
 	var min_x: int = coord.x * CHUNK_SIZE - PADDING
 	var min_z: int = coord.y * CHUNK_SIZE - PADDING
+	var max_x: int = min_x + width - 1
+	var max_z: int = min_z + width - 1
+	var spacing: int = sampler.STAGE3_FIELD_LATTICE_SPACING
+	var reciprocal: float = sampler.STAGE3_FIELD_LATTICE_RECIPROCAL
+	var node_min_x: int = floori(float(min_x) * reciprocal) * spacing
+	var node_min_z: int = floori(float(min_z) * reciprocal) * spacing
+	var node_max_x: int = (floori(float(max_x) * reciprocal) + 1) * spacing
+	var node_max_z: int = (floori(float(max_z) * reciprocal) + 1) * spacing
+	var node_width: int = int((node_max_x - node_min_x) / spacing) + 1
+	var node_height: int = int((node_max_z - node_min_z) / spacing) + 1
 
-	# River row values reuse the accepted Stage 5 graph formula. One meander is
-	# evaluated per Z row; individual columns only pay a periodic-distance check.
+	var warp_reciprocal: float = sampler.STAGE3_WARP_LATTICE_RECIPROCAL
+	var warp_spacing: int = sampler.STAGE3_WARP_LATTICE_SPACING
+	var warp_min_x: int = floori(float(node_min_x) * warp_reciprocal)
+	var warp_min_z: int = floori(float(node_min_z) * warp_reciprocal)
+	var warp_max_x: int = floori(float(node_max_x) * warp_reciprocal) + 1
+	var warp_max_z: int = floori(float(node_max_z) * warp_reciprocal) + 1
+	var warp_width: int = warp_max_x - warp_min_x + 1
+	var warp_height: int = warp_max_z - warp_min_z + 1
+	var warp_nodes := PackedVector2Array()
+	warp_nodes.resize(warp_width * warp_height)
+	for wz in range(warp_height):
+		for wx in range(warp_width):
+			warp_nodes[wz * warp_width + wx] = sampler.stage3_warp_lattice_vector(
+				warp_min_x + wx,
+				warp_min_z + wz
+			)
+
+	var structure_nodes := PackedFloat32Array()
+	structure_nodes.resize(node_width * node_height)
+	for nz in range(node_height):
+		var world_z: int = node_min_z + nz * spacing
+		var lattice_z: int = floori(float(world_z) * warp_reciprocal)
+		var wz: int = lattice_z - warp_min_z
+		var tz: float = _smooth(float(world_z - lattice_z * warp_spacing) * warp_reciprocal)
+		for nx in range(node_width):
+			var world_x: int = node_min_x + nx * spacing
+			var lattice_x: int = floori(float(world_x) * warp_reciprocal)
+			var wx: int = lattice_x - warp_min_x
+			var tx: float = _smooth(float(world_x - lattice_x * warp_spacing) * warp_reciprocal)
+			var nw: Vector2 = warp_nodes[wz * warp_width + wx]
+			var ne: Vector2 = warp_nodes[wz * warp_width + wx + 1]
+			var sw: Vector2 = warp_nodes[(wz + 1) * warp_width + wx]
+			var se: Vector2 = warp_nodes[(wz + 1) * warp_width + wx + 1]
+			var north: Vector2 = nw + (ne - nw) * tx
+			var south: Vector2 = sw + (se - sw) * tx
+			var warp: Vector2 = north + (south - north) * tz
+			structure_nodes[nz * node_width + nx] = sampler.terrain_shape_noise.get_noise_2d(
+				float(world_x) + warp.x,
+				float(world_z) + warp.y
+			)
+
+	var x_node := PackedInt32Array()
+	var x_weight := PackedFloat32Array()
+	var x_world := PackedInt32Array()
+	var z_node := PackedInt32Array()
+	var z_weight := PackedFloat32Array()
+	var z_world := PackedInt32Array()
+	x_node.resize(width)
+	x_weight.resize(width)
+	x_world.resize(width)
+	z_node.resize(width)
+	z_weight.resize(width)
+	z_world.resize(width)
+	for i in range(width):
+		var world_x: int = min_x + i
+		var nx: int = floori(float(world_x - node_min_x) * reciprocal)
+		x_world[i] = world_x
+		x_node[i] = nx
+		x_weight[i] = _smooth(float(world_x - (node_min_x + nx * spacing)) * reciprocal)
+		var world_z: int = min_z + i
+		var nz: int = floori(float(world_z - node_min_z) * reciprocal)
+		z_world[i] = world_z
+		z_node[i] = nz
+		z_weight[i] = _smooth(float(world_z - (node_min_z + nz * spacing)) * reciprocal)
+
+	# Accepted Stage 2 terrain constants.
+	var continental_base: float = sampler.STAGE2_CONTINENTAL_BASE_HEIGHT
+	var continental_scale: float = sampler.STAGE2_CONTINENTAL_HEIGHT_SCALE
+	var shelf_start: float = sampler.STAGE2_OCEAN_SHELF_START
+	var basin_full: float = sampler.STAGE2_OCEAN_BASIN_FULL
+	var basin_depth: float = sampler.STAGE2_OCEAN_BASIN_DEPTH
+	var rolling_start: float = sampler.STAGE2_ROLLING_START
+	var plains_end: float = sampler.STAGE2_PLAINS_END
+	var rolling_end: float = sampler.STAGE2_ROLLING_END
+	var mountain_start: float = sampler.STAGE2_MOUNTAIN_START
+	var mountain_full: float = sampler.STAGE2_MOUNTAIN_FULL
+	var rolling_rise: float = sampler.STAGE2_ROLLING_RISE
+	var upland_rise: float = sampler.STAGE2_UPLAND_RISE
+	var mountain_base_rise: float = sampler.STAGE2_MOUNTAIN_BASE_RISE
+	var mountain_ridge_rise: float = sampler.STAGE2_MOUNTAIN_RIDGE_RISE
+	var valley_cut: float = sampler.STAGE2_VALLEY_CUT
+	var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
+	var basin_reciprocal: float = 1.0 / (shelf_start - basin_full)
+	var plains_blend_reciprocal: float = 1.0 / (plains_end - rolling_start)
+	var upland_blend_reciprocal: float = 1.0 / (mountain_start - rolling_end)
+	var mountain_blend_reciprocal: float = 1.0 / (mountain_full - mountain_start)
+
+	# Accepted Stage 4 ocean/coast constants.
+	var ocean_start: float = sampler.STAGE4_OCEAN_WATER_START
+	var ocean_full: float = sampler.STAGE4_OCEAN_BASIN_FULL
+	var coast_end: float = sampler.STAGE4_COAST_INLAND_END
+	var ocean_edge_floor: int = sampler.STAGE4_OCEAN_EDGE_FLOOR
+	var ocean_core_floor: int = sampler.STAGE4_OCEAN_CORE_FLOOR
+	var sea_level: int = sampler.SEA_LEVEL
+	var ocean_reciprocal: float = 1.0 / (ocean_start - ocean_full)
+	var coast_reciprocal: float = 1.0 / (coast_end - ocean_start)
+
+	# Accepted Stage 5 river constants and the tiny per-chunk meander cache.
 	var river_spacing: float = sampler.STAGE5_RIVER_SPACING
 	var river_half_spacing: float = sampler.STAGE5_RIVER_HALF_SPACING
+	var river_lattice_spacing: int = sampler.STAGE5_RIVER_LATTICE_SPACING
+	var river_lattice_reciprocal: float = sampler.STAGE5_RIVER_LATTICE_RECIPROCAL
 	var river_diagonal_slope: float = sampler.STAGE5_RIVER_DIAGONAL_SLOPE
 	var river_meander_amplitude: float = sampler.STAGE5_RIVER_MEANDER_AMPLITUDE
-	var river_width_range: float = sampler.STAGE5_WIDTH_CONTINENTAL_RANGE
-	var river_coast_width: float = sampler.STAGE5_COAST_WIDTH_SCALE
-	var river_inland_width: float = sampler.STAGE5_INLAND_WIDTH_SCALE
 	var channel_inner: float = sampler.STAGE5_CHANNEL_INNER
 	var channel_outer: float = sampler.STAGE5_CHANNEL_OUTER
 	var channel_cutoff: float = sampler.STAGE5_CHANNEL_WATER_CUTOFF
-	var ocean_start: float = sampler.STAGE4_OCEAN_WATER_START
-	var coast_end: float = sampler.STAGE4_COAST_INLAND_END
-	var sea_level: int = sampler.SEA_LEVEL
+	var valley_inner: float = sampler.STAGE5_VALLEY_INNER
+	var valley_outer: float = sampler.STAGE5_VALLEY_OUTER
+	var coast_width: float = sampler.STAGE5_COAST_WIDTH_SCALE
+	var inland_width: float = sampler.STAGE5_INLAND_WIDTH_SCALE
+	var width_range: float = sampler.STAGE5_WIDTH_CONTINENTAL_RANGE
+	var max_carve: int = sampler.STAGE5_MAX_VALLEY_CARVE
+	var channel_depth: int = sampler.STAGE5_CHANNEL_DEPTH
+	var relief_fraction: float = sampler.STAGE5_VALLEY_RELIEF_FRACTION
+	var river_early_out: float = valley_outer * coast_width
 
-	var mountain_start: float = sampler.STAGE2_MOUNTAIN_START
-	var mountain_range_reciprocal: float = 1.0 / (
-		sampler.STAGE2_MOUNTAIN_FULL - sampler.STAGE2_MOUNTAIN_START
-	)
-
-	var plains_target: Vector2 = sampler.STAGE7_PLAINS_TARGET
-	var forest_target: Vector2 = sampler.STAGE7_FOREST_TARGET
-	var desert_target: Vector2 = sampler.STAGE7_DESERT_TARGET
-	var rocky_target: Vector2 = sampler.STAGE7_ROCKY_TARGET
+	# Stage 7 prototype constants. Store scalar components once to avoid Vector2
+	# construction/indexing in the 256-column hot loop.
+	var plains_temperature: float = sampler.STAGE7_PLAINS_TARGET.x
+	var plains_moisture: float = sampler.STAGE7_PLAINS_TARGET.y
+	var forest_temperature: float = sampler.STAGE7_FOREST_TARGET.x
+	var forest_moisture: float = sampler.STAGE7_FOREST_TARGET.y
+	var desert_temperature: float = sampler.STAGE7_DESERT_TARGET.x
+	var desert_moisture: float = sampler.STAGE7_DESERT_TARGET.y
+	var rocky_temperature: float = sampler.STAGE7_ROCKY_TARGET.x
+	var rocky_moisture: float = sampler.STAGE7_ROCKY_TARGET.y
 	var rocky_strength_min: float = sampler.STAGE7_ROCKY_MOUNTAIN_STRENGTH_MIN
 	var rocky_elevation_min: int = sampler.STAGE7_ROCKY_ELEVATION_MIN
 	var rocky_coast_max: float = sampler.STAGE7_ROCKY_COAST_PROXIMITY_MAX
+	var mountain_strength_reciprocal: float = 1.0 / (mountain_full - mountain_start)
 	var biome_plains: int = sampler.BIOME_PLAINS
 	var biome_forest: int = sampler.BIOME_FOREST
 	var biome_desert: int = sampler.BIOME_DESERT
 	var biome_rocky: int = sampler.BIOME_ROCKY
+	var water_none: int = sampler.WATER_NONE
+	var water_ocean: int = sampler.WATER_OCEAN
+	var water_river: int = sampler.WATER_RIVER
 
-	for cz in range(WIDTH):
-		var world_z: int = min_z + cz
-		var zf: float = float(world_z)
-		var river_meander: float = sampler.stage5_meander_at(zf)
-		var river_row_phase: float = (
-			zf * river_diagonal_slope + river_meander * river_meander_amplitude
+	var river_lattice_min: int = floori(float(min_z) * river_lattice_reciprocal)
+	var river_lattice_max: int = floori(float(max_z) * river_lattice_reciprocal) + 1
+	var river_lattice_values := PackedFloat32Array()
+	river_lattice_values.resize(river_lattice_max - river_lattice_min + 1)
+	for river_node in range(river_lattice_values.size()):
+		river_lattice_values[river_node] = sampler.stage5_river_lattice_value(
+			river_lattice_min + river_node
 		)
-		for cx in range(WIDTH):
-			var world_x: int = min_x + cx
-			var index: int = cz * WIDTH + cx
-			var field_index: int = index * FIELD_STRIDE
-			var continentalness: float = fields[field_index]
-			var structure: float = fields[field_index + 1]
-			var temperature: float = fields[field_index + 2]
-			var moisture: float = fields[field_index + 3]
-			var height: int = heights[index]
 
-			var mountain_strength: float = _smooth01(
-				(structure - mountain_start) * mountain_range_reciprocal
-			)
-			mountain_strengths[index] = mountain_strength
+	for cz in range(width):
+		var world_z: int = z_world[cz]
+		var zf: float = float(world_z)
+		var river_lattice_index: int = floori(zf * river_lattice_reciprocal)
+		var river_node_offset: int = river_lattice_index - river_lattice_min
+		var river_lattice_origin: int = river_lattice_index * river_lattice_spacing
+		var river_t: float = _smooth(float(world_z - river_lattice_origin) * river_lattice_reciprocal)
+		var river_meander: float = lerpf(
+			river_lattice_values[river_node_offset],
+			river_lattice_values[river_node_offset + 1],
+			river_t
+		)
+		var river_row_phase: float = zf * river_diagonal_slope + river_meander * river_meander_amplitude
+		var river_signed_start: float = (
+			fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
+			- river_half_spacing
+		)
+		var river_active_min: int = maxi(0, ceili(-river_early_out - river_signed_start))
+		var river_active_max: int = mini(width - 1, floori(river_early_out - river_signed_start))
 
-			var coast: float = 0.0
-			if continentalness <= ocean_start:
-				coast = 1.0
-			elif continentalness < coast_end:
-				coast = 1.0 - _smooth01(
-					(continentalness - ocean_start) / (coast_end - ocean_start)
-				)
-			coast_proximity[index] = coast
+		var nz: int = z_node[cz]
+		var tz: float = z_weight[cz]
+		var north_base: int = nz * node_width
+		var south_base: int = north_base + node_width
+		var row: int = cz * width
+		for cx in range(width):
+			var world_x: int = x_world[cx]
+			var xf: float = float(world_x)
+			var nx: int = x_node[cx]
+			var tx: float = x_weight[cx]
+			var nw: float = structure_nodes[north_base + nx]
+			var ne: float = structure_nodes[north_base + nx + 1]
+			var sw: float = structure_nodes[south_base + nx]
+			var se: float = structure_nodes[south_base + nx + 1]
+			var north: float = nw + (ne - nw) * tx
+			var south: float = sw + (se - sw) * tx
+			var structure: float = north + (south - north) * tz
 
-			# Local cardinal slope from the padded cache. It is exported as Stage 7
-			# context for later terrain modifiers but does not alter the transitional
-			# four-biome ecology selection, so outer-halo one-sided sampling cannot
-			# create biome seams.
-			var local_slope: int = 0
-			if cx > 0:
-				local_slope = maxi(local_slope, absi(heights[index - 1] - height))
-			if cx + 1 < WIDTH:
-				local_slope = maxi(local_slope, absi(heights[index + 1] - height))
-			if cz > 0:
-				local_slope = maxi(local_slope, absi(heights[index - WIDTH] - height))
-			if cz + 1 < WIDTH:
-				local_slope = maxi(local_slope, absi(heights[index + WIDTH] - height))
-			slopes[index] = float(local_slope)
+			var continentalness: float = sampler.continentalness_noise.get_noise_2d(xf, zf)
+			var temperature: float = sampler.biome_temperature_noise.get_noise_2d(xf, zf)
+			var moisture: float = sampler.biome_moisture_noise.get_noise_2d(xf, zf)
+			var column: int = row + cx
+			var field: int = column * FIELD_STRIDE
+			fields[field] = continentalness
+			fields[field + 1] = structure
+			fields[field + 2] = temperature
+			fields[field + 3] = moisture
+			fields[field + 4] = temperature
+			fields[field + 5] = moisture
 
-			var water_type: int = sampler.WATER_NONE
-			if continentalness <= ocean_start and height < sea_level:
-				water_type = sampler.WATER_OCEAN
+			# Stage 2 provisional terrain, byte-for-byte arithmetic equivalent to the
+			# accepted Stage 5 cache.
+			var c: float = clampf(continentalness, -1.0, 1.0)
+			var s: float = clampf(structure, -1.0, 1.0)
+			var shaped_continent: float = c * 0.35 + c * c * c * 0.65
+			var base_height: float = continental_base + shaped_continent * continental_scale
+			if c < shelf_start:
+				var basin_t: float = clampf((shelf_start - c) * basin_reciprocal, 0.0, 1.0)
+				basin_t = basin_t * basin_t * (3.0 - 2.0 * basin_t)
+				base_height -= basin_t * basin_depth
+			var rolling_target: float = base_height + 2.0 + absf(c) * rolling_rise
+			var height: int
+			if s <= rolling_start:
+				height = clampi(roundi(base_height), 3, safe_top)
+			elif s < plains_end:
+				var terrain_t: float = (s - rolling_start) * plains_blend_reciprocal
+				terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+				height = clampi(roundi(lerpf(base_height, rolling_target, terrain_t)), 3, safe_top)
+			elif s <= rolling_end:
+				height = clampi(roundi(rolling_target), 3, safe_top)
 			else:
-				var river_position: float = float(world_x) + river_row_phase
-				var river_distance: float = absf(
-					fposmod(river_position + river_half_spacing, river_spacing)
-					- river_half_spacing
+				var upland_target: float = base_height + 6.0 + upland_rise
+				if s < mountain_start:
+					var terrain_t: float = (s - rolling_end) * upland_blend_reciprocal
+					terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+					height = clampi(roundi(lerpf(rolling_target, upland_target, terrain_t)), 3, safe_top)
+				else:
+					var ridge_base: float = 1.0 - absf(c)
+					var ridge: float = ridge_base * ridge_base
+					var mountain_target: float = (
+						base_height
+						+ mountain_base_rise
+						+ ridge * mountain_ridge_rise
+						- (1.0 - ridge) * valley_cut
+					)
+					if s < mountain_full:
+						var terrain_t: float = (s - mountain_start) * mountain_blend_reciprocal
+						terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
+						height = clampi(roundi(lerpf(upland_target, mountain_target, terrain_t)), 3, safe_top)
+					else:
+						height = clampi(roundi(mountain_target), 3, safe_top)
+
+			# Stage 4 ocean/coast shaping and immediate water ownership.
+			var water_type: int = water_none
+			if continentalness <= ocean_start:
+				var ocean_t: float = clampf((ocean_start - continentalness) * ocean_reciprocal, 0.0, 1.0)
+				ocean_t = ocean_t * ocean_t * (3.0 - 2.0 * ocean_t)
+				var ocean_floor: int = roundi(
+					float(ocean_edge_floor) + float(ocean_core_floor - ocean_edge_floor) * ocean_t
 				)
-				var width_t: float = _smooth01(
-					(continentalness - ocean_start) / river_width_range
-				)
-				var width_scale: float = lerpf(river_coast_width, river_inland_width, width_t)
-				var scaled_distance: float = river_distance / width_scale
-				if scaled_distance < channel_outer:
-					var channel_t: float = clampf(
-						(scaled_distance - channel_inner) / (channel_outer - channel_inner),
+				height = mini(height, ocean_floor)
+				if height < sea_level:
+					water_type = water_ocean
+			elif continentalness < coast_end:
+				var inland_t: float = (continentalness - ocean_start) * coast_reciprocal
+				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
+				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
+
+			# Stage 5 river shaping. Classification reuses channel_strength here rather
+			# than recomputing the river graph in a second pass.
+			if continentalness > ocean_start and cx >= river_active_min and cx <= river_active_max:
+				var river_value: float = absf(river_signed_start + float(cx))
+				var width_t: float = clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
+				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
+				var width_scale: float = coast_width + (inland_width - coast_width) * width_t
+				var scaled_distance: float = river_value / width_scale
+				if scaled_distance < valley_outer:
+					var valley_t: float = clampf(
+						(scaled_distance - valley_inner) / (valley_outer - valley_inner),
 						0.0,
 						1.0
 					)
-					channel_t = channel_t * channel_t * (3.0 - 2.0 * channel_t)
-					if 1.0 - channel_t >= channel_cutoff:
-						water_type = sampler.WATER_RIVER
-				if water_type == sampler.WATER_NONE and not features.is_empty():
-					water_type = _feature_water_type_at(world_x, world_z, features)
-			water_types[index] = water_type
+					valley_t = valley_t * valley_t * (3.0 - 2.0 * valley_t)
+					var valley_strength: float = 1.0 - valley_t
+					var relief: int = maxi(0, height - sea_level)
+					var valley_drop: int = mini(max_carve, maxi(2, roundi(float(relief) * relief_fraction)))
+					var valley_floor: int = maxi(sea_level, height - valley_drop)
+					height = roundi(float(height) + float(valley_floor - height) * valley_strength)
+					if scaled_distance < channel_outer:
+						var channel_t: float = clampf(
+							(scaled_distance - channel_inner) / (channel_outer - channel_inner),
+							0.0,
+							1.0
+						)
+						channel_t = channel_t * channel_t * (3.0 - 2.0 * channel_t)
+						var channel_strength: float = 1.0 - channel_t
+						var channel_floor: int = maxi(sea_level - 1, height - channel_depth)
+						height = roundi(float(height) + float(channel_floor - height) * channel_strength)
+						if channel_strength >= channel_cutoff:
+							water_type = water_river
+				height = clampi(height, 3, safe_top)
+			heights[column] = height
+			water_types[column] = water_type
 
-			if water_type != sampler.WATER_NONE:
-				biomes[index] = biome_plains
+			# Stage 7 base ecology: physical water first, then nearest eligible
+			# temperature × moisture prototype. Plains is always the fallback.
+			if water_type != water_none:
+				biomes[column] = biome_plains
 				continue
 
-			var best_biome: int = biome_plains
-			var best_distance: float = _distance_sq(temperature, moisture, plains_target)
-			var forest_distance: float = _distance_sq(temperature, moisture, forest_target)
+			var dt: float = temperature - plains_temperature
+			var dm: float = moisture - plains_moisture
+			var best_distance: float = dt * dt + dm * dm
+			var biome: int = biome_plains
+
+			dt = temperature - forest_temperature
+			dm = moisture - forest_moisture
+			var forest_distance: float = dt * dt + dm * dm
 			if forest_distance < best_distance:
-				best_biome = biome_forest
 				best_distance = forest_distance
-			var desert_distance: float = _distance_sq(temperature, moisture, desert_target)
+				biome = biome_forest
+
+			dt = temperature - desert_temperature
+			dm = moisture - desert_moisture
+			var desert_distance: float = dt * dt + dm * dm
 			if desert_distance < best_distance:
-				best_biome = biome_desert
 				best_distance = desert_distance
+				biome = biome_desert
+
+			var mountain_strength: float = _smooth(
+				(structure - mountain_start) * mountain_strength_reciprocal
+			)
+			var coast_proximity: float = 0.0
+			if continentalness <= ocean_start:
+				coast_proximity = 1.0
+			elif continentalness < coast_end:
+				coast_proximity = 1.0 - _smooth(
+					(continentalness - ocean_start) * coast_reciprocal
+				)
 			if (
-				coast <= rocky_coast_max
+				coast_proximity <= rocky_coast_max
 				and (mountain_strength >= rocky_strength_min or height >= rocky_elevation_min)
 			):
-				var rocky_distance: float = _distance_sq(temperature, moisture, rocky_target)
+				dt = temperature - rocky_temperature
+				dm = moisture - rocky_moisture
+				var rocky_distance: float = dt * dt + dm * dm
 				if rocky_distance < best_distance:
-					best_biome = biome_rocky
-			biomes[index] = best_biome
+					biome = biome_rocky
+			biomes[column] = biome
 
-	result["biomes"] = biomes
-	result["stage7_water_types"] = water_types
-	result["stage7_slopes"] = slopes
-	result["stage7_mountain_strengths"] = mountain_strengths
-	result["stage7_coast_proximity"] = coast_proximity
-	return result
+	# Stage 6 basin placement and shaping. Feature discovery consumes the already
+	# generated Stage 5 fields/heights; wet feature cores then override the base
+	# ecology to neutral Plains while dry rims retain their climate ecology.
+	var features: Array[Dictionary] = sampler.stage6_collect_features_for_cached_bounds(
+		min_x,
+		min_z,
+		max_x,
+		max_z,
+		width,
+		fields,
+		heights
+	)
+	if not features.is_empty():
+		for feature: Dictionary in features:
+			var center_x: int = int(feature["center_x"])
+			var center_z: int = int(feature["center_z"])
+			var radius_x: float = float(feature["radius_x"])
+			var radius_z: float = float(feature["radius_z"])
+			var reciprocal_radius_x: float = 1.0 / radius_x
+			var reciprocal_radius_z: float = 1.0 / radius_z
+			var water_radius: float = float(feature["water_radius"])
+			var water_radius_squared: float = water_radius * water_radius
+			var hard_rim_radius: float = float(feature["hard_rim_radius"])
+			var hard_rim_squared: float = hard_rim_radius * hard_rim_radius
+			var inverse_outer_rim_range: float = 1.0 / (1.0 - hard_rim_squared)
+			var water_level: int = int(feature["water_level"])
+			var water_level_plus_one: int = water_level + 1
+			var depth: int = int(feature["depth"])
+			var feature_type: int = int(feature["type"])
+			var feature_min_x: int = maxi(min_x, floori(float(center_x) - radius_x))
+			var feature_max_x: int = mini(max_x, ceili(float(center_x) + radius_x))
+			var feature_min_z: int = maxi(min_z, floori(float(center_z) - radius_z))
+			var feature_max_z: int = mini(max_z, ceili(float(center_z) + radius_z))
+			for world_z in range(feature_min_z, feature_max_z + 1):
+				var normalized_z: float = float(world_z - center_z) * reciprocal_radius_z
+				var normalized_z_squared: float = normalized_z * normalized_z
+				var cache_z: int = world_z - min_z
+				var row: int = cache_z * width
+				for world_x in range(feature_min_x, feature_max_x + 1):
+					var normalized_x: float = float(world_x - center_x) * reciprocal_radius_x
+					var distance_squared: float = normalized_x * normalized_x + normalized_z_squared
+					if distance_squared >= 1.0:
+						continue
+					var cache_x: int = world_x - min_x
+					var index: int = row + cache_x
+					var stage5_height: int = int(heights[index])
+					if distance_squared <= water_radius_squared:
+						var core_t: float = clampf(distance_squared / water_radius_squared, 0.0, 1.0)
+						core_t = core_t * core_t * (3.0 - 2.0 * core_t)
+						var floor_height: int = water_level - 1 - roundi(float(depth) * (1.0 - core_t))
+						heights[index] = clampi(mini(stage5_height, floor_height), 3, safe_top)
+						water_types[index] = feature_type
+						biomes[index] = biome_plains
+						continue
+					if distance_squared <= hard_rim_squared:
+						heights[index] = clampi(maxi(stage5_height, water_level_plus_one), 3, safe_top)
+						continue
+					if stage5_height >= water_level_plus_one:
+						continue
+					var rim_t: float = clampf(
+						(distance_squared - hard_rim_squared) * inverse_outer_rim_range,
+						0.0,
+						1.0
+					)
+					rim_t = rim_t * rim_t * (3.0 - 2.0 * rim_t)
+					var blended_rim: int = roundi(lerpf(
+						float(water_level_plus_one),
+						float(stage5_height),
+						rim_t
+					))
+					heights[index] = clampi(maxi(stage5_height, blended_rim), 3, safe_top)
+
+	return {
+		"world_fields": fields,
+		"heights": heights,
+		"biomes": biomes,
+		"stage7_water_types": water_types,
+		"stage6_features": features,
+	}
