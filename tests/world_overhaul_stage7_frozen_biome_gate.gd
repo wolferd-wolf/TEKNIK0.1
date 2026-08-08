@@ -18,15 +18,15 @@ var failures: Array[String] = []
 func _init() -> void:
 	var data = DATA.new()
 	var runtime = RUNTIME.new()
-	var synthetic := _synthetic(data)
-	var equivalence := _equivalence(data, runtime)
-	var seams := _seams(runtime)
-	var determinism := _determinism(data)
-	var benchmark := _benchmark(runtime)
+	var synthetic: Dictionary = _synthetic(data)
+	var equivalence: Dictionary = _equivalence(data, runtime)
+	var seams: Dictionary = _seams(runtime)
+	var determinism: Dictionary = _determinism(data)
+	var benchmark: Dictionary = _benchmark(runtime)
 	if int(benchmark["p95_usec"]) >= P95_LIMIT_USEC:
 		_fail("Frozen Stage 7 generation exceeded 1.0 ms p95: %d usec" % int(benchmark["p95_usec"]))
 	runtime.free()
-	var report := {
+	var report: Dictionary = {
 		"world_height": DATA.OVERHAUL_WORLD_HEIGHT,
 		"prototype_count": 4,
 		"temperature_frequency": DATA.BIOME_TEMPERATURE_NOISE_FREQUENCY,
@@ -43,7 +43,7 @@ func _init() -> void:
 		print("WORLD_OVERHAUL_STAGE7_PASS")
 		quit(0)
 		return
-	for failure in failures:
+	for failure: String in failures:
 		push_error(failure)
 	quit(1)
 
@@ -58,16 +58,16 @@ func _synthetic(data) -> Dictionary:
 		_fail("Frozen Stage 7 lost 150-block height")
 	if DATA.BIOME_TEMPERATURE_NOISE_FREQUENCY != 0.0012 or DATA.BIOME_MOISTURE_NOISE_FREQUENCY != 0.0014:
 		_fail("Frozen Stage 7 climate frequencies changed")
-	var plains := data.stage7_classify_with_context(DATA.STAGE7_PLAINS_TARGET, 0.0, 0.0, 18, DATA.WATER_NONE, 0.0)
-	var forest := data.stage7_classify_with_context(DATA.STAGE7_FOREST_TARGET, 0.0, 0.0, 18, DATA.WATER_NONE, 0.0)
-	var desert := data.stage7_classify_with_context(DATA.STAGE7_DESERT_TARGET, 0.0, 0.0, 18, DATA.WATER_NONE, 0.0)
-	var rocky := data.stage7_classify_with_context(DATA.STAGE7_ROCKY_TARGET, 1.0, 6.0, 18, DATA.WATER_NONE, 0.0)
+	var plains: int = int(data.stage7_classify_with_context(DATA.STAGE7_PLAINS_TARGET, 0.0, 0.0, 18, DATA.WATER_NONE, 0.0))
+	var forest: int = int(data.stage7_classify_with_context(DATA.STAGE7_FOREST_TARGET, 0.0, 0.0, 18, DATA.WATER_NONE, 0.0))
+	var desert: int = int(data.stage7_classify_with_context(DATA.STAGE7_DESERT_TARGET, 0.0, 0.0, 18, DATA.WATER_NONE, 0.0))
+	var rocky: int = int(data.stage7_classify_with_context(DATA.STAGE7_ROCKY_TARGET, 1.0, 6.0, 18, DATA.WATER_NONE, 0.0))
 	if plains != DATA.BIOME_PLAINS or forest != DATA.BIOME_FOREST or desert != DATA.BIOME_DESERT or rocky != DATA.BIOME_ROCKY:
 		_fail("Frozen Stage 7 prototype selection changed")
-	var flat_rocky := data.stage7_classify_with_context(DATA.STAGE7_ROCKY_TARGET, 0.0, 0.0, 80, DATA.WATER_NONE, 0.0)
+	var flat_rocky: int = int(data.stage7_classify_with_context(DATA.STAGE7_ROCKY_TARGET, 0.0, 0.0, 80, DATA.WATER_NONE, 0.0))
 	if flat_rocky == DATA.BIOME_ROCKY:
 		_fail("Frozen Stage 7 Rocky regained flat-elevation eligibility")
-	var water_forest := data.stage7_classify_with_context(DATA.STAGE7_FOREST_TARGET, 0.0, 0.0, 5, DATA.WATER_OCEAN, 1.0)
+	var water_forest: int = int(data.stage7_classify_with_context(DATA.STAGE7_FOREST_TARGET, 0.0, 0.0, 5, DATA.WATER_OCEAN, 1.0))
 	if water_forest != DATA.BIOME_PLAINS:
 		_fail("Frozen Stage 7 physical water selected Forest")
 	return {"plains": plains, "forest": forest, "desert": desert, "rocky": rocky, "flat_rocky": flat_rocky, "water_forest": water_forest}
@@ -75,19 +75,19 @@ func _synthetic(data) -> Dictionary:
 
 func _equivalence(data, runtime) -> Dictionary:
 	var coords: Array[Vector2i] = [Vector2i.ZERO, Vector2i(4, -3), Vector2i(-7, 6), Vector2i(15, 12)]
-	var compared := 0
-	for coord in coords:
+	var compared: int = 0
+	for coord: Vector2i in coords:
 		var stage6: Dictionary = STAGE6_CACHE.build(coord, data)
 		var stage7: Dictionary = runtime._build_column_caches(coord)
 		if stage6.get("heights") != stage7.get("heights"):
 			_fail("Frozen Stage 7 changed Stage 6 heights in %s" % coord)
 		var biomes: PackedByteArray = stage7.get("biomes", PackedByteArray())
-		for lz in range(CHUNK_SIZE):
-			for lx in range(CHUNK_SIZE):
-				var index := (lz + PADDING) * WIDTH + lx + PADDING
-				var wx := coord.x * CHUNK_SIZE + lx
-				var wz := coord.y * CHUNK_SIZE + lz
-				if int(biomes[index]) != data.biome_at(wx, wz):
+		for lz: int in range(CHUNK_SIZE):
+			for lx: int in range(CHUNK_SIZE):
+				var index: int = (lz + PADDING) * WIDTH + lx + PADDING
+				var wx: int = coord.x * CHUNK_SIZE + lx
+				var wz: int = coord.y * CHUNK_SIZE + lz
+				if int(biomes[index]) != int(data.biome_at(wx, wz)):
 					_fail("Frozen Stage 7 cache/public biome mismatch at (%d,%d)" % [wx, wz])
 				compared += 1
 	return {"chunks": coords.size(), "columns": compared}
@@ -98,9 +98,9 @@ func _index(coord: Vector2i, wx: int, wz: int) -> int:
 
 
 func _seams(runtime) -> Dictionary:
-	var pairs := [[Vector2i.ZERO, Vector2i(1, 0)], [Vector2i.ZERO, Vector2i(0, 1)]]
-	var compared := 0
-	for pair in pairs:
+	var pairs: Array = [[Vector2i.ZERO, Vector2i(1, 0)], [Vector2i.ZERO, Vector2i(0, 1)]]
+	var compared: int = 0
+	for pair: Array in pairs:
 		var a: Vector2i = pair[0]
 		var b: Vector2i = pair[1]
 		var ca: Dictionary = runtime._build_column_caches(a)
@@ -109,18 +109,18 @@ func _seams(runtime) -> Dictionary:
 		var bb: PackedByteArray = cb.get("biomes", PackedByteArray())
 		var ha: PackedInt32Array = ca.get("heights", PackedInt32Array())
 		var hb: PackedInt32Array = cb.get("heights", PackedInt32Array())
-		var min_ax := a.x * CHUNK_SIZE - PADDING
-		var min_az := a.y * CHUNK_SIZE - PADDING
-		var max_ax := min_ax + WIDTH - 1
-		var max_az := min_az + WIDTH - 1
-		var min_bx := b.x * CHUNK_SIZE - PADDING
-		var min_bz := b.y * CHUNK_SIZE - PADDING
-		var max_bx := min_bx + WIDTH - 1
-		var max_bz := min_bz + WIDTH - 1
-		for wz in range(maxi(min_az, min_bz), mini(max_az, max_bz) + 1):
-			for wx in range(maxi(min_ax, min_bx), mini(max_ax, max_bx) + 1):
-				var ia := _index(a, wx, wz)
-				var ib := _index(b, wx, wz)
+		var min_ax: int = a.x * CHUNK_SIZE - PADDING
+		var min_az: int = a.y * CHUNK_SIZE - PADDING
+		var max_ax: int = min_ax + WIDTH - 1
+		var max_az: int = min_az + WIDTH - 1
+		var min_bx: int = b.x * CHUNK_SIZE - PADDING
+		var min_bz: int = b.y * CHUNK_SIZE - PADDING
+		var max_bx: int = min_bx + WIDTH - 1
+		var max_bz: int = min_bz + WIDTH - 1
+		for wz: int in range(maxi(min_az, min_bz), mini(max_az, max_bz) + 1):
+			for wx: int in range(maxi(min_ax, min_bx), mini(max_ax, max_bx) + 1):
+				var ia: int = _index(a, wx, wz)
+				var ib: int = _index(b, wx, wz)
 				if ba[ia] != bb[ib] or ha[ia] != hb[ib]:
 					_fail("Frozen Stage 7 seam mismatch at (%d,%d)" % [wx, wz])
 				compared += 1
@@ -128,10 +128,10 @@ func _seams(runtime) -> Dictionary:
 
 
 func _determinism(data) -> Dictionary:
-	var coords := [Vector2i.ZERO, Vector2i(9, -11), Vector2i(-17, 5)]
-	for coord in coords:
-		var a := STAGE7_CACHE.build(coord, data)
-		var b := STAGE7_CACHE.build(coord, data)
+	var coords: Array[Vector2i] = [Vector2i.ZERO, Vector2i(9, -11), Vector2i(-17, 5)]
+	for coord: Vector2i in coords:
+		var a: Dictionary = STAGE7_CACHE.build(coord, data)
+		var b: Dictionary = STAGE7_CACHE.build(coord, data)
 		if a.get("heights") != b.get("heights") or a.get("biomes") != b.get("biomes"):
 			_fail("Frozen Stage 7 cache is nondeterministic in %s" % coord)
 	return {"chunks": coords.size()}
@@ -139,21 +139,21 @@ func _determinism(data) -> Dictionary:
 
 func _benchmark(runtime) -> Dictionary:
 	var coords: Array[Vector2i] = []
-	for z in range(-2, 2):
-		for x in range(-2, 2):
+	for z: int in range(-2, 2):
+		for x: int in range(-2, 2):
 			coords.append(Vector2i(x, z))
-	for _w in range(WARMUPS):
-		for coord in coords:
+	for _w: int in range(WARMUPS):
+		for coord: Vector2i in coords:
 			runtime._build_column_caches(coord)
 	var values: Array[int] = []
-	for _r in range(REPEATS):
-		for coord in coords:
-			var started := Time.get_ticks_usec()
+	for _r: int in range(REPEATS):
+		for coord: Vector2i in coords:
+			var started: int = Time.get_ticks_usec()
 			runtime._build_column_caches(coord)
 			values.append(maxi(1, Time.get_ticks_usec() - started))
 	values.sort()
-	var total := 0
-	for value in values:
+	var total: int = 0
+	for value: int in values:
 		total += value
-	var p95_index := clampi(ceili(float(values.size()) * 0.95) - 1, 0, values.size() - 1)
+	var p95_index: int = clampi(ceili(float(values.size()) * 0.95) - 1, 0, values.size() - 1)
 	return {"sample_count": values.size(), "minimum_usec": values[0], "mean_usec": float(total) / float(values.size()), "p95_usec": values[p95_index], "p95_ms": float(values[p95_index]) / 1000.0, "maximum_usec": values[values.size() - 1]}
