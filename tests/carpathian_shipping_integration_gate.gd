@@ -1,7 +1,7 @@
 extends SceneTree
 
 const ShippingData = preload("res://scripts/world/playable_world_carpathian_data.gd")
-const ShippingCache = preload("res://scripts/world/playable_world_carpathian_generation_cache.gd")
+const ShippingCache = preload("res://scripts/world/playable_world_carpathian_generation_cache_fast.gd")
 const CHUNK_SIZE := 12
 const PADDING := 2
 const WIDTH := CHUNK_SIZE + PADDING * 2
@@ -98,7 +98,7 @@ func _init() -> void:
 		quit(1)
 		return
 
-	# Benchmark the actual shipping wrapper, not just the native sampler.
+	# Benchmark the actual one-pass shipping cache, not just the native sampler.
 	var timings := PackedFloat64Array()
 	for warmup in range(4):
 		ShippingCache.build(Vector2i(warmup * 3, -warmup * 2), data)
