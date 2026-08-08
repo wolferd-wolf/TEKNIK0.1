@@ -79,7 +79,7 @@ jobs:
       - name: Build arm64 native Carpathian sampler
         run: |
           git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
-          printf '%s\n' '{"enabled_classes":["RefCounted"]}' > native/carpathian/build_profile.json
+          printf '%s\n' '{"enabled_classes":["RefCounted","OS"]}' > native/carpathian/build_profile.json
           cat > native/carpathian/SConstruct <<'PY'
           #!/usr/bin/env python
           env = SConscript("godot-cpp/SConstruct")
