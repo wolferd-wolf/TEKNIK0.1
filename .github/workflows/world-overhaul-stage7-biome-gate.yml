@@ -3,12 +3,11 @@ name: TEKNIK World Overhaul Stage 7 Biome Gate
 on:
   pull_request:
     paths:
-      - 'scripts/world/playable_world_generation_data.gd'
-      - 'scripts/world/playable_world_generation_runtime.gd'
       - 'scripts/world/playable_world_stage6_generation_cache_fast.gd'
       - 'scripts/world/playable_world_stage7_biome_data.gd'
       - 'scripts/world/playable_world_stage7_cache_fast.gd'
-      - 'tests/world_overhaul_stage7_biome_gate.gd'
+      - 'scripts/world/playable_world_stage7_frozen_runtime.gd'
+      - 'tests/world_overhaul_stage7_frozen_biome_gate.gd'
       - '.github/workflows/world-overhaul-stage7-biome-gate.yml'
   workflow_dispatch:
 
@@ -47,12 +46,12 @@ jobs:
             exit 1
           fi
 
-      - name: Verify contextual nearest-prototype biomes and performance
+      - name: Verify frozen Stage 7 classifier and performance
         run: |
           set -o pipefail
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage7-biomes" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage7_biome_gate.gd \
+              --script res://tests/world_overhaul_stage7_frozen_biome_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage7-biomes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE7_PASS' artifacts/world-overhaul-stage7-biomes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE7_JSON=' artifacts/world-overhaul-stage7-biomes.log
