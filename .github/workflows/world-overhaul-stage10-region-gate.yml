@@ -6,6 +6,7 @@ on:
       - 'scripts/world/playable_world_generation_data.gd'
       - 'scripts/world/playable_world_generation_runtime.gd'
       - 'scripts/world/playable_world_stage10_region_data.gd'
+      - 'scripts/world/playable_world_stage10_generation_cache_fast.gd'
       - 'scripts/world/playable_world_stage10_cache_fast.gd'
       - 'scripts/world/playable_world_stage10_mesher.gd'
       - 'tests/world_overhaul_stage10_region_gate_v2.gd'
