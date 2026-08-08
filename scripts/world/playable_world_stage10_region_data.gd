@@ -9,6 +9,9 @@ const STAGE10_TRANSITION_LEVELS := 31
 const STAGE10_TRANSITION_HASH_RANGE := STAGE10_TRANSITION_LEVELS * 2
 const STAGE10_TREE_BLEND_SALT := 0x61c88647
 const STAGE10_GROUND_BLEND_SALT := 0x35a1d7c3
+const STAGE10_PLAINS_FOREST_MOISTURE_BOUNDARY := 0.18
+const STAGE10_PLAINS_FOREST_TRANSITION_LOW := 0.13
+const STAGE10_PLAINS_FOREST_TRANSITION_HIGH := 0.23
 
 # Exact Stage 8 nearest-prototype linear scores. Maximizing these is equivalent
 # to minimizing squared Euclidean distance because the shared climate length
@@ -57,61 +60,105 @@ func stage10_transition_code_for_climate(climate: Vector2, water_type: int) -> i
 
 	var temperature: float = climate.x
 	var moisture: float = climate.y
-	var best_biome: int = BIOME_PLAINS
-	var best_score: float = STAGE10_PLAINS_M * moisture + STAGE10_PLAINS_B
+	var best_biome: int
+	var best_score: float
 	var second_biome: int = -1
 	var second_score: float = -1.0e20
 	var score: float
 
-	score = STAGE10_FOREST_M * moisture + STAGE10_FOREST_B
-	if score > best_score:
-		second_score = best_score
-		second_biome = best_biome
-		best_score = score
-		best_biome = BIOME_FOREST
+	# Match the shipping cache's exact eligible-neighbor rule. Below the exact
+	# Plains/Forest boundary Forest cannot win; above it Plains cannot win. The
+	# losing prototype is retained only inside the score-width where it can be a
+	# real adjacent transition partner. Likewise Dense Forest/Desert stay pruned
+	# in the half-space where another prototype strictly dominates them.
+	if moisture <= STAGE10_PLAINS_FOREST_MOISTURE_BOUNDARY:
+		best_biome = BIOME_PLAINS
+		best_score = STAGE10_PLAINS_M * moisture + STAGE10_PLAINS_B
+
+		score = STAGE10_DESERT_T * temperature + STAGE10_DESERT_M * moisture + STAGE10_DESERT_B
+		if score > best_score:
+			second_score = best_score
+			second_biome = best_biome
+			best_score = score
+			best_biome = BIOME_DESERT
+		else:
+			second_score = score
+			second_biome = BIOME_DESERT
+
+		score = STAGE10_DRY_T * temperature + STAGE10_DRY_M * moisture + STAGE10_DRY_B
+		if score > best_score:
+			second_score = best_score
+			second_biome = best_biome
+			best_score = score
+			best_biome = BIOME_DRY_GRASSLAND
+		elif score > second_score:
+			second_score = score
+			second_biome = BIOME_DRY_GRASSLAND
+
+		score = STAGE10_COLD_T * temperature + STAGE10_COLD_M * moisture + STAGE10_COLD_B
+		if score > best_score:
+			second_score = best_score
+			second_biome = best_biome
+			best_score = score
+			best_biome = BIOME_COLD_FOREST
+		elif score > second_score:
+			second_score = score
+			second_biome = BIOME_COLD_FOREST
+
+		if moisture >= STAGE10_PLAINS_FOREST_TRANSITION_LOW:
+			score = STAGE10_FOREST_M * moisture + STAGE10_FOREST_B
+			if score > best_score:
+				second_score = best_score
+				second_biome = best_biome
+				best_score = score
+				best_biome = BIOME_FOREST
+			elif score > second_score:
+				second_score = score
+				second_biome = BIOME_FOREST
 	else:
-		second_score = score
-		second_biome = BIOME_FOREST
+		best_biome = BIOME_FOREST
+		best_score = STAGE10_FOREST_M * moisture + STAGE10_FOREST_B
 
-	score = STAGE10_DENSE_T * temperature + STAGE10_DENSE_M * moisture + STAGE10_DENSE_B
-	if score > best_score:
-		second_score = best_score
-		second_biome = best_biome
-		best_score = score
-		best_biome = BIOME_DENSE_FOREST
-	elif score > second_score:
-		second_score = score
-		second_biome = BIOME_DENSE_FOREST
+		score = STAGE10_DENSE_T * temperature + STAGE10_DENSE_M * moisture + STAGE10_DENSE_B
+		if score > best_score:
+			second_score = best_score
+			second_biome = best_biome
+			best_score = score
+			best_biome = BIOME_DENSE_FOREST
+		else:
+			second_score = score
+			second_biome = BIOME_DENSE_FOREST
 
-	score = STAGE10_DESERT_T * temperature + STAGE10_DESERT_M * moisture + STAGE10_DESERT_B
-	if score > best_score:
-		second_score = best_score
-		second_biome = best_biome
-		best_score = score
-		best_biome = BIOME_DESERT
-	elif score > second_score:
-		second_score = score
-		second_biome = BIOME_DESERT
+		score = STAGE10_DRY_T * temperature + STAGE10_DRY_M * moisture + STAGE10_DRY_B
+		if score > best_score:
+			second_score = best_score
+			second_biome = best_biome
+			best_score = score
+			best_biome = BIOME_DRY_GRASSLAND
+		elif score > second_score:
+			second_score = score
+			second_biome = BIOME_DRY_GRASSLAND
 
-	score = STAGE10_DRY_T * temperature + STAGE10_DRY_M * moisture + STAGE10_DRY_B
-	if score > best_score:
-		second_score = best_score
-		second_biome = best_biome
-		best_score = score
-		best_biome = BIOME_DRY_GRASSLAND
-	elif score > second_score:
-		second_score = score
-		second_biome = BIOME_DRY_GRASSLAND
+		score = STAGE10_COLD_T * temperature + STAGE10_COLD_M * moisture + STAGE10_COLD_B
+		if score > best_score:
+			second_score = best_score
+			second_biome = best_biome
+			best_score = score
+			best_biome = BIOME_COLD_FOREST
+		elif score > second_score:
+			second_score = score
+			second_biome = BIOME_COLD_FOREST
 
-	score = STAGE10_COLD_T * temperature + STAGE10_COLD_M * moisture + STAGE10_COLD_B
-	if score > best_score:
-		second_score = best_score
-		second_biome = best_biome
-		best_score = score
-		best_biome = BIOME_COLD_FOREST
-	elif score > second_score:
-		second_score = score
-		second_biome = BIOME_COLD_FOREST
+		if moisture <= STAGE10_PLAINS_FOREST_TRANSITION_HIGH:
+			score = STAGE10_PLAINS_M * moisture + STAGE10_PLAINS_B
+			if score > best_score:
+				second_score = best_score
+				second_biome = best_biome
+				best_score = score
+				best_biome = BIOME_PLAINS
+			elif score > second_score:
+				second_score = score
+				second_biome = BIOME_PLAINS
 
 	var margin: float = best_score - second_score
 	if margin >= STAGE10_TRANSITION_SCORE_WIDTH:
