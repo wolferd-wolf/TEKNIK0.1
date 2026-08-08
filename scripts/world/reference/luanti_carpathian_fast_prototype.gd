@@ -88,8 +88,8 @@ func _make_layer(
 
 func _steps(value: float) -> float:
 	const width := 0.5
-	var k := floor(value / width)
-	var f := (value - k * width) / width
+	var k: float = floor(value / width)
+	var f: float = (value - k * width) / width
 	var s := minf(2.0 * f, 1.0)
 	return (k + s) * width
 
