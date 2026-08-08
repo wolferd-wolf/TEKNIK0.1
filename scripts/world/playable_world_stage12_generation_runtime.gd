@@ -1,22 +1,22 @@
 extends "res://scripts/world/playable_world_stage11_generation_runtime.gd"
 
-const STAGE13_DATA := preload("res://scripts/world/playable_world_stage13_data.gd")
-const STAGE13_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage13_generation_cache_fast.gd")
+const STAGE12_DATA := preload("res://scripts/world/playable_world_stage11_water_biome_data.gd")
+const STAGE12_GENERATION_CACHE := preload("res://scripts/world/playable_world_stage10_generation_cache_fast.gd")
 const SHIPPING_STAGE12_CACHE := preload("res://scripts/world/playable_world_stage12_cache_fast.gd")
 const SHIPPING_STAGE12_MESHER := preload("res://scripts/world/playable_world_stage12_mesher.gd")
 const FROZEN_STAGE11_RUNTIME := preload("res://scripts/world/playable_world_stage11_generation_runtime.gd")
 const STAGE12_STAGE2_RUNTIME_BASE := preload("res://scripts/world/playable_world_stage2_generation_runtime.gd")
 
-# Public Stage 13 runtime. Stage 12 expression preparation and meshing remain
-# unchanged; only the generation cache/data layer changes river geography to
-# eliminate the repeated parallel-lane artifact found by final visual audit.
+# Frozen accepted Stage 12 runtime. Stage 13 intentionally changes river
+# geography, so Stage 12's output-preserving oracle must no longer point at the
+# moving public runtime.
 
 func _init() -> void:
-	data = STAGE13_DATA.new()
+	data = STAGE12_DATA.new()
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return STAGE13_GENERATION_CACHE.build(coord, data)
+	return STAGE12_GENERATION_CACHE.build(coord, data)
 
 
 static func _stage3_worker_build_chunk(
@@ -28,16 +28,16 @@ static func _stage3_worker_build_chunk(
 	result_key: String
 ) -> void:
 	var started_usec := Time.get_ticks_usec()
-	var sampler = STAGE13_DATA.new()
+	var sampler = STAGE12_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = STAGE13_GENERATION_CACHE.build(coord, sampler)
+	var caches: Dictionary = STAGE12_GENERATION_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
 	var water_types: PackedByteArray = caches.get("stage7_water_types", PackedByteArray())
 	var terrain_modifiers: PackedByteArray = caches.get("stage9_terrain_modifiers", PackedByteArray())
 	var mesh_height := mini(
-		STAGE13_DATA.OVERHAUL_WORLD_HEIGHT,
+		STAGE12_DATA.OVERHAUL_WORLD_HEIGHT,
 		STAGE12_STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
 	)
 	var mesh_started_usec := Time.get_ticks_usec()
@@ -53,7 +53,7 @@ static func _stage3_worker_build_chunk(
 		overrides_snapshot,
 		12,
 		mesh_height,
-		STAGE13_DATA.SEA_LEVEL,
+		STAGE12_DATA.SEA_LEVEL,
 		biomes,
 		water_types,
 		terrain_modifiers,

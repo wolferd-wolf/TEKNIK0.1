@@ -1,4 +1,4 @@
-extends "res://scripts/world/playable_world_stage11_water_biome_data.gd"
+extends "res://scripts/world/playable_world_stage13_data.gd"
 
 # Stage 13 diagnostic-only seed adapter. Shipping world generation remains fixed
 # to WORLD_SEED; this subclass exists only so the statistical audit can exercise
