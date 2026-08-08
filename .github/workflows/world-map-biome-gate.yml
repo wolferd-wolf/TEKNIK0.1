@@ -1,0 +1,94 @@
+name: TEKNIK World Map and Biome HUD Gate
+
+on:
+  push:
+    branches:
+      - world-overhaul
+    paths:
+      - scripts/ui/world_map_overlay.gd
+      - scripts/world/playable_world_port.gd
+      - tests/world_map_biome_gate.gd
+      - .github/workflows/world-map-biome-gate.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/ui/world_map_overlay.gd
+      - scripts/world/playable_world_port.gd
+      - tests/world_map_biome_gate.gd
+      - .github/workflows/world-map-biome-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  world-map-biome-hud:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget unzip libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libxrender1 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project strictly
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-map-biome-parse" \
+            timeout 120 /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --editor --quit \
+            2>&1 | tee artifacts/world-map-biome-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/world-map-biome-parse.log; then
+            exit 1
+          fi
+
+      - name: Gate current-biome HUD and Stage 13 terrain map
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-map-biome" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path "$GITHUB_WORKSPACE" \
+              --script res://tests/world_map_biome_gate.gd \
+              2>&1 | tee artifacts/world-map-biome-gate.log
+          grep -Fq 'WORLD_MAP_BIOME_GATE_PASS' artifacts/world-map-biome-gate.log
+
+      - name: Record scope and revision
+        if: always()
+        run: |
+          git rev-parse HEAD | tee artifacts/source-commit.txt
+          git status --short | tee artifacts/worktree-status.txt
+
+      - name: Upload map and biome evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-world-map-biome-hud-gate
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Publish map and biome status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=success
+          [[ "$JOB_STATUS" == success ]] || state=failure
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$state" \
+            -f context='teknik/world-map-biome' \
+            -f description="World map + biome HUD gate: $JOB_STATUS"
