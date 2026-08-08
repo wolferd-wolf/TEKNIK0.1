@@ -1,7 +1,6 @@
 extends SceneTree
 
 const Prototype = preload("res://scripts/world/reference/luanti_carpathian_fast_prototype.gd")
-const SEEDS := PackedInt32Array([734921, 19088743, 11235813])
 const GRID := 128
 const STEP := 16
 const CHUNK_SIZE := 16
@@ -11,7 +10,8 @@ func _init() -> void:
 	var out_dir := "res://artifacts/carpathian-fast-prototype"
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(out_dir))
 	var all_ok := true
-	for seed in SEEDS:
+	var seeds: PackedInt32Array = PackedInt32Array([734921, 19088743, 11235813])
+	for seed in seeds:
 		var result := _audit_seed(seed, out_dir)
 		print("CARPATHIAN_FAST_SEED=%d height_min=%d height_max=%d height_mean=%.4f height_p05=%d height_p50=%d height_p95=%d slope_le_1_pct=%.4f slope_le_2_pct=%.4f largest_low_relief_cells=%d largest_low_relief_equiv_width_blocks=%.4f elapsed_ms=%.3f" % [
 			seed,
@@ -20,7 +20,7 @@ func _init() -> void:
 			result["slope1"], result["slope2"], result["largest"],
 			result["equiv_width"], result["elapsed_ms"]
 		])
-		all_ok = all_ok and result["deterministic"]
+		all_ok = all_ok and bool(result["deterministic"])
 	var timings := _benchmark_chunk()
 	print("CARPATHIAN_FAST_CHUNK_MS min=%.4f mean=%.4f p95=%.4f max=%.4f samples=%d" % [
 		timings["min"], timings["mean"], timings["p95"], timings["max"], timings["count"]
@@ -39,7 +39,7 @@ func _audit_seed(seed: int, out_dir: String) -> Dictionary:
 	var count := GRID * GRID
 	var heights := PackedInt32Array()
 	heights.resize(count)
-	var half := GRID / 2
+	var half: int = GRID >> 1
 	var min_h := 999999
 	var max_h := -999999
 	var sum_h := 0.0
@@ -54,7 +54,10 @@ func _audit_seed(seed: int, out_dir: String) -> Dictionary:
 			max_h = maxi(max_h, h)
 			sum_h += h
 	var deterministic := true
-	for point in [Vector2i(0, 0), Vector2i(83, 56), Vector2i(-511, 913), Vector2i(1024, -768)]:
+	var points: Array[Vector2i] = [
+		Vector2i(0, 0), Vector2i(83, 56), Vector2i(-511, 913), Vector2i(1024, -768)
+	]
+	for point in points:
 		var a := gen.surface_height_raw(point.x, point.y)
 		var b := gen.surface_height_raw(point.x, point.y)
 		if a != b:
@@ -108,7 +111,7 @@ func _audit_seed(seed: int, out_dir: String) -> Dictionary:
 			head += 1
 			component += 1
 			var x := i % GRID
-			var z := i / GRID
+			var z: int = floori(float(i) / float(GRID))
 			if x > 0:
 				_try_add(i - 1, low, seen, queue)
 			if x + 1 < GRID:
