@@ -6,10 +6,9 @@
 //
 // This library intentionally implements terrain-height sampling only. It does
 // not copy Luanti's biome, cave, decoration, lighting, liquid, or voxel-node
-// systems. The vertical Carpathian density loop is replaced by a single
-// Y=12 mountain-variation probe; TEKNIK's exact-reference study measured this
-// shortcut at mean absolute surface-height error 0.2228 blocks with 97.4589%
-// of sampled columns within one block of the full vertical solver.
+// systems. Luanti evaluates its 3D mountain-variation field at each terrain Y.
+// TEKNIK keeps that behaviour at the surface by iterating the surface estimate
+// to convergence instead of scanning the whole vertical column.
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -25,7 +24,8 @@ using namespace godot;
 namespace {
 
 constexpr float BASE_LEVEL = 12.0f;
-constexpr int PROBE_Y = 12;
+constexpr int INITIAL_SURFACE_Y = 6;
+constexpr int SURFACE_SOLVE_ITERATIONS = 4;
 constexpr uint32_t NOISE_MAGIC_X = 1619U;
 constexpr uint32_t NOISE_MAGIC_Y = 31337U;
 constexpr uint32_t NOISE_MAGIC_Z = 52591U;
@@ -55,7 +55,7 @@ constexpr NoiseParams NP_STEP_MNT      {0.0f,  8.0f,  509.0f,  2590, 6, 0.60f, 2
 constexpr NoiseParams NP_MNT_VAR       {0.0f,  1.0f,  499.0f,  2490, 5, 0.55f, 2.0f, false};
 
 inline int myfloor(float x) {
-	return x < 0.0f ? static_cast<int>(x) - 1 : static_cast<int>(x);
+	return static_cast<int>(std::floor(x));
 }
 
 inline float ease_curve(float t) {
@@ -158,7 +158,7 @@ inline float steps_value(float noise) {
 	return (k + s) * width;
 }
 
-inline int surface_height_probe12(int x, int z, int32_t world_seed) {
+inline int surface_height_carpathian(int x, int z, int32_t world_seed) {
 	const float h1 = fractal2d(NP_HEIGHT1, x, z, world_seed);
 	const float h2 = fractal2d(NP_HEIGHT2, x, z, world_seed);
 	const float h3 = fractal2d(NP_HEIGHT3, x, z, world_seed);
@@ -175,17 +175,30 @@ inline int surface_height_probe12(int x, int z, int32_t world_seed) {
 	const float ster = std::fabs(fractal2d(NP_STEP_TERRAIN, x, z, world_seed));
 	const float nstep = fractal2d(NP_STEP_MNT, x, z, world_seed);
 	const float step_mask = ster * ster * ster * steps_value(nstep);
+	const float terrain_mask = hill_mask + ridge_mask + step_mask;
 
-	const float mv = fractal3d(NP_MNT_VAR, static_cast<float>(x), static_cast<float>(PROBE_Y), static_cast<float>(z), world_seed);
-	const float hill1 = lerp_value(h1, h2, mv);
-	const float hill2 = lerp_value(h3, h4, mv);
-	const float hill3 = lerp_value(h3, h2, mv);
-	const float hill4 = lerp_value(h1, h4, mv);
-	const float hilliness = std::max(std::min(hill1, hill2), std::min(hill3, hill4));
-	const float mountains = (hill_mask + ridge_mask + step_mask) * hilliness;
-
-	const float threshold = (BASE_LEVEL + mountains + 1.0f) * 0.5f;
-	return std::clamp(static_cast<int>(std::ceil(threshold)) - 1, 0, 255);
+	int surface_y = INITIAL_SURFACE_Y;
+	for (int iteration = 0; iteration < SURFACE_SOLVE_ITERATIONS; ++iteration) {
+		const float mv = fractal3d(
+			NP_MNT_VAR,
+			static_cast<float>(x),
+			static_cast<float>(surface_y),
+			static_cast<float>(z),
+			world_seed
+		);
+		const float hill1 = lerp_value(h1, h2, mv);
+		const float hill2 = lerp_value(h3, h4, mv);
+		const float hill3 = lerp_value(h3, h2, mv);
+		const float hill4 = lerp_value(h1, h4, mv);
+		const float hilliness = std::max(std::min(hill1, hill2), std::min(hill3, hill4));
+		const float mountains = terrain_mask * hilliness;
+		const float threshold = (BASE_LEVEL + mountains + 1.0f) * 0.5f;
+		const int next_y = std::clamp(static_cast<int>(std::ceil(threshold)) - 1, 0, 255);
+		if (next_y == surface_y)
+			break;
+		surface_y = next_y;
+	}
+	return surface_y;
 }
 
 } // namespace
@@ -215,7 +228,7 @@ public:
 	}
 
 	int64_t sample_height(int64_t x, int64_t z) const {
-		return surface_height_probe12(static_cast<int>(x), static_cast<int>(z), world_seed);
+		return surface_height_carpathian(static_cast<int>(x), static_cast<int>(z), world_seed);
 	}
 
 	PackedInt32Array generate_grid(int64_t origin_x, int64_t origin_z, int64_t width, int64_t depth, int64_t step) const {
@@ -229,7 +242,7 @@ public:
 			const int wz = static_cast<int>(origin_z) + z * spacing;
 			for (int x = 0; x < w; ++x) {
 				const int wx = static_cast<int>(origin_x) + x * spacing;
-				out[z * w + x] = surface_height_probe12(wx, wz, world_seed);
+				out[z * w + x] = surface_height_carpathian(wx, wz, world_seed);
 			}
 		}
 		return result;
@@ -261,7 +274,7 @@ public:
 			for (int x = 0; x < w; ++x) {
 				const int wx = static_cast<int>(origin_x) + x * spacing;
 				out[z * w + x] = std::clamp(
-					surface_height_probe12(wx, wz, world_seed) + offset,
+					surface_height_carpathian(wx, wz, world_seed) + offset,
 					min_h,
 					max_h
 				);
