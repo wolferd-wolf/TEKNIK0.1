@@ -8,6 +8,10 @@ const PADDING := 2
 # build accepted Stage 5 columns, discover sparse lake/pond features, and shape
 # only columns inside those feature bounds. Water-aware tree-origin suppression
 # is a meshing concern and is deliberately performed after cache_usec is closed.
+#
+# The accepted feature list is retained in the result so later classifier stages
+# can consume the already-paid hydrology topology without re-running feature
+# discovery. Stage 6 callers that do not need it simply ignore the extra key.
 
 
 static func build(coord: Vector2i, sampler) -> Dictionary:
@@ -33,6 +37,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		world_fields,
 		heights
 	)
+	result["stage6_features"] = features
 	if features.is_empty():
 		return result
 
