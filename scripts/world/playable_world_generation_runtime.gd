@@ -1,20 +1,20 @@
 extends "res://scripts/world/playable_world_stage4_generation_runtime.gd"
 
-const SHIPPING_STAGE9_DATA := preload("res://scripts/world/playable_world_stage9_terrain_data.gd")
-const SHIPPING_STAGE9_CACHE := preload("res://scripts/world/playable_world_stage9_cache_fast.gd")
-const SHIPPING_STAGE9_MESHER := preload("res://scripts/world/playable_world_stage9_mesher.gd")
+const SHIPPING_STAGE10_DATA := preload("res://scripts/world/playable_world_stage10_region_data.gd")
+const SHIPPING_STAGE10_CACHE := preload("res://scripts/world/playable_world_stage10_cache_fast.gd")
+const SHIPPING_STAGE10_MESHER := preload("res://scripts/world/playable_world_stage10_mesher.gd")
 const SHIPPING_STAGE6_TREE_HELPER := preload("res://scripts/world/playable_world_stage6_cache_fast.gd")
 
-# Stable public runtime path. Stage 9 preserves the accepted Stage 2–8 terrain,
-# hydrology and base ecology, then adds an orthogonal terrain-modifier cache and
-# terrain-aware surface/tree expression without adding noise sampling.
+# Stable public runtime path. Stage 10 preserves Stage 2–9 terrain, hydrology,
+# base ecology and terrain modifiers, then carries compact climate-boundary
+# metadata into surface/vegetation expression without adding noise sampling.
 
 func _init() -> void:
-	data = SHIPPING_STAGE9_DATA.new()
+	data = SHIPPING_STAGE10_DATA.new()
 
 
 func _build_column_caches(coord: Vector2i) -> Dictionary:
-	return SHIPPING_STAGE9_CACHE.build(coord, data)
+	return SHIPPING_STAGE10_CACHE.build(coord, data)
 
 
 static func _stage6_blocked_tree_columns(
@@ -64,9 +64,9 @@ static func _stage3_worker_build_chunk(
 	result_key: String
 ) -> void:
 	var started_usec := Time.get_ticks_usec()
-	var sampler = SHIPPING_STAGE9_DATA.new()
+	var sampler = SHIPPING_STAGE10_DATA.new()
 	var cache_started_usec := Time.get_ticks_usec()
-	var caches: Dictionary = SHIPPING_STAGE9_CACHE.build(coord, sampler)
+	var caches: Dictionary = SHIPPING_STAGE10_CACHE.build(coord, sampler)
 	var cache_usec := Time.get_ticks_usec() - cache_started_usec
 	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
 	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
@@ -75,24 +75,29 @@ static func _stage3_worker_build_chunk(
 		"stage9_terrain_modifiers",
 		PackedByteArray()
 	)
-	# Stage 9 keeps the Stage 8 tree silhouettes, so the accepted two-block extra
+	var transition_codes: PackedByteArray = caches.get(
+		"stage10_transition_codes",
+		PackedByteArray()
+	)
+	# Stage 10 changes expression density/cues only, so Stage 8's two-block extra
 	# active mesh headroom remains sufficient. The legal world height stays 150.
 	var mesh_height := mini(
-		SHIPPING_STAGE9_DATA.OVERHAUL_WORLD_HEIGHT,
+		SHIPPING_STAGE10_DATA.OVERHAUL_WORLD_HEIGHT,
 		STAGE2_RUNTIME_BASE._effective_mesh_height(coord, heights, overrides_snapshot) + 2
 	)
 	var mesh_started_usec := Time.get_ticks_usec()
 	var blocked_tree_columns := _stage6_blocked_tree_columns(coord, caches, sampler)
-	var mesh_data: Dictionary = SHIPPING_STAGE9_MESHER.build(
+	var mesh_data: Dictionary = SHIPPING_STAGE10_MESHER.build(
 		coord,
 		heights,
 		overrides_snapshot,
 		12,
 		mesh_height,
-		SHIPPING_STAGE9_DATA.SEA_LEVEL,
+		SHIPPING_STAGE10_DATA.SEA_LEVEL,
 		biomes,
 		water_types,
 		terrain_modifiers,
+		transition_codes,
 		sampler,
 		blocked_tree_columns
 	)
