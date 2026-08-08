@@ -196,7 +196,9 @@ static func build(
 			if not overrides.has(key):
 				mesher_overrides[key] = BLOCK_LOG
 
-	# Then apply the biome-specific canopy silhouette.
+	# Then apply the biome-specific canopy silhouette. Unlike an arbitrary block
+	# override, generated foliage must never replace terrain on a neighboring
+	# slope. Clip every leaf against that column's cached surface first.
 	for tree_index in range(custom_origins.size()):
 		var tree: Vector3i = custom_origins[tree_index]
 		var biome: int = custom_biomes[tree_index]
@@ -208,6 +210,11 @@ static func build(
 						continue
 					var cell := Vector3i(tree.x + dx, trunk_top + dy, tree.z + dz)
 					if cell.y < 0 or cell.y >= world_height:
+						continue
+					var terrain_index: int = _cache_index_for_world(
+						cell.x, cell.z, origin, cache_width, cache_padding
+					)
+					if terrain_index < 0 or cell.y <= int(heights[terrain_index]):
 						continue
 					var key := "%d,%d,%d" % [cell.x, cell.y, cell.z]
 					if overrides.has(key):
