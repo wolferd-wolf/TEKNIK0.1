@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/android-export-step5.yml
       - android/**
+      - native/carpathian/**
       - export_presets.cfg
       - project.godot
       - scenes/**
@@ -43,7 +44,7 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends unzip wget
+          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget
 
       - name: Install OpenJDK 17
         uses: actions/setup-java@v4
@@ -74,6 +75,44 @@ jobs:
             "cmdline-tools;latest" \
             "cmake;3.10.2.4988404" \
             "ndk;23.2.8568313"
+
+      - name: Build arm64 native Carpathian sampler
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          cat > native/carpathian/SConstruct <<'PY'
+          #!/usr/bin/env python
+          env = SConscript("godot-cpp/SConstruct")
+          env.Append(CPPPATH=["src/"])
+          sources = Glob("src/*.cpp")
+          library = env.SharedLibrary(
+              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+              source=sources,
+          )
+          env.NoCache(library)
+          Default(library)
+          PY
+          scons -C native/carpathian \
+            platform=android \
+            target=template_debug \
+            arch=arm64 \
+            android_api_level=24 \
+            ndk_version=23.2.8568313 \
+            ANDROID_HOME="$ANDROID_HOME" \
+            -j2
+          LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
+          test -n "$LIB_PATH"
+          LIB_NAME="$(basename "$LIB_PATH")"
+          cat > native/carpathian/teknik_carpathian.gdextension <<EOF
+          [configuration]
+          entry_symbol = "teknik_carpathian_library_init"
+          compatibility_minimum = "4.3"
+
+          [libraries]
+          android.debug.arm64 = "res://native/carpathian/bin/$LIB_NAME"
+          EOF
+          printf 'library=%s\n' "$LIB_PATH" | tee artifacts/carpathian-native-build.txt
+          file "$LIB_PATH" | tee -a artifacts/carpathian-native-build.txt
+          rm -rf native/carpathian/godot-cpp
 
       - name: Install Godot 4.3 and matching export templates
         run: |
@@ -146,6 +185,8 @@ jobs:
             echo 'Native library entries:'
             unzip -Z1 "$apk" | grep '^lib/' || true
           } 2>&1 | tee artifacts/apk-metadata.txt
+          unzip -Z1 "$apk" | grep 'libteknik_carpathian' | tee artifacts/carpathian-apk-entry.txt
+          test -s artifacts/carpathian-apk-entry.txt
 
       - name: Upload Step 5 export result and full output
         if: always()
@@ -170,3 +211,4 @@ jobs:
             exit "$status"
           fi
           test -s artifacts/TEKNIK-0.1-debug.apk
+          test -s artifacts/carpathian-apk-entry.txt
