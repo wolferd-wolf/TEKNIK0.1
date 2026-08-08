@@ -105,7 +105,7 @@ jobs:
               --headless \
               --audio-driver Dummy \
               --path . \
-              --script res://tests/multi_noise_step1_stage3_gate.gd \
+              --script res://tests/multi_noise_step1_stage7_gate.gd \
               2>&1 | tee artifacts/multi-noise-step1-benchmark.log
           grep -Fq 'MULTI_NOISE_STEP1_GATE_PASS' artifacts/multi-noise-step1-benchmark.log
           grep -Fq 'MULTI_NOISE_STEP1_BENCHMARK_JSON=' artifacts/multi-noise-step1-benchmark.log
