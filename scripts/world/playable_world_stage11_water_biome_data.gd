@@ -12,8 +12,11 @@ const HYDROLOGY_MODIFIER_PONDSIDE := 4
 const STAGE11_HYDROLOGY_MODIFIER_COUNT := 5
 const STAGE11_WATER_MARGIN_RADIUS := 1
 
-const STAGE11_COAST_BEACH_MAX_ELEVATION := SEA_LEVEL + 3
-const STAGE11_COAST_BEACH_MAX_SLOPE := 1.0
+# Stage 10 already rendered terrain at sea level + 1 as sand. Stage 11 extends
+# the one-cell physical-ocean margin modestly uphill so coast expression is a
+# visible new beach band rather than a no-op, while steep coast remains geology.
+const STAGE11_COAST_BEACH_MAX_ELEVATION := SEA_LEVEL + 5
+const STAGE11_COAST_BEACH_MAX_SLOPE := 2.0
 const STAGE11_RIPARIAN_TREE_SALT := 0x6f13b9d1
 
 
