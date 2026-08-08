@@ -5,13 +5,17 @@ const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const CHUNK_SIZE := 12
 const RENDER_RADIUS := 3
 const WATER_NONE := 0
+# Historical gates and callers use this public name as the visual top offset.
+# Full voxel water now places that top exactly one block above the highest water
+# cell rather than at the old fractional 0.54 sheet height.
+const WATER_SURFACE_OFFSET := 1.0
 const WATER_TOP_COLOR := Color(0.18, 0.50, 0.72, 0.86)
 const WATER_SIDE_COLOR := Color(0.12, 0.36, 0.56, 0.86)
 
 @export var streaming_target_path := NodePath("../../Player")
 
 var _active := false
-var _center := Vector2i(2147483647, 2147483647)
+var _center := Vector2i(2147483647, 0, 2147483647)
 var _data = WORLD_DATA.new()
 var _material := StandardMaterial3D.new()
 var _chunks: Dictionary = {}
@@ -173,7 +177,7 @@ static func build_water_mesh(data, coord: Vector2i, chunk_size: int) -> ArrayMes
 
 			# A water column is a stack of full voxel blocks. The top face sits on
 			# the integer block boundary above the highest water voxel.
-			var top_y := float(surface_y + 1)
+			var top_y := float(surface_y) + WATER_SURFACE_OFFSET
 			_append_quad(
 				vertices,
 				normals,
