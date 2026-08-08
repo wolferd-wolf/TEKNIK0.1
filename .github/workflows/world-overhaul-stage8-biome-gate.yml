@@ -9,6 +9,7 @@ on:
       - 'scripts/world/playable_world_stage8_cache_fast.gd'
       - 'scripts/world/playable_world_stage8_mesher.gd'
       - 'tests/world_overhaul_stage8_biome_gate.gd'
+      - 'tests/world_overhaul_stage8_contiguity_gate.gd'
       - '.github/workflows/world-overhaul-stage8-biome-gate.yml'
   workflow_dispatch:
 
@@ -56,6 +57,16 @@ jobs:
               2>&1 | tee artifacts/world-overhaul-stage8-biomes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE8_PASS' artifacts/world-overhaul-stage8-biomes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE8_JSON=' artifacts/world-overhaul-stage8-biomes.log
+
+      - name: Verify shipping 2-block biome contiguity
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage8-contiguity" \
+            timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/world_overhaul_stage8_contiguity_gate.gd \
+              2>&1 | tee artifacts/world-overhaul-stage8-contiguity.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE8_CONTIGUITY_PASS' artifacts/world-overhaul-stage8-contiguity.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE8_CONTIGUITY_JSON=' artifacts/world-overhaul-stage8-contiguity.log
 
       - name: Upload Stage 8 evidence
         if: always()
