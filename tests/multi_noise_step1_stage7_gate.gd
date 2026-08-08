@@ -1,12 +1,15 @@
 extends "res://tests/multi_noise_step1_stage3_gate.gd"
 
-# Stage 7 runs the full historical multi-noise transaction against the modern
-# Stage 6 hydrology contract. The old parent scan assumes every water column is
-# below the single global sea level, which became invalid when Stage 6 added
-# contained inland lakes and ponds with local water surfaces above sea level.
-# Keep the same scan and gameplay assertions, but validate water against the
-# shipping topology itself: every classified water surface must clear its
-# generated terrain basin floor.
+# Stage 7 deliberately replaces the old small probabilistic biome patches with
+# slow deterministic climate regions. The historical Step 5 integration still
+# provides useful water/tree/mining/placement coverage, but two distribution-era
+# assumptions are no longer valid:
+#   * every water surface is the global sea level;
+#   * a 257x257 near-spawn scan must contain trees from both Plains and Forest.
+#
+# This wrapper keeps the full shipping transaction while validating the modern
+# contracts: local water containment, at least one canonical generated tree,
+# tree origins only in tree-supporting ecologies, and intact canopies.
 func _scan_static_integration() -> Dictionary:
 	var water_columns := 0
 	var dry_columns := 0
@@ -24,7 +27,7 @@ func _scan_static_integration() -> Dictionary:
 			var surface: int = data.terrain_height(x, z)
 			var biome: int = data.biome_at(x, z)
 			var water_info: Vector2i = LOCALIZED_WATER.water_info(data, x, z)
-			var water := water_info.x != 0
+			var water: bool = water_info.x != 0
 			if water:
 				water_columns += 1
 				if water_fixture == INVALID_FIXTURE:
@@ -34,12 +37,15 @@ func _scan_static_integration() -> Dictionary:
 						"Water surface failed to clear its terrain basin at (%d, %d): surface=%d water_level=%d type=%d"
 						% [x, z, surface, water_info.y, water_info.x]
 					)
-			elif surface >= WORLD_DATA.SEA_LEVEL + 2:
-				dry_columns += 1
-				if dry_fixture == INVALID_FIXTURE:
-					dry_fixture = Vector2i(x, z)
+			else:
+				if surface >= WORLD_DATA.SEA_LEVEL + 2:
+					dry_columns += 1
+					if dry_fixture == INVALID_FIXTURE:
+						dry_fixture = Vector2i(x, z)
 
-			if not data.is_tree_origin_for_biome(x, z, surface, biome):
+			# Use the canonical shipping predicate. Stage 6+ intentionally suppresses
+			# otherwise-valid tree hashes in physical water columns.
+			if not bool(data.is_tree_origin(x, z)):
 				continue
 			tree_origins += 1
 			if biome == WORLD_DATA.BIOME_PLAINS:
@@ -47,7 +53,10 @@ func _scan_static_integration() -> Dictionary:
 			elif biome == WORLD_DATA.BIOME_FOREST:
 				forest_trees += 1
 			else:
-				_fail("A tree origin appeared in %s at (%d, %d)" % [data.biome_name(biome), x, z])
+				_fail(
+					"A canonical tree origin appeared in non-tree ecology %s at (%d, %d)"
+					% [data.biome_name(biome), x, z]
+				)
 			if data.get_block(Vector3i(x, surface, z)) != BLOCK_GRASS:
 				_fail("A generated tree is not rooted on grass at (%d, %d)" % [x, z])
 			if data.get_block(Vector3i(x, surface + 1, z)) != BLOCK_LOG:
@@ -63,21 +72,21 @@ func _scan_static_integration() -> Dictionary:
 					tree_access = access
 
 	if water_columns <= 0 or water_fixture == INVALID_FIXTURE:
-		_fail("Step 5 scan found no localized water body")
+		_fail("Stage 7 shipping scan found no physical water body")
 	if dry_columns <= 0 or dry_fixture == INVALID_FIXTURE:
-		_fail("Step 5 scan found no dry terrain")
-	if tree_origins <= 0 or plains_trees <= 0 or forest_trees <= 0:
-		_fail("Step 5 scan did not retain both plains and forest trees")
+		_fail("Stage 7 shipping scan found no dry terrain")
+	if tree_origins <= 0:
+		_fail("Stage 7 shipping scan found no canonical generated tree")
 	if verified_canopies != tree_origins:
 		_fail("Not every generated tree retained a canopy")
 	if tree_fixture == INVALID_FIXTURE:
-		_fail("Step 5 scan found no side-accessible base log")
+		_fail("Stage 7 shipping scan found no side-accessible base log")
 
 	var placement_fixture := INVALID_FIXTURE
 	if tree_fixture != INVALID_FIXTURE:
 		placement_fixture = _find_placement_fixture(tree_fixture)
 	if placement_fixture == INVALID_FIXTURE:
-		_fail("Step 5 scan found no placement fixture near the generated tree")
+		_fail("Stage 7 shipping scan found no placement fixture near the generated tree")
 
 	var water_mesh: Dictionary = _validate_water_mesh(water_fixture)
 	var dry_chunk: Dictionary = _find_dry_chunk()
@@ -89,6 +98,7 @@ func _scan_static_integration() -> Dictionary:
 		"plains_trees": plains_trees,
 		"forest_trees": forest_trees,
 		"verified_canopies": verified_canopies,
+		"tree_distribution_note": "Stage 7 slow climate regions do not require both tree ecologies near spawn",
 		"water_fixture": [water_fixture.x, water_fixture.y],
 		"dry_fixture": [dry_fixture.x, dry_fixture.y],
 		"tree_fixture": [tree_fixture.x, tree_fixture.y],
