@@ -6,8 +6,7 @@ const FIELD_STRIDE := 6
 # For Euclidean nearest-prototype selection, the shared climate length term can
 # be removed from every squared distance. Maximizing
 #   2 * climate.dot(target) - target.length_squared()
-# gives exactly the same Voronoi regions as minimizing squared distance, with
-# fewer arithmetic operations in the 256-column Stage 8 pass.
+# gives exactly the same Voronoi regions as minimizing squared distance.
 const PLAINS_M := -0.04
 const PLAINS_B := -0.0004
 const FOREST_M := 0.76
@@ -24,6 +23,14 @@ const DRY_B := -0.2176
 const COLD_T := -1.04
 const COLD_M := 0.68
 const COLD_B := -0.386
+
+# At moisture <= 0.18, Plains always beats Forest and Forest always beats Dense
+# Forest throughout FastNoiseLite's [-1, 1] temperature range, so Forest and
+# Dense Forest cannot be nearest. Above 0.18, Forest always beats Plains and
+# Dry Grassland always beats Desert, so Plains and Desert cannot be nearest.
+# Pruning those impossible candidates preserves the exact nearest-prototype
+# Voronoi result while reducing the hot pass from six candidates to four.
+const PLAINS_FOREST_MOISTURE_BOUNDARY := 0.18
 
 
 static func build(coord: Vector2i, sampler) -> Dictionary:
@@ -57,32 +64,46 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 
 		var temperature: float = fields[climate_field]
 		var moisture: float = fields[climate_field + 1]
-		var biome: int = biome_plains
-		var best_score: float = PLAINS_M * moisture + PLAINS_B
+		var biome: int
+		var best_score: float
+		var score: float
 
-		var score: float = FOREST_M * moisture + FOREST_B
-		if score > best_score:
-			best_score = score
+		if moisture <= PLAINS_FOREST_MOISTURE_BOUNDARY:
+			# Exact candidate set: Plains, Desert, Dry Grassland, Cold Forest.
+			biome = biome_plains
+			best_score = PLAINS_M * moisture + PLAINS_B
+
+			score = DESERT_T * temperature + DESERT_M * moisture + DESERT_B
+			if score > best_score:
+				best_score = score
+				biome = biome_desert
+
+			score = DRY_T * temperature + DRY_M * moisture + DRY_B
+			if score > best_score:
+				best_score = score
+				biome = biome_dry
+
+			score = COLD_T * temperature + COLD_M * moisture + COLD_B
+			if score > best_score:
+				biome = biome_cold
+		else:
+			# Exact candidate set: Forest, Dense Forest, Dry Grassland, Cold Forest.
 			biome = biome_forest
+			best_score = FOREST_M * moisture + FOREST_B
 
-		score = DENSE_T * temperature + DENSE_M * moisture + DENSE_B
-		if score > best_score:
-			best_score = score
-			biome = biome_dense
+			score = DENSE_T * temperature + DENSE_M * moisture + DENSE_B
+			if score > best_score:
+				best_score = score
+				biome = biome_dense
 
-		score = DESERT_T * temperature + DESERT_M * moisture + DESERT_B
-		if score > best_score:
-			best_score = score
-			biome = biome_desert
+			score = DRY_T * temperature + DRY_M * moisture + DRY_B
+			if score > best_score:
+				best_score = score
+				biome = biome_dry
 
-		score = DRY_T * temperature + DRY_M * moisture + DRY_B
-		if score > best_score:
-			best_score = score
-			biome = biome_dry
-
-		score = COLD_T * temperature + COLD_M * moisture + COLD_B
-		if score > best_score:
-			biome = biome_cold
+			score = COLD_T * temperature + COLD_M * moisture + COLD_B
+			if score > best_score:
+				biome = biome_cold
 
 		biomes[column] = biome
 		column += 1
