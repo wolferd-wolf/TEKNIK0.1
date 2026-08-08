@@ -8,7 +8,9 @@ on:
       - 'scripts/world/playable_world_stage8_biome_data.gd'
       - 'scripts/world/playable_world_stage8_cache_fast.gd'
       - 'scripts/world/playable_world_stage8_mesher.gd'
+      - 'scripts/world/playable_world_stage8_generation_runtime.gd'
       - 'tests/world_overhaul_stage8_biome_gate.gd'
+      - 'tests/world_overhaul_stage8_frozen_gate.gd'
       - 'tests/world_overhaul_stage8_contiguity_gate.gd'
       - '.github/workflows/world-overhaul-stage8-biome-gate.yml'
   workflow_dispatch:
@@ -48,12 +50,12 @@ jobs:
             exit 1
           fi
 
-      - name: Verify readable ecology set and performance
+      - name: Verify frozen Stage 8 ecology and performance
         run: |
           set -o pipefail
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage8-biomes" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage8_biome_gate.gd \
+              --script res://tests/world_overhaul_stage8_frozen_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage8-biomes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE8_PASS' artifacts/world-overhaul-stage8-biomes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE8_JSON=' artifacts/world-overhaul-stage8-biomes.log
