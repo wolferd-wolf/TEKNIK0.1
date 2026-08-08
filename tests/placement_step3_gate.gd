@@ -90,17 +90,17 @@ func _run_gate() -> void:
 	# Historical fixture diagnostics: older versions treated the highest non-air
 	# block at (2,2) as terrain. With richer generated vegetation that can be a
 	# trunk/canopy block, so record both values and choose actual dry ground below.
-	var legacy_highest_y := _find_highest_non_air_y(manager, 2, 2)
-	var legacy_terrain_y := manager.get_playable_world_height(2, 2)
+	var legacy_highest_y: int = _find_highest_non_air_y(manager, 2, 2)
+	var legacy_terrain_y: int = int(manager.get_playable_world_height(2, 2))
 	print("PLACEMENT_LEGACY_HIGHEST_NON_AIR_Y=%d" % legacy_highest_y)
 	print("PLACEMENT_LEGACY_TERRAIN_Y=%d" % legacy_terrain_y)
 
-	var base_coord := _find_clear_terrain_fixture(manager)
+	var base_coord: Vector3i = _find_clear_terrain_fixture(manager)
 	if base_coord.x == 2147483647:
 		_fail("No dry tree-clear playable-world terrain fixture was found for placement")
 		_finish()
 		return
-	var surface_y := base_coord.y
+	var surface_y: int = base_coord.y
 	var placement_coord := base_coord + Vector3i.UP
 	print("PLACEMENT_TERRAIN_FIXTURE=%s" % base_coord)
 
@@ -244,12 +244,12 @@ func _find_clear_terrain_fixture(manager) -> Vector3i:
 			if sampler != null and sampler.has_method("water_type_at"):
 				if int(sampler.water_type_at(world_x, world_z)) != WATER_NONE:
 					continue
-			var surface_y: int = manager.get_playable_world_height(world_x, world_z)
+			var surface_y: int = int(manager.get_playable_world_height(world_x, world_z))
 			var base_coord := Vector3i(world_x, surface_y, world_z)
-			var base_block: int = manager.get_block_world(base_coord)
+			var base_block: int = int(manager.get_block_world(base_coord))
 			if base_block == BLOCK_AIR:
 				continue
-			var clear := true
+			var clear: bool = true
 			for y in range(surface_y + 1, surface_y + FIXTURE_CLEARANCE + 1):
 				if manager.get_block_world(Vector3i(world_x, y, world_z)) != BLOCK_AIR:
 					clear = false
