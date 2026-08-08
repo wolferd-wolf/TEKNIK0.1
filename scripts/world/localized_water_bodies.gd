@@ -15,7 +15,7 @@ const WATER_SIDE_COLOR := Color(0.12, 0.36, 0.56, 0.86)
 @export var streaming_target_path := NodePath("../../Player")
 
 var _active := false
-var _center := Vector2i(2147483647, 0, 2147483647)
+var _center := Vector2i(2147483647, 2147483647)
 var _data = WORLD_DATA.new()
 var _material := StandardMaterial3D.new()
 var _chunks: Dictionary = {}
