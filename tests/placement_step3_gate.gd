@@ -7,6 +7,7 @@ const BLOCK_STONE := 3
 const WATER_NONE := 0
 const FRAME_LIMIT := 900
 const FIXTURE_CLEARANCE := 6
+const TARGET_FRAME_LIMIT := 120
 
 var failures: Array[String] = []
 
@@ -115,18 +116,21 @@ func _run_gate() -> void:
 			return
 
 	player.global_position = Vector3(base_coord.x + 5.5, surface_y + 3.0, base_coord.z + 0.5)
-	await _aim_at_block(player, camera, base_coord)
-	var target: Dictionary = player.get_block_target()
-	if target.get("block_coord", Vector3i(9999, 9999, 9999)) != base_coord:
-		_fail("Placement target mismatch: expected %s, got %s" % [base_coord, target.get("block_coord")])
+	player.set_process(false)
+	if not await _wait_for_target(player, camera, base_coord):
 		_finish()
 		return
+	var target: Dictionary = player.get_block_target()
 	if target.get("hit_face", Vector3i.ZERO) != Vector3i.UP:
 		_fail("Placement fixture was not targeted on its top face")
 		_finish()
 		return
 	if not player.can_place_block_at(placement_coord):
 		_fail("Valid playable-world placement candidate was rejected")
+		_finish()
+		return
+	if player.has_method("is_inventory_input_locked") and bool(player.is_inventory_input_locked()):
+		_fail("Inventory input was unexpectedly locked before placement")
 		_finish()
 		return
 
@@ -138,16 +142,24 @@ func _run_gate() -> void:
 	var root_before := entry_before.get("root") as Node3D
 	var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 
-	# Drive the exact bound desktop input event through Godot's input pipeline.
-	# Direct Input.action_press() mutates action state but does not exercise the
-	# real InputEvent-to-InputMap path and its one-frame edge can be process-order
-	# sensitive in a SceneTree coroutine. The shipping binding is right mouse.
+	# Drive the exact bound right-mouse event through Godot's InputMap, then run
+	# the shipping controller's real _process() exactly once while the just-pressed
+	# edge is alive. SceneTree test coroutines and normal node _process callbacks
+	# do not have a guaranteed relative order, so relying on a later frame can lose
+	# the one-frame edge without testing the controller at all.
 	var place_press := InputEventMouseButton.new()
 	place_press.button_index = MOUSE_BUTTON_RIGHT
 	place_press.pressed = true
 	place_press.position = Vector2(640.0, 360.0)
 	Input.parse_input_event(place_press)
-	await _wait_frames(2)
+	print("PLACEMENT_ACTION_PRESSED=%s" % Input.is_action_pressed("place_block"))
+	print("PLACEMENT_ACTION_JUST_PRESSED=%s" % Input.is_action_just_pressed("place_block"))
+	if not Input.is_action_pressed("place_block") or not Input.is_action_just_pressed("place_block"):
+		_fail("Bound right-mouse event did not map to the place_block InputMap action")
+		_finish()
+		return
+	player._process(0.0)
+
 	var place_release := InputEventMouseButton.new()
 	place_release.button_index = MOUSE_BUTTON_RIGHT
 	place_release.pressed = false
@@ -156,7 +168,7 @@ func _run_gate() -> void:
 	await _wait_frames(1)
 
 	if manager.get_block_world(placement_coord) != BLOCK_STONE:
-		_fail("bound place_block mouse event did not write stone to the playable world")
+		_fail("shipping player _process did not place stone from the bound place_block event")
 	if not await _wait_for_atomic_swap(manager, swaps_before, "bound InputMap placement"):
 		_finish()
 		return
@@ -210,11 +222,25 @@ func _run_gate() -> void:
 	_finish()
 
 
-func _aim_at_block(player, camera: Camera3D, block_coord: Vector3i) -> void:
+func _wait_for_target(player, camera: Camera3D, block_coord: Vector3i) -> bool:
 	var center := Vector3(block_coord) + Vector3.ONE * 0.5
 	camera.global_position = center + Vector3(0.0, 3.5, 0.0)
 	camera.look_at(center, Vector3.FORWARD)
-	await _wait_frames(20)
+	for _frame in range(TARGET_FRAME_LIMIT):
+		# Explicitly execute the shipping target update in the test's deterministic
+		# order; player process is disabled while this helper owns that order.
+		player._process(0.0)
+		var target: Dictionary = player.get_block_target()
+		if (
+			target.get("block_coord", Vector3i(9999, 9999, 9999)) == block_coord
+			and target.get("hit_face", Vector3i.ZERO) == Vector3i.UP
+		):
+			print("PLACEMENT_TARGET_READY=%s" % target)
+			return true
+		await physics_frame
+		await process_frame
+	_fail("Placement target mismatch after deterministic target wait: expected %s, got %s" % [block_coord, player.get_block_target().get("block_coord")])
+	return false
 
 
 func _assert_slot(slot: Dictionary, expected_block_id: int, expected_count: int, context: String) -> void:
@@ -292,7 +318,6 @@ func _capture_screenshot() -> void:
 
 
 func _finish() -> void:
-	# Release both synthetic action state and the bound mouse event defensively.
 	Input.action_release("place_block")
 	var place_release := InputEventMouseButton.new()
 	place_release.button_index = MOUSE_BUTTON_RIGHT
