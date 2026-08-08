@@ -31,29 +31,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	return STAGE9_CACHE.build(coord, sampler)
 
 
-static func _score_for_biome(
-	temperature: float,
-	moisture: float,
-	biome: int,
-	sampler
-) -> float:
-	match biome:
-		sampler.BIOME_PLAINS:
-			return PLAINS_M * moisture + PLAINS_B
-		sampler.BIOME_FOREST:
-			return FOREST_M * moisture + FOREST_B
-		sampler.BIOME_DENSE_FOREST:
-			return DENSE_T * temperature + DENSE_M * moisture + DENSE_B
-		sampler.BIOME_DESERT:
-			return DESERT_T * temperature + DESERT_M * moisture + DESERT_B
-		sampler.BIOME_DRY_GRASSLAND:
-			return DRY_T * temperature + DRY_M * moisture + DRY_B
-		sampler.BIOME_COLD_FOREST:
-			return COLD_T * temperature + COLD_M * moisture + COLD_B
-		_:
-			return -1.0e20
-
-
 static func build_transition_codes(cache: Dictionary, sampler) -> PackedByteArray:
 	var fields: PackedFloat32Array = cache.get("world_fields", PackedFloat32Array())
 	var biomes: PackedByteArray = cache.get("biomes", PackedByteArray())
@@ -82,26 +59,43 @@ static func build_transition_codes(cache: Dictionary, sampler) -> PackedByteArra
 		var temperature: float = fields[field_index + 4]
 		var moisture: float = fields[field_index + 5]
 		var biome: int = int(biomes[column])
-		var best_score: float = _score_for_biome(temperature, moisture, biome, sampler)
+
+		# The Stage 8 winner is already cached. Recover its linear Voronoi score
+		# inline rather than dispatching through a helper 256 times per chunk.
+		var best_score: float
+		match biome:
+			biome_plains:
+				best_score = PLAINS_M * moisture + PLAINS_B
+			biome_forest:
+				best_score = FOREST_M * moisture + FOREST_B
+			biome_dense:
+				best_score = DENSE_T * temperature + DENSE_M * moisture + DENSE_B
+			biome_desert:
+				best_score = DESERT_T * temperature + DESERT_M * moisture + DESERT_B
+			biome_dry:
+				best_score = DRY_T * temperature + DRY_M * moisture + DRY_B
+			biome_cold:
+				best_score = COLD_T * temperature + COLD_M * moisture + COLD_B
+			_:
+				best_score = -1.0e20
+
 		var second_score: float = -1.0e20
 		var second_biome: int = -1
 		var score: float
 
 		# Only prototypes that can own a neighboring Voronoi region in this
 		# moisture half-space participate. The losing Plains/Forest prototype is
-		# retained in the narrow +/-0.05 band around their exact shared boundary.
-		if biome != biome_plains:
-			if moisture <= PLAINS_FOREST_MOISTURE_BOUNDARY or moisture <= PLAINS_FOREST_TRANSITION_HIGH:
-				score = PLAINS_M * moisture + PLAINS_B
-				if score > second_score:
-					second_score = score
-					second_biome = biome_plains
-		if biome != biome_forest:
-			if moisture > PLAINS_FOREST_MOISTURE_BOUNDARY or moisture >= PLAINS_FOREST_TRANSITION_LOW:
-				score = FOREST_M * moisture + FOREST_B
-				if score > second_score:
-					second_score = score
-					second_biome = biome_forest
+		# retained only in the narrow +/-0.05 band around their shared boundary.
+		if biome != biome_plains and moisture <= PLAINS_FOREST_TRANSITION_HIGH:
+			score = PLAINS_M * moisture + PLAINS_B
+			if score > second_score:
+				second_score = score
+				second_biome = biome_plains
+		if biome != biome_forest and moisture >= PLAINS_FOREST_TRANSITION_LOW:
+			score = FOREST_M * moisture + FOREST_B
+			if score > second_score:
+				second_score = score
+				second_biome = biome_forest
 		if biome != biome_dense and moisture > PLAINS_FOREST_MOISTURE_BOUNDARY:
 			score = DENSE_T * temperature + DENSE_M * moisture + DENSE_B
 			if score > second_score:
