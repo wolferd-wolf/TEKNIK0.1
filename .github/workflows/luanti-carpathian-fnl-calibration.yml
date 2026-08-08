@@ -1,0 +1,51 @@
+name: TEKNIK Luanti Carpathian FNL Calibration
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'scripts/world/reference/luanti_carpathian_fast_prototype.gd'
+      - 'scripts/world/reference/luanti_carpathian_probe12_prototype.gd'
+      - 'tests/luanti_carpathian_fnl_calibration_gate.gd'
+      - '.github/workflows/luanti-carpathian-fnl-calibration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+      - name: Strict parse and calibrate normalization
+        run: |
+          mkdir -p artifacts/carpathian-fnl-calibration
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/carpathian-fnl-parse" timeout 120 \
+            /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/carpathian-fnl-calibration/parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/carpathian-fnl-calibration/parse.log; then exit 1; fi
+          XDG_DATA_HOME="$RUNNER_TEMP/carpathian-fnl-run" timeout 900 \
+            /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/luanti_carpathian_fnl_calibration_gate.gd \
+            2>&1 | tee artifacts/carpathian-fnl-calibration/calibration.log
+          grep -Fq 'LUANTI_CARPATHIAN_FNL_CALIBRATION_COMPLETE' artifacts/carpathian-fnl-calibration/calibration.log
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luanti-carpathian-fnl-calibration-evidence
+          path: artifacts/carpathian-fnl-calibration/
+          if-no-files-found: error
