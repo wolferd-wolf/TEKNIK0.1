@@ -19,7 +19,7 @@ const STAGE9_MOUNTAIN_STRUCTURE_MIN := STAGE2_MOUNTAIN_START
 # ridge=(1-|continentalness|)^2 and -(1-ridge)*VALLEY_CUT. Reusing that same
 # signal makes the Stage 9 valley modifier describe terrain that was physically
 # lowered by the terrain generator instead of inventing a second valley system.
-const STAGE9_VALLEY_STRENGTH_MIN := 0.36
+const STAGE9_VALLEY_STRENGTH_MIN := 0.22
 
 const STAGE9_HIGH_ROCK_ELEVATION := 48
 const STAGE9_TREE_LINE_ELEVATION := 64
@@ -84,13 +84,15 @@ func stage9_surface_exposes_stone(
 	var hash_value: int = absi(_stage8_hash(x, z, STAGE9_ROCK_SURFACE_SALT))
 	match modifier:
 		TERRAIN_MODIFIER_MOUNTAIN:
-			# Steep mountain faces are rock. Gentle high shoulders still receive
-			# deterministic exposed stone so mountains remain visibly geological.
-			if slope >= 2.0:
+			# Cliffs stay geological, while lower/gentler mountain shoulders keep
+			# enough ecology surface for recognisable forested and grassy mountains.
+			if slope >= 3.0:
 				return true
+			if slope >= 2.0:
+				return hash_value % 2 == 0
 			if height >= STAGE9_HIGH_ROCK_ELEVATION:
-				return hash_value % 3 != 0
-			return hash_value % 4 == 0
+				return hash_value % 2 == 0
+			return hash_value % 7 == 0
 		TERRAIN_MODIFIER_PLATEAU:
 			if slope >= 3.0:
 				return true
@@ -141,11 +143,11 @@ func stage9_tree_candidate_for_biome(
 	var hash_value: int = absi(_stage8_hash(x, z, STAGE9_TREE_FILTER_SALT))
 	match modifier:
 		TERRAIN_MODIFIER_MOUNTAIN:
-			# Mountain ecology is still the selected base biome, but steep/high
-			# terrain becomes sparse rather than a normal forest pasted on rock.
-			if slope >= 2.0 or surface >= STAGE9_TREE_LINE_ELEVATION:
+			# Cliffs and terrain above the tree line remain open. Lower gentle
+			# mountains retain a sparse subset of the selected base ecology trees.
+			if slope >= 3.0 or surface >= STAGE9_TREE_LINE_ELEVATION:
 				return false
-			return hash_value % 4 == 0
+			return hash_value % 2 == 0
 		TERRAIN_MODIFIER_PLATEAU:
 			return hash_value % 3 != 0
 		TERRAIN_MODIFIER_HILL:
