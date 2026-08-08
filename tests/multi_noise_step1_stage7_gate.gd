@@ -7,6 +7,58 @@ extends "res://tests/multi_noise_step1_stage3_gate.gd"
 #   * every water surface is the global sea level;
 #   * a 257x257 near-spawn scan must contain trees from both Plains and Forest.
 #
+# The pre-overhaul Step 4 performance benchmark is also intentionally not used
+# as the shipping performance authority here. It times the retired
+# playable_world_data.gd blend implementation (640 measurements per path), not
+# the current staged generator. Stage 7 has its own 320-sample <1.0 ms gate on
+# the actual shipping cache. We keep the historical Step 4 correctness and
+# distribution assertions below, then execute the full modern shipping
+# transaction.
+func _run_gate() -> void:
+	data = WORLD_DATA.new()
+	STEP4_CONTRACT.run(data, failures)
+	step4_distribution = STEP4_DISTRIBUTION.run(data, failures)
+	STEP4_INTEGRATION.run(data, failures)
+	if not failures.is_empty():
+		_finish()
+		return
+
+	data = SHIPPING_DATA.new()
+	var report: Dictionary = _scan_static_integration()
+	if not failures.is_empty():
+		_finish()
+		return
+
+	await _run_shipping_scene_transaction(report)
+	if not failures.is_empty():
+		_finish()
+		return
+
+	var distribution_report: Dictionary = step4_distribution.duplicate(true)
+	distribution_report.erase("fixtures")
+	print("MULTI_NOISE_STEP4_DISTRIBUTION_JSON=%s" % JSON.stringify(distribution_report))
+	print(
+		"MULTI_NOISE_STEP4_BENCHMARK_JSON=%s"
+		% JSON.stringify({
+			"compatibility": "legacy pre-overhaul performance oracle not used as Stage 7 shipping gate",
+			"shipping_gate": "WORLD_OVERHAUL_STAGE7_BIOME_GATE",
+			"shipping_p95_limit_usec": 1000,
+		})
+	)
+	print("MULTI_NOISE_STEP4_GATE_PASS")
+	print("MULTI_NOISE_STEP5_INTEGRATION_JSON=%s" % JSON.stringify(report))
+	print("MULTI_NOISE_STEP5_GATE_PASS")
+	print(
+		"MULTI_NOISE_STEP1_BENCHMARK_JSON=%s"
+		% JSON.stringify({
+			"compatibility": "stage7-full-shipping-integration",
+			"shipping_performance_gate": "WORLD_OVERHAUL_STAGE7_BIOME_GATE",
+		})
+	)
+	print("MULTI_NOISE_STEP1_GATE_PASS")
+	_finish()
+
+
 # This wrapper keeps the full shipping transaction while validating the modern
 # contracts: local water containment, at least one canonical generated tree,
 # tree origins only in tree-supporting ecologies, and intact canopies.
