@@ -2,7 +2,7 @@
 
 Stage 13 automated/current-shipping acceptance is complete on `world-overhaul`.
 
-Validated implementation head before this documentation-only commit:
+Validated implementation head before the documentation-only commits:
 
 `66d81146fbe759d5799fb435b55c6fce6eeaa2f0`
 
@@ -160,7 +160,7 @@ Only the frozen historical 320-sample performance p95 is currently hovering abov
 
 Unchanged current-runner samples include approximately:
 
-`1.034`, `1.003`, `1.002`, `1.000`, `1.020`, `1.015`, and `1.107 ms p95`.
+`1.034`, `1.003`, `1.002`, `1.000`, `1.020`, `1.015`, `1.107`, and `1.107 ms p95` across repeated attempts.
 
 The same accepted Stage 9 implementation previously passed at **0.934 ms p95** on the Stage 12 validated implementation run. No Stage 9 source, benchmark methodology, or threshold was changed in response to the Stage 13 reruns.
 
@@ -176,15 +176,19 @@ Exact-head Android export:
 - artifact ID: `9020064989`;
 - artifact name: `teknik-step5-consolidated-apk-export`;
 - source commit: `66d81146fbe759d5799fb435b55c6fce6eeaa2f0`;
-- APK package: `com.wolferd.teknik01`;
-- versionName: `0.1`;
+- APK package: `com.wolferdwolf.teknik`;
+- versionCode: `1`;
+- versionName: `0.1.0`;
 - minSdkVersion: `24`;
-- targetSdkVersion: `35`;
+- targetSdkVersion: `34`;
+- compileSdkVersion: `34`;
 - APK size: **69,965,756 bytes**;
 - APK Signature Scheme v2 verification: **pass**;
 - zipalign verification: **pass**;
-- APK SHA-256: `010d42b9d8d81aa7bd1af84e049f93d9d65ec3c3538a49a0e157f15de8fcb970`;
-- export ZIP SHA-256: `e8a17c51b595063644a632916b9ba42f6741f78385189112b1f1f39a9ae7bdeb`.
+- APK SHA-256: `010d42b983da37c012bc9d1e2d3e5c4ec1372f82c0ad0c7961baa16ab2fcb970`;
+- GitHub Actions artifact digest: `e8a17c51b595063644a632916b9ba42f6741f78385189112b1f1f39a9ae7bdeb`.
+
+The user-handoff ZIP downloaded from the artifact service was independently unpacked and checked. It contains the same 69,965,756-byte APK with the same APK SHA-256 above. The local handoff ZIP itself has SHA-256 `0d375cffa59f08100dbf300f4f58e8980aa795f7ed0b309654fdfdb809b48717`; this ZIP hash differs from the GitHub Actions artifact digest because the downloaded archive is a transport package, while the contained APK identity is unchanged.
 
 ## Required real-device acceptance
 
