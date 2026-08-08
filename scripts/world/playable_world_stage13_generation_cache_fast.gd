@@ -8,7 +8,6 @@ const FIELD_STRIDE := 6
 const PLAINS_FOREST_MOISTURE_BOUNDARY := 0.18
 const DENSE_FOREST_ENVELOPE_START := 0.348326996197719
 const FOREST_ENVELOPE_END := 0.671395348837208
-const HILL_START := -0.10 # Mirrors STAGE13_HILL_STRUCTURE_MIN; hot-path literal avoids per-column property lookup.
 const PLATEAU_START := 0.22
 const MOUNTAIN_START := 0.34
 const MOUNTAIN_FULL := 0.68
@@ -118,14 +117,15 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 		z_node[i] = nz
 		z_weight[i] = _smooth(float(world_z - (node_min_z + nz * spacing)) * reciprocal)
 
-	# Accepted Stage 2 terrain constants.
+	# Stage 13 shipping terrain constants. The flat->rolling boundary comes from
+	# the sampler's STAGE13_FLAT_TERRAIN_MAX and is therefore the exact same value
+	# consumed by the direct height formula and terrain-modifier classifier.
 	var continental_base: float = sampler.STAGE2_CONTINENTAL_BASE_HEIGHT
 	var continental_scale: float = sampler.STAGE2_CONTINENTAL_HEIGHT_SCALE
 	var shelf_start: float = sampler.STAGE2_OCEAN_SHELF_START
 	var basin_full: float = sampler.STAGE2_OCEAN_BASIN_FULL
 	var basin_depth: float = sampler.STAGE2_OCEAN_BASIN_DEPTH
-	var rolling_start: float = sampler.STAGE2_ROLLING_START
-	var plains_end: float = sampler.STAGE2_PLAINS_END
+	var flat_terrain_max: float = sampler.STAGE13_FLAT_TERRAIN_MAX
 	var rolling_end: float = sampler.STAGE2_ROLLING_END
 	var mountain_start: float = sampler.STAGE2_MOUNTAIN_START
 	var mountain_full: float = sampler.STAGE2_MOUNTAIN_FULL
@@ -136,7 +136,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var valley_cut: float = sampler.STAGE2_VALLEY_CUT
 	var safe_top: int = sampler.STAGE2_SAFE_TERRAIN_TOP
 	var basin_reciprocal: float = 1.0 / (shelf_start - basin_full)
-	var plains_blend_reciprocal: float = 1.0 / (plains_end - rolling_start)
+	var flat_to_rolling_reciprocal: float = 1.0 / (rolling_end - flat_terrain_max)
 	var upland_blend_reciprocal: float = 1.0 / (mountain_start - rolling_end)
 	var mountain_blend_reciprocal: float = 1.0 / (mountain_full - mountain_start)
 
@@ -258,7 +258,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			fields[field + 4] = temperature
 			fields[field + 5] = moisture
 
-			# Stage 2 provisional terrain, byte-for-byte equivalent to Stage 7/9.
+			# Stage 13 provisional terrain. Flat/no-modifier columns use the base
+			# height through the shared boundary, then rolling terrain ramps in
+			# smoothly until the existing plateau boundary.
 			var c: float = clampf(continentalness, -1.0, 1.0)
 			var s: float = clampf(structure, -1.0, 1.0)
 			var shaped_continent: float = c * 0.35 + c * c * c * 0.65
@@ -269,14 +271,13 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				base_height -= basin_t * basin_depth
 			var rolling_target: float = base_height + 2.0 + absf(c) * rolling_rise
 			var height: int
-			if s <= rolling_start:
+			if s <= flat_terrain_max:
 				height = clampi(roundi(base_height), 3, safe_top)
-			elif s < plains_end:
-				var terrain_t: float = (s - rolling_start) * plains_blend_reciprocal
+			elif s <= rolling_end:
+				var terrain_t: float = (s - flat_terrain_max) * flat_to_rolling_reciprocal
+				terrain_t = clampf(terrain_t, 0.0, 1.0)
 				terrain_t = terrain_t * terrain_t * (3.0 - 2.0 * terrain_t)
 				height = clampi(roundi(lerpf(base_height, rolling_target, terrain_t)), 3, safe_top)
-			elif s <= rolling_end:
-				height = clampi(roundi(rolling_target), 3, safe_top)
 			else:
 				var upland_target: float = base_height + 6.0 + upland_rise
 				if s < mountain_start:
@@ -405,7 +406,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				modifier = MODIFIER_VALLEY if modifier_valley_strength >= VALLEY_MIN else MODIFIER_MOUNTAIN
 			elif structure >= PLATEAU_START:
 				modifier = MODIFIER_PLATEAU
-			elif structure >= HILL_START:
+			elif structure > flat_terrain_max:
 				modifier = MODIFIER_HILL
 			modifiers[column] = modifier
 
