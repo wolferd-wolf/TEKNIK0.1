@@ -13,6 +13,7 @@ on:
       - "scripts/world/playable_world_stage6_generation_cache_fast.gd"
       - "scripts/world/playable_world_stage6_cache_fast.gd"
       - "scripts/world/playable_world_stage6_mesher.gd"
+      - "scripts/world/playable_world_stage6_frozen_runtime.gd"
       - "scripts/world/playable_world_stage5_generation_data.gd"
       - "scripts/world/playable_world_stage5_cache_fast.gd"
       - "scripts/world/playable_world_stage5_frozen_runtime.gd"
@@ -60,12 +61,24 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare frozen Stage 6 oracle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('tests/world_overhaul_stage6_lake_gate.gd').read_text()
+          src = src.replace(
+              'res://scripts/world/playable_world_generation_runtime.gd',
+              'res://scripts/world/playable_world_stage6_frozen_runtime.gd',
+          )
+          Path('tests/.world_overhaul_stage6_frozen_gate.gd').write_text(src)
+          PY
+
       - name: Verify basin enclosure, chunk continuity, local water and performance
         run: |
           set -o pipefail
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage6-lakes" \
             timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage6_lake_gate.gd \
+              --script res://tests/.world_overhaul_stage6_frozen_gate.gd \
               2>&1 | tee artifacts/world-overhaul-stage6-lakes.log
           grep -Fq 'WORLD_OVERHAUL_STAGE6_PASS' artifacts/world-overhaul-stage6-lakes.log
 

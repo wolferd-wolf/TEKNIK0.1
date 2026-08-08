@@ -150,8 +150,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var ocean_reciprocal: float = 1.0 / (ocean_start - ocean_full)
 	var coast_reciprocal: float = 1.0 / (coast_end - ocean_start)
 
-	# Accepted Stage 5 river constants. Stage 13 is selected only for samplers
-	# exposing stage13_river_center_x(); older stage samplers stay byte-identical.
+	# Accepted Stage 5 river constants and tiny per-chunk meander cache.
 	var river_spacing: float = sampler.STAGE5_RIVER_SPACING
 	var river_half_spacing: float = sampler.STAGE5_RIVER_HALF_SPACING
 	var river_lattice_spacing: int = sampler.STAGE5_RIVER_LATTICE_SPACING
@@ -170,8 +169,6 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var channel_depth: int = sampler.STAGE5_CHANNEL_DEPTH
 	var relief_fraction: float = sampler.STAGE5_VALLEY_RELIEF_FRACTION
 	var river_early_out: float = valley_outer * coast_width
-	var stage13_rivers: bool = sampler.has_method("stage13_river_center_x")
-	var chunk_mid_x: float = float(min_x) + float(width - 1) * 0.5
 
 	var biome_plains: int = sampler.BIOME_PLAINS
 	var biome_forest: int = sampler.BIOME_FOREST
@@ -186,45 +183,29 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var river_lattice_min: int = floori(float(min_z) * river_lattice_reciprocal)
 	var river_lattice_max: int = floori(float(max_z) * river_lattice_reciprocal) + 1
 	var river_lattice_values := PackedFloat32Array()
-	if not stage13_rivers:
-		river_lattice_values.resize(river_lattice_max - river_lattice_min + 1)
-		for river_node in range(river_lattice_values.size()):
-			river_lattice_values[river_node] = sampler.stage5_river_lattice_value(
-				river_lattice_min + river_node
-			)
+	river_lattice_values.resize(river_lattice_max - river_lattice_min + 1)
+	for river_node in range(river_lattice_values.size()):
+		river_lattice_values[river_node] = sampler.stage5_river_lattice_value(
+			river_lattice_min + river_node
+		)
 
 	for cz in range(width):
 		var world_z: int = z_world[cz]
 		var zf: float = float(world_z)
-		var river_signed_start: float
-		if stage13_rivers:
-			var lane_estimate: int = roundi(
-				(chunk_mid_x + zf * river_diagonal_slope) / river_spacing
-			)
-			var best_center: float = 0.0
-			var best_mid_distance: float = INF
-			for lane_index in range(lane_estimate - 1, lane_estimate + 2):
-				var center_x: float = sampler.stage13_river_center_x(lane_index, zf)
-				var mid_distance: float = absf(chunk_mid_x - center_x)
-				if mid_distance < best_mid_distance:
-					best_mid_distance = mid_distance
-					best_center = center_x
-			river_signed_start = float(min_x) - best_center
-		else:
-			var river_lattice_index: int = floori(zf * river_lattice_reciprocal)
-			var river_node_offset: int = river_lattice_index - river_lattice_min
-			var river_lattice_origin: int = river_lattice_index * river_lattice_spacing
-			var river_t: float = _smooth(float(world_z - river_lattice_origin) * river_lattice_reciprocal)
-			var river_meander: float = lerpf(
-				river_lattice_values[river_node_offset],
-				river_lattice_values[river_node_offset + 1],
-				river_t
-			)
-			var river_row_phase: float = zf * river_diagonal_slope + river_meander * river_meander_amplitude
-			river_signed_start = (
-				fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
-				- river_half_spacing
-			)
+		var river_lattice_index: int = floori(zf * river_lattice_reciprocal)
+		var river_node_offset: int = river_lattice_index - river_lattice_min
+		var river_lattice_origin: int = river_lattice_index * river_lattice_spacing
+		var river_t: float = _smooth(float(world_z - river_lattice_origin) * river_lattice_reciprocal)
+		var river_meander: float = lerpf(
+			river_lattice_values[river_node_offset],
+			river_lattice_values[river_node_offset + 1],
+			river_t
+		)
+		var river_row_phase: float = zf * river_diagonal_slope + river_meander * river_meander_amplitude
+		var river_signed_start: float = (
+			fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
+			- river_half_spacing
+		)
 		var river_active_min: int = maxi(0, ceili(-river_early_out - river_signed_start))
 		var river_active_max: int = mini(width - 1, floori(river_early_out - river_signed_start))
 
@@ -315,7 +296,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			# Stage 5 river shaping. Stage 13 changes only river_signed_start above.
+			# Stage 5 river shaping.
 			if continentalness > ocean_start and cx >= river_active_min and cx <= river_active_max:
 				var river_value: float = absf(river_signed_start + float(cx))
 				var width_t: float = clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)

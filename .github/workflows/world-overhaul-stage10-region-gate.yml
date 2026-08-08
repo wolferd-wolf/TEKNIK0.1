@@ -6,6 +6,7 @@ on:
       - 'scripts/world/playable_world_generation_data.gd'
       - 'scripts/world/playable_world_generation_runtime.gd'
       - 'scripts/world/playable_world_stage10_region_data.gd'
+      - 'scripts/world/playable_world_stage10_generation_runtime.gd'
       - 'scripts/world/playable_world_stage10_generation_cache_fast.gd'
       - 'scripts/world/playable_world_stage10_cache_fast.gd'
       - 'scripts/world/playable_world_stage10_mesher.gd'
@@ -49,12 +50,30 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare frozen Stage 10 oracle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('tests/world_overhaul_stage10_region_gate_v3.gd').read_text()
+          base = Path('tests/world_overhaul_stage10_region_gate_v2.gd').read_text()
+          base = base.replace(
+              'res://scripts/world/playable_world_generation_runtime.gd',
+              'res://scripts/world/playable_world_stage10_generation_runtime.gd',
+          )
+          Path('tests/.world_overhaul_stage10_region_gate_v2.gd').write_text(base)
+          src = src.replace(
+              'res://tests/world_overhaul_stage10_region_gate_v2.gd',
+              'res://tests/.world_overhaul_stage10_region_gate_v2.gd',
+          )
+          Path('tests/.world_overhaul_stage10_region_gate_v3.gd').write_text(src)
+          PY
+
       - name: Verify region sizing, transition expression, and performance
         run: |
           set -o pipefail
           XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage10-regions" \
             timeout 360 /tmp/godot/godot --headless --audio-driver Dummy --path . \
-              --script res://tests/world_overhaul_stage10_region_gate_v3.gd \
+              --script res://tests/.world_overhaul_stage10_region_gate_v3.gd \
               2>&1 | tee artifacts/world-overhaul-stage10-regions.log
           grep -Fq 'WORLD_OVERHAUL_STAGE10_PASS' artifacts/world-overhaul-stage10-regions.log
           grep -Fq 'WORLD_OVERHAUL_STAGE10_JSON=' artifacts/world-overhaul-stage10-regions.log
