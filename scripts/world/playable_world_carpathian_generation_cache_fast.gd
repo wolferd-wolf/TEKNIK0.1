@@ -167,6 +167,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 	var relief_fraction: float = sampler.STAGE5_VALLEY_RELIEF_FRACTION
 	var river_early_out: float = valley_outer * coast_width
 	var stage13_rivers: bool = sampler.has_method("stage13_river_center_x")
+	var chunk_mid_x: float = float(min_x) + float(width - 1) * 0.5
 
 	var biome_plains: int = sampler.BIOME_PLAINS
 	var biome_forest: int = sampler.BIOME_FOREST
@@ -189,45 +190,23 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				river_lattice_min + river_node
 			)
 
-	# Stage 13 lanes are non-periodically offset/meandered per lane. A chunk-local
-	# choice of one lane for the full padded row can therefore make two adjacent
-	# chunks assign different river distances to the exact same world column.
-	# Cache the exact Stage 13 nearest-lane distance per x instead. For a fixed z,
-	# the union of endpoint estimates +/- 1 contains every candidate lane needed
-	# by stage13_river_signal(), so this preserves the accepted river geometry while
-	# keeping center calculations row-local and cheap.
-	var stage13_river_distances := PackedFloat32Array()
-	if stage13_rivers:
-		stage13_river_distances.resize(width)
-
 	for cz in range(width):
 		var world_z: int = z_world[cz]
 		var zf: float = float(world_z)
-		var river_signed_start: float = 0.0
-		var river_active_min: int = 0
-		var river_active_max: int = -1
+		var river_signed_start: float
 		if stage13_rivers:
-			var first_estimate: int = roundi(
-				(float(min_x) + zf * river_diagonal_slope) / river_spacing
+			var lane_estimate: int = roundi(
+				(chunk_mid_x + zf * river_diagonal_slope) / river_spacing
 			)
-			var last_estimate: int = roundi(
-				(float(max_x) + zf * river_diagonal_slope) / river_spacing
-			)
-			var lane_min: int = mini(first_estimate, last_estimate) - 1
-			var lane_max: int = maxi(first_estimate, last_estimate) + 1
-			var lane_centers := PackedFloat32Array()
-			lane_centers.resize(lane_max - lane_min + 1)
-			for lane_offset in range(lane_centers.size()):
-				lane_centers[lane_offset] = sampler.stage13_river_center_x(
-					lane_min + lane_offset,
-					zf
-				)
-			for cx in range(width):
-				var xf: float = float(x_world[cx])
-				var best_distance: float = INF
-				for center_x in lane_centers:
-					best_distance = minf(best_distance, absf(xf - center_x))
-				stage13_river_distances[cx] = best_distance
+			var best_center: float = 0.0
+			var best_mid_distance: float = INF
+			for lane_index in range(lane_estimate - 1, lane_estimate + 2):
+				var center_x: float = sampler.stage13_river_center_x(lane_index, zf)
+				var mid_distance: float = absf(chunk_mid_x - center_x)
+				if mid_distance < best_mid_distance:
+					best_mid_distance = mid_distance
+					best_center = center_x
+			river_signed_start = float(min_x) - best_center
 		else:
 			var river_lattice_index: int = floori(zf * river_lattice_reciprocal)
 			var river_node_offset: int = river_lattice_index - river_lattice_min
@@ -243,8 +222,8 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				fposmod(float(min_x) + river_row_phase + river_half_spacing, river_spacing)
 				- river_half_spacing
 			)
-			river_active_min = maxi(0, ceili(-river_early_out - river_signed_start))
-			river_active_max = mini(width - 1, floori(river_early_out - river_signed_start))
+		var river_active_min: int = maxi(0, ceili(-river_early_out - river_signed_start))
+		var river_active_max: int = mini(width - 1, floori(river_early_out - river_signed_start))
 
 		var nz: int = z_node[cz]
 		var tz: float = z_weight[cz]
@@ -295,14 +274,9 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 				inland_t = inland_t * inland_t * (3.0 - 2.0 * inland_t)
 				height = roundi(float(sea_level) + float(height - sea_level) * inland_t)
 
-			# Stage 5 river shaping. Stage 13 now uses the exact absolute-world
-			# nearest-lane distance above, so padded and interior cache samples agree.
-			var river_value: float = INF
-			if stage13_rivers:
-				river_value = stage13_river_distances[cx]
-			elif cx >= river_active_min and cx <= river_active_max:
-				river_value = absf(river_signed_start + float(cx))
-			if continentalness > ocean_start and river_value <= river_early_out:
+			# Stage 5 river shaping, unchanged from the Stage 13 hot cache.
+			if continentalness > ocean_start and cx >= river_active_min and cx <= river_active_max:
+				var river_value: float = absf(river_signed_start + float(cx))
 				var width_t: float = clampf((continentalness - ocean_start) / width_range, 0.0, 1.0)
 				width_t = width_t * width_t * (3.0 - 2.0 * width_t)
 				var width_scale: float = coast_width + (inland_width - coast_width) * width_t
