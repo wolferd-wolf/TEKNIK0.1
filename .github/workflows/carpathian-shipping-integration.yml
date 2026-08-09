@@ -8,8 +8,10 @@ on:
       - 'scripts/world/playable_world_carpathian_*.gd'
       - 'scripts/world/playable_world_generation_data.gd'
       - 'scripts/world/playable_world_generation_runtime.gd'
+      - 'scripts/world/playable_world_mesher.gd'
       - 'tests/carpathian_shipping_integration_gate.gd'
       - 'tests/carpathian_seam_cache_diagnostic.gd'
+      - 'tests/playable_world_face_winding_diagnostic.gd'
       - '.github/workflows/carpathian-shipping-integration.yml'
   workflow_dispatch:
 
@@ -30,7 +32,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget xvfb libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
 
       - name: Build exact native Carpathian sampler
         run: |
@@ -80,6 +82,16 @@ jobs:
           if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script|GDExtension.*failed|Cannot open dynamic library' artifacts/carpathian-shipping/parse.log; then
             exit 1
           fi
+
+      - name: Verify playable-world face winding with culling on and off
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/playable-face-winding" timeout 300 \
+            xvfb-run -a -s "-screen 0 1280x720x24" /tmp/godot/godot \
+              --audio-driver Dummy --path . \
+              --script res://tests/playable_world_face_winding_diagnostic.gd \
+            2>&1 | tee artifacts/carpathian-shipping/face-winding.log
+          grep -Fq 'PLAYABLE_FACE_WINDING_DIAGNOSTIC_PASS' artifacts/carpathian-shipping/face-winding.log
 
       - name: Verify neighboring padded caches agree on shared world columns
         run: |
