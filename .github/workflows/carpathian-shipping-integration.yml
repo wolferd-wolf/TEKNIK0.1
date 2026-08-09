@@ -8,7 +8,9 @@ on:
       - 'scripts/world/playable_world_carpathian_*.gd'
       - 'scripts/world/playable_world_generation_data.gd'
       - 'scripts/world/playable_world_generation_runtime.gd'
+      - 'scripts/world/playable_world_mesher.gd'
       - 'tests/carpathian_shipping_integration_gate.gd'
+      - 'tests/side_face_lighting_diagonal_gate.gd'
       - '.github/workflows/carpathian-shipping-integration.yml'
   workflow_dispatch:
 
@@ -79,6 +81,15 @@ jobs:
           if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script|GDExtension.*failed|Cannot open dynamic library' artifacts/carpathian-shipping/parse.log; then
             exit 1
           fi
+
+      - name: Verify final-light side-face diagonal at reported region
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/side-face-lighting" timeout 300 \
+            /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/side_face_lighting_diagonal_gate.gd \
+            2>&1 | tee artifacts/carpathian-shipping/side-face-lighting.log
+          grep -Fq 'SIDE_FACE_LIGHTING_DIAGONAL_PASS' artifacts/carpathian-shipping/side-face-lighting.log
 
       - name: Verify shipping height consistency and performance
         run: |
