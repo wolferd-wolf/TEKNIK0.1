@@ -22,7 +22,24 @@ func _cache_index(coord: Vector2i, world_x: int, world_z: int) -> int:
 	return cache_z * WIDTH + cache_x
 
 
+func _feature_summary(feature: Dictionary) -> String:
+	if feature.is_empty():
+		return "none"
+	return "type=%d cell=(%d,%d) center=(%d,%d) water_level=%d depth=%d radius=(%.3f,%.3f)" % [
+		int(feature.get("type", -1)),
+		int(feature.get("cell_x", 0)),
+		int(feature.get("cell_z", 0)),
+		int(feature.get("center_x", 0)),
+		int(feature.get("center_z", 0)),
+		int(feature.get("water_level", -1)),
+		int(feature.get("depth", -1)),
+		float(feature.get("radius_x", 0.0)),
+		float(feature.get("radius_z", 0.0)),
+	]
+
+
 func _compare_overlap(
+	data,
 	a_coord: Vector2i,
 	a_cache: Dictionary,
 	b_coord: Vector2i,
@@ -39,7 +56,14 @@ func _compare_overlap(
 		or a_water.size() != WIDTH * WIDTH
 		or b_water.size() != WIDTH * WIDTH
 	):
-		return {"invalid": 1, "height": 0, "water": 0, "details": 0}
+		return {
+			"invalid": 1,
+			"height": 0,
+			"water": 0,
+			"a_direct": 0,
+			"b_direct": 0,
+			"details": 0,
+		}
 
 	var a_min_x: int = a_coord.x * CHUNK_SIZE - PADDING
 	var a_max_x: int = a_min_x + WIDTH - 1
@@ -54,10 +78,19 @@ func _compare_overlap(
 	var overlap_min_z: int = maxi(a_min_z, b_min_z)
 	var overlap_max_z: int = mini(a_max_z, b_max_z)
 	if overlap_min_x > overlap_max_x or overlap_min_z > overlap_max_z:
-		return {"invalid": 0, "height": 0, "water": 0, "details": 0}
+		return {
+			"invalid": 0,
+			"height": 0,
+			"water": 0,
+			"a_direct": 0,
+			"b_direct": 0,
+			"details": 0,
+		}
 
 	var height_mismatches := 0
 	var water_mismatches := 0
+	var a_direct_mismatches := 0
+	var b_direct_mismatches := 0
 	var details_printed := 0
 	for world_z in range(overlap_min_z, overlap_max_z + 1):
 		for world_x in range(overlap_min_x, overlap_max_x + 1):
@@ -69,22 +102,51 @@ func _compare_overlap(
 			var bw: int = int(b_water[b_index])
 			if ah != bh:
 				height_mismatches += 1
+				var direct_stage5: int = data.stage6_stage5_height_at(world_x, world_z)
+				var direct_final: int = data.terrain_height(world_x, world_z)
+				var direct_water: int = data.water_type_at(world_x, world_z)
+				var direct_feature: Dictionary = data.stage6_feature_for_point(world_x, world_z)
+				if ah != direct_final:
+					a_direct_mismatches += 1
+				if bh != direct_final:
+					b_direct_mismatches += 1
 				if details_printed < detail_budget:
-					print("SEAM_HEIGHT_MISMATCH a=%s b=%s world=(%d,%d) a_h=%d b_h=%d a_w=%d b_w=%d" % [
-						a_coord, b_coord, world_x, world_z, ah, bh, aw, bw
+					print("SEAM_HEIGHT_MISMATCH a=%s b=%s world=(%d,%d) a_h=%d b_h=%d direct_stage5=%d direct_final=%d a_w=%d b_w=%d direct_w=%d feature=[%s]" % [
+						a_coord,
+						b_coord,
+						world_x,
+						world_z,
+						ah,
+						bh,
+						direct_stage5,
+						direct_final,
+						aw,
+						bw,
+						direct_water,
+						_feature_summary(direct_feature),
 					])
 					details_printed += 1
 			if aw != bw:
 				water_mismatches += 1
 				if details_printed < detail_budget:
-					print("SEAM_WATER_MISMATCH a=%s b=%s world=(%d,%d) a_h=%d b_h=%d a_w=%d b_w=%d" % [
-						a_coord, b_coord, world_x, world_z, ah, bh, aw, bw
+					print("SEAM_WATER_MISMATCH a=%s b=%s world=(%d,%d) a_h=%d b_h=%d a_w=%d b_w=%d direct_w=%d" % [
+						a_coord,
+						b_coord,
+						world_x,
+						world_z,
+						ah,
+						bh,
+						aw,
+						bw,
+						data.water_type_at(world_x, world_z),
 					])
 					details_printed += 1
 	return {
 		"invalid": 0,
 		"height": height_mismatches,
 		"water": water_mismatches,
+		"a_direct": a_direct_mismatches,
+		"b_direct": b_direct_mismatches,
 		"details": details_printed,
 	}
 
@@ -114,6 +176,8 @@ func _init() -> void:
 	var invalid_pairs := 0
 	var height_mismatches := 0
 	var water_mismatches := 0
+	var a_direct_mismatches := 0
+	var b_direct_mismatches := 0
 	var details_printed := 0
 	for chunk_z in range(MIN_CHUNK_Z, MAX_CHUNK_Z + 1):
 		for chunk_x in range(MIN_CHUNK_X, MAX_CHUNK_X + 1):
@@ -123,6 +187,7 @@ func _init() -> void:
 				if not caches.has(neighbor):
 					continue
 				var result: Dictionary = _compare_overlap(
+					data,
 					coord,
 					caches[coord],
 					neighbor,
@@ -132,10 +197,16 @@ func _init() -> void:
 				invalid_pairs += int(result["invalid"])
 				height_mismatches += int(result["height"])
 				water_mismatches += int(result["water"])
+				a_direct_mismatches += int(result["a_direct"])
+				b_direct_mismatches += int(result["b_direct"])
 				details_printed += int(result["details"])
 
-	print("CARPATHIAN_SEAM_CACHE_DIAGNOSTIC pairs_invalid=%d height_mismatches=%d water_mismatches=%d" % [
-		invalid_pairs, height_mismatches, water_mismatches
+	print("CARPATHIAN_SEAM_CACHE_DIAGNOSTIC pairs_invalid=%d height_mismatches=%d water_mismatches=%d a_direct_mismatches=%d b_direct_mismatches=%d" % [
+		invalid_pairs,
+		height_mismatches,
+		water_mismatches,
+		a_direct_mismatches,
+		b_direct_mismatches,
 	])
 	if invalid_pairs != 0 or height_mismatches != 0 or water_mismatches != 0:
 		push_error("Shipping padded caches disagree on shared world columns")
