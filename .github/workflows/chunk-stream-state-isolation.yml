@@ -1,0 +1,45 @@
+name: TEKNIK Chunk Stream State Isolation Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/chunk-stream-state-isolation.yml
+      - scripts/world/playable_world_generation_runtime.gd
+      - scripts/world/playable_world_worker_carpathian_data.gd
+      - scripts/world/playable_world_override_spatial_index.gd
+      - scripts/world/playable_world_data.gd
+      - tests/chunk_stream_state_isolation_gate.gd
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Install Godot 4.3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+      - name: Strict parse
+        run: |
+          set -o pipefail
+          timeout 180 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee /tmp/parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' /tmp/parse.log; then exit 1; fi
+      - name: Verify chunk-local state isolation
+        run: |
+          set -o pipefail
+          timeout 180 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/chunk_stream_state_isolation_gate.gd 2>&1 | tee /tmp/state-isolation.log
+          grep -Fq 'CHUNK_STREAM_STATE_ISOLATION_PASS' /tmp/state-isolation.log
