@@ -88,14 +88,14 @@ func _init() -> void:
 		if prepared_shape == null:
 			_fail("Worker result %s has no prepared collision shape" % key)
 			continue
+		if mesh_data.get("_prepared_mesh") != prepared_mesh:
+			_fail("Worker result %s did not forward prepared mesh through mesh_data" % key)
 		if prepared_mesh.get_meta(SHIPPING_RUNTIME.PREPARED_COLLISION_META, null) != prepared_shape:
 			_fail("Worker result %s did not bind prepared collision shape to mesh" % key)
 		resource_ms.append(float(int(result.get("resource_usec", 0))) / 1000.0)
 
-		var apply_mesh_data := mesh_data.duplicate(false)
-		apply_mesh_data["_prepared_mesh"] = prepared_mesh
 		var apply_started := Time.get_ticks_usec()
-		var entry: Dictionary = runtime._create_entry(COORDS[index], apply_mesh_data, false)
+		var entry: Dictionary = runtime._create_entry(COORDS[index], mesh_data, false)
 		entry_apply_ms.append(float(Time.get_ticks_usec() - apply_started) / 1000.0)
 		if entry.is_empty() or entry.get("mesh") != prepared_mesh:
 			_fail("Main-thread entry %s rebuilt or lost the prepared mesh" % key)
