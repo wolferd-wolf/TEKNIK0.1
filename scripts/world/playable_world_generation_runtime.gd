@@ -16,10 +16,12 @@ const FRAME_HITCH_REPORT_COOLDOWN_MSEC := 250
 var _stream_apply_happened_this_frame := false
 var _override_index = OVERRIDE_SPATIAL_INDEX.new()
 
-# One persistent generation thread deliberately runs at OS low priority. The
-# previous WorkerThreadPool path limited task concurrency but its workers still
-# ran at normal thread priority on Android. One persistent worker also lets us
-# reuse the expensive generation/noise/native sampler state across chunks.
+# One persistent generation thread replaces the previous two continuously busy
+# WorkerThreadPool jobs. This deliberately reduces CPU contention and lets us
+# reuse generation/noise/native sampler state across chunks. Godot 4.3 accepts
+# a PRIORITY_LOW request here, but its POSIX backend does not expose a platform
+# priority callback, so Android smoothness does not rely on that flag; the
+# single-worker architecture is the actual scheduling control in this build.
 var _chunk_worker_thread := Thread.new()
 var _chunk_worker_mutex := Mutex.new()
 var _chunk_worker_semaphore := Semaphore.new()
@@ -85,7 +87,7 @@ func set_block(cell: Vector3i, block_id: int) -> bool:
 
 func diagnostics() -> Dictionary:
 	var result: Dictionary = super.diagnostics()
-	result["chunk_worker_mode"] = "dedicated_low_priority" if _dedicated_worker_available else "worker_pool_fallback"
+	result["chunk_worker_mode"] = "dedicated_single_worker" if _dedicated_worker_available else "worker_pool_fallback"
 	result["max_override_snapshot_ms"] = _max_override_snapshot_usec / 1000.0
 	result["max_render_resource_ms"] = _max_render_resource_usec / 1000.0
 	result["max_center_change_ms"] = _max_center_change_usec / 1000.0
@@ -225,7 +227,7 @@ func _start_dedicated_chunk_worker() -> void:
 	_dedicated_worker_available = start_error == OK
 	if not _dedicated_worker_available:
 		push_warning(
-			"TEKNIK dedicated low-priority chunk thread unavailable; falling back to WorkerThreadPool error=%d"
+			"TEKNIK dedicated chunk thread unavailable; falling back to WorkerThreadPool error=%d"
 			% start_error
 		)
 
@@ -368,7 +370,7 @@ func _collect_completed_build_tasks() -> void:
 					coord,
 					int(task_data.get("revision", 0)),
 					-1,
-					"dedicated low-priority worker still incomplete after %.3f s"
+					"dedicated worker still incomplete after %.3f s"
 					% (task_age_usec / 1000000.0)
 				)
 			continue
