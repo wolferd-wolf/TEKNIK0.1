@@ -2,7 +2,7 @@ name: TEKNIK Carpathian Seam Cache Diagnostic
 
 on:
   pull_request:
-    branches: [main]
+    branches: [world-overhaul]
     paths:
       - 'native/carpathian/**'
       - 'scripts/world/playable_world_carpathian_*.gd'
