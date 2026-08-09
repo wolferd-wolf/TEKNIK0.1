@@ -124,7 +124,7 @@ func _inspect(coord: Vector2i, mesh_data: Dictionary) -> void:
 		var max_light: float = light.max()
 		if min_light / maxf(max_light, EPS) < 0.45 and max_light - min_light > 0.08:
 			severe_dark_faces += 1
-		var expected_flip := light[0] + light[2] > light[1] + light[3] + EPS
+		var expected_flip: bool = float(light[0]) + float(light[2]) > float(light[1]) + float(light[3]) + EPS
 		if flipped_pattern != expected_flip and max_light - min_light > 0.03:
 			diagonal_mismatches += 1
 			if diagonal_mismatches <= 12:
