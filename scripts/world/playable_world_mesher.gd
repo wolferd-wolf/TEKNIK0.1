@@ -119,10 +119,10 @@ static func build(
 						continue
 					var base_index := vertices.size()
 					var local_cell := Vector3(local_x, y, local_z)
-					var ao_0 := 0
-					var ao_1 := 0
-					var ao_2 := 0
-					var ao_3 := 0
+					var light_0 := 0.0
+					var light_1 := 0.0
+					var light_2 := 0.0
+					var light_3 := 0.0
 					for vertex_index in range(4):
 						var vertex := _face_vertex(face_index, vertex_index)
 						var ao_level := _vertex_ao_level_cached_with_basis(
@@ -136,15 +136,6 @@ static func build(
 							cache_padding,
 							world_height
 						)
-						match vertex_index:
-							0:
-								ao_0 = ao_level
-							1:
-								ao_1 = ao_level
-							2:
-								ao_2 = ao_level
-							_:
-								ao_3 = ao_level
 						var sky_factor := _vertex_sky_factor_with_basis(
 							cell,
 							vertex,
@@ -157,10 +148,26 @@ static func build(
 							world_height
 						)
 						var light_factor := _face_shade(face_index) * _ao_brightness(ao_level) * sky_factor
+						match vertex_index:
+							0:
+								light_0 = light_factor
+							1:
+								light_1 = light_factor
+							2:
+								light_2 = light_factor
+							_:
+								light_3 = light_factor
 						vertices.append(local_cell + vertex)
 						normals.append(face_normal)
 						colors.append(_block_color(block, cell, face_index, light_factor))
-					_append_face_indices(indices, base_index, ao_0, ao_1, ao_2, ao_3)
+					_append_face_indices_lit(
+						indices,
+						base_index,
+						light_0,
+						light_1,
+						light_2,
+						light_3
+					)
 					face_count += 1
 
 	return {
@@ -728,6 +735,36 @@ static func _append_face_indices(
 	ao_3: int
 ) -> void:
 	if _should_flip_ao_diagonal_values(ao_0, ao_1, ao_2, ao_3):
+		_append_face_indices_for_flip(indices, base_index, true)
+		return
+	_append_face_indices_for_flip(indices, base_index, false)
+
+
+# Production faces must choose their triangle diagonal from the light values
+# that are actually rendered. AO is only one component of that value; side
+# faces can have a strong skylight gradient, and choosing from AO alone creates
+# a false dark triangle even though both mesh triangles are present and valid.
+static func _append_face_indices_lit(
+	indices: PackedInt32Array,
+	base_index: int,
+	light_0: float,
+	light_1: float,
+	light_2: float,
+	light_3: float
+) -> void:
+	_append_face_indices_for_flip(
+		indices,
+		base_index,
+		_should_flip_light_diagonal_values(light_0, light_1, light_2, light_3)
+	)
+
+
+static func _append_face_indices_for_flip(
+	indices: PackedInt32Array,
+	base_index: int,
+	flip: bool
+) -> void:
+	if flip:
 		indices.append(base_index)
 		indices.append(base_index + 3)
 		indices.append(base_index + 1)
@@ -749,6 +786,15 @@ static func _should_flip_ao_diagonal(ao_levels: Array[int]) -> bool:
 
 static func _should_flip_ao_diagonal_values(ao_0: int, ao_1: int, ao_2: int, ao_3: int) -> bool:
 	return ao_0 + ao_2 > ao_1 + ao_3
+
+
+static func _should_flip_light_diagonal_values(
+	light_0: float,
+	light_1: float,
+	light_2: float,
+	light_3: float
+) -> bool:
+	return light_0 + light_2 > light_1 + light_3
 
 
 static func _block_color(block: int, cell: Vector3i, face_index: int, light_factor: float) -> Color:
