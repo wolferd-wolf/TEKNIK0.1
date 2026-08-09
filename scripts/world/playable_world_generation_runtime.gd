@@ -99,11 +99,17 @@ static func _stage3_worker_build_chunk(
 	var resource_started_usec := Time.get_ticks_usec()
 	var prepared_resources := _prepare_chunk_resources(mesh_data)
 	var resource_usec := Time.get_ticks_usec() - resource_started_usec
+	var prepared_mesh := prepared_resources.get("mesh") as ArrayMesh
+	if prepared_mesh != null:
+		# The existing frozen apply/atomic-swap path forwards mesh_data unchanged.
+		# Store the unique worker-built resource here so dynamic dispatch reaches
+		# our _create_entry() override without duplicating any revision logic.
+		mesh_data["_prepared_mesh"] = prepared_mesh
 	var result := {
 		"coord": coord,
 		"revision": revision,
 		"mesh_data": mesh_data,
-		"prepared_mesh": prepared_resources.get("mesh"),
+		"prepared_mesh": prepared_mesh,
 		"prepared_collision_shape": prepared_resources.get("collision_shape"),
 		"cache_usec": cache_usec,
 		"mesh_usec": mesh_usec,
@@ -151,63 +157,3 @@ func _create_collision(mesh: ArrayMesh) -> StaticBody3D:
 	shape_node.shape = shape
 	body.add_child(shape_node)
 	return body
-
-
-func _apply_completed_builds(max_applies: int) -> void:
-	# Preserve the frozen runtime's revision/atomic-swap behavior. The only extra
-	# step is passing the worker-prepared mesh through the private mesh-data copy
-	# consumed by our _create_entry() override.
-	var applies := 0
-	while applies < max_applies and not build_apply_queue.is_empty():
-		var apply_data: Dictionary = build_apply_queue.pop_front()
-		var coord: Vector2i = apply_data.get("coord", Vector2i.ZERO)
-		var revision := int(apply_data.get("revision", 0))
-		var latest_revision := int(build_revisions.get(coord, 0))
-		var replacing := bool(apply_data.get("replacing", false))
-		var still_wanted := distance(coord, center) <= RENDER_RADIUS
-		var target_state_valid := loaded.has(coord) if replacing else not loaded.has(coord)
-		if revision != latest_revision or not still_wanted or not target_state_valid:
-			stale_results_discarded += 1
-			if revision != latest_revision and still_wanted:
-				if pending_rebuilds.has(coord) or not loaded.has(coord):
-					_queue_latest_revision(coord, true)
-			continue
-		var result: Dictionary = apply_data.get("result", {})
-		var mesh_data: Dictionary = result.get("mesh_data", {}).duplicate(false)
-		var prepared_mesh := result.get("prepared_mesh") as ArrayMesh
-		if prepared_mesh != null:
-			mesh_data["_prepared_mesh"] = prepared_mesh
-		var apply_started_usec := Time.get_ticks_usec()
-		var applied := false
-		if replacing:
-			if _swap_chunk(coord, mesh_data):
-				pending_rebuilds.erase(coord)
-				rebuild_deadlines.erase(coord)
-				applied = true
-			else:
-				atomic_failures += 1
-				rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_DEBOUNCE_MSEC
-		else:
-			applied = _commit_chunk(coord, mesh_data, false)
-		var apply_usec := Time.get_ticks_usec() - apply_started_usec
-		last_apply_usec = maxi(last_apply_usec, apply_usec)
-		if not applied:
-			if not replacing:
-				_queue_latest_revision(coord, true)
-			continue
-		last_face_count = int(mesh_data.get("face_count", 0))
-		build_results_applied += 1
-		applies += 1
-		print(
-			"THREADED_CHUNK_STREAM_COMPLETE coord=%s revision=%d cache_ms=%.3f mesh_ms=%.3f resource_ms=%.3f background_ms=%.3f apply_ms=%.3f latency_ms=%.3f"
-			% [
-				coord,
-				revision,
-				int(result.get("cache_usec", 0)) / 1000.0,
-				int(result.get("mesh_usec", 0)) / 1000.0,
-				int(result.get("resource_usec", 0)) / 1000.0,
-				int(result.get("compute_usec", 0)) / 1000.0,
-				apply_usec / 1000.0,
-				(Time.get_ticks_usec() - int(apply_data.get("queued_at_usec", 0))) / 1000.0,
-			]
-		)
