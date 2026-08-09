@@ -99,7 +99,9 @@ func _init() -> void:
 			if collision == null:
 				_fail("precomputed-face collision failed for %s" % coord)
 				continue
-			var shape_node := collision.get_node_or_null("CollisionShape3D") as CollisionShape3D
+			var shape_node: CollisionShape3D = null
+			if collision.get_child_count() == 1:
+				shape_node = collision.get_child(0) as CollisionShape3D
 			var new_shape := shape_node.shape as ConcavePolygonShape3D if shape_node != null else null
 			if new_shape == null:
 				_fail("precomputed-face collision shape missing for %s" % coord)
