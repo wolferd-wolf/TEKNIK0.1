@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include "teknik_voxel_mesher.hpp"
+
 using namespace godot;
 
 namespace {
@@ -289,6 +291,7 @@ void initialize_teknik_carpathian(ModuleInitializationLevel p_level) {
 		return;
 	}
 	GDREGISTER_CLASS(TeknikCarpathianSampler);
+	register_teknik_voxel_mesher();
 }
 
 void uninitialize_teknik_carpathian(ModuleInitializationLevel p_level) {
