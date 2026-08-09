@@ -1,7 +1,8 @@
 extends Node3D
 class_name ChunkManager
 
-const PORT_RUNTIME := preload("res://scripts/world/playable_world_runtime.gd")
+const PORT_RUNTIME := preload("res://scripts/world/playable_world_generation_runtime.gd")
+const SHIPPING_DATA := preload("res://scripts/world/playable_world_stage13_data.gd")
 const CHUNK_SIZE := 12
 const PLAYABLE_RENDER_RADIUS := 3
 
@@ -152,7 +153,58 @@ func get_recovery_position(position: Vector3) -> Vector3:
 func get_playable_world_height(x: int, z: int) -> int:
 	if _runtime == null:
 		return 0
-	return _runtime.data.terrain_height(x, z)
+	return int(_runtime.data.terrain_height(x, z))
+
+
+func get_playable_world_biome(x: int, z: int) -> int:
+	if _runtime == null or not _runtime.data.has_method("biome_at"):
+		return 0
+	return int(_runtime.data.biome_at(x, z))
+
+
+func get_playable_world_biome_name(x: int, z: int) -> String:
+	if _runtime == null:
+		return "unknown"
+	var biome := get_playable_world_biome(x, z)
+	if _runtime.data.has_method("biome_name"):
+		return String(_runtime.data.biome_name(biome))
+	return "unknown"
+
+
+func get_playable_world_water_info(x: int, z: int) -> Vector2i:
+	if _runtime == null or not _runtime.data.has_method("water_info_at"):
+		return Vector2i(0, -1)
+	return _runtime.data.water_info_at(x, z)
+
+
+func get_playable_world_water_type(x: int, z: int) -> int:
+	return get_playable_world_water_info(x, z).x
+
+
+func get_playable_world_water_surface_height(x: int, z: int) -> int:
+	return get_playable_world_water_info(x, z).y
+
+
+func get_playable_world_water_name(x: int, z: int) -> String:
+	match get_playable_world_water_type(x, z):
+		1:
+			return "ocean"
+		2:
+			return "river"
+		3:
+			return "lake"
+		4:
+			return "pond"
+		_:
+			return "none"
+
+
+func get_playable_world_sea_level() -> int:
+	return int(SHIPPING_DATA.SEA_LEVEL)
+
+
+func get_playable_world_height_limit() -> int:
+	return int(SHIPPING_DATA.OVERHAUL_WORLD_HEIGHT)
 
 
 func get_playable_world_chunk_entry(coord: Vector2i) -> Dictionary:

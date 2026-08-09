@@ -1,0 +1,107 @@
+name: TEKNIK World Overhaul Stage 13 Final Acceptance Gate
+
+on:
+  pull_request:
+    paths:
+      - 'tests/world_overhaul_stage13_audit_data.gd'
+      - 'tests/world_overhaul_stage13_acceptance_gate.gd'
+      - 'tests/world_overhaul_stage13_river_quality_gate.gd'
+      - '.github/workflows/world-overhaul-stage13-acceptance-gate.yml'
+      - 'scripts/world/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage13-final-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Parse project strictly
+        run: |
+          mkdir -p artifacts/stage13
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage13-parse" \
+            timeout 120 /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/stage13/world-overhaul-stage13-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/stage13/world-overhaul-stage13-parse.log; then
+            exit 1
+          fi
+
+      - name: Gate corrected river layout and shipping performance
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage13-rivers" \
+            timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/world_overhaul_stage13_river_quality_gate.gd \
+              2>&1 | tee artifacts/stage13/world-overhaul-stage13-river-quality.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE13_RIVER_PASS' artifacts/stage13/world-overhaul-stage13-river-quality.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE13_RIVER_JSON=' artifacts/stage13/world-overhaul-stage13-river-quality.log
+
+      - name: Prepare shipping Stage 13 statistical audit
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('tests/world_overhaul_stage13_acceptance_gate.gd').read_text()
+          src = src.replace(
+              'res://scripts/world/playable_world_stage11_water_biome_data.gd',
+              'res://scripts/world/playable_world_stage13_data.gd',
+          )
+          src = src.replace(
+              'res://scripts/world/playable_world_stage10_generation_cache_fast.gd',
+              'res://scripts/world/playable_world_stage13_generation_cache_fast.gd',
+          )
+          Path('tests/.world_overhaul_stage13_shipping_acceptance_gate.gd').write_text(src)
+          PY
+
+      - name: Run multi-seed statistical audit and diagnostic maps
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-stage13-audit" \
+            timeout 1200 /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/.world_overhaul_stage13_shipping_acceptance_gate.gd \
+              2>&1 | tee artifacts/stage13/world-overhaul-stage13-acceptance.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE13_PASS' artifacts/stage13/world-overhaul-stage13-acceptance.log
+          grep -Fq 'WORLD_OVERHAUL_STAGE13_JSON=' artifacts/stage13/world-overhaul-stage13-acceptance.log
+
+      - name: Verify all required diagnostic maps exist
+        run: |
+          set -euo pipefail
+          for map in \
+            continentalness \
+            terrain_height \
+            mountain_strength \
+            river_mask \
+            water_type \
+            temperature \
+            moisture \
+            final_biome
+          do
+            test -s "artifacts/stage13/${map}.png"
+          done
+          test -s artifacts/stage13/world-overhaul-stage13-audit.json
+
+      - name: Upload Stage 13 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-overhaul-stage13-final-acceptance-evidence
+          path: artifacts/stage13/
+          if-no-files-found: error

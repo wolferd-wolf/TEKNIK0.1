@@ -1,0 +1,100 @@
+name: TEKNIK Carpathian Shipping Integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'native/carpathian/**'
+      - 'scripts/world/playable_world_carpathian_*.gd'
+      - 'scripts/world/playable_world_generation_data.gd'
+      - 'scripts/world/playable_world_generation_runtime.gd'
+      - 'tests/carpathian_shipping_integration_gate.gd'
+      - '.github/workflows/carpathian-shipping-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Build exact native Carpathian sampler
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          printf '%s\n' '{"enabled_classes":["RefCounted","OS"]}' > native/carpathian/build_profile.json
+          cat > native/carpathian/SConstruct <<'PY'
+          #!/usr/bin/env python
+          env = SConscript("godot-cpp/SConstruct")
+          env.Append(CPPPATH=["src/"])
+          sources = Glob("src/*.cpp")
+          library = env.SharedLibrary(
+              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+              source=sources,
+          )
+          env.NoCache(library)
+          Default(library)
+          PY
+          scons -C native/carpathian platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j2
+          LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
+          test -n "$LIB_PATH"
+          LIB_NAME="$(basename "$LIB_PATH")"
+          cat > native/carpathian/teknik_carpathian.gdextension <<EOF
+          [configuration]
+          entry_symbol = "teknik_carpathian_library_init"
+          compatibility_minimum = "4.3"
+
+          [libraries]
+          linux.debug.x86_64 = "res://native/carpathian/bin/$LIB_NAME"
+          EOF
+          printf 'library=%s\n' "$LIB_PATH" | tee native/carpathian/native-build.txt
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Strict parse with native extension loaded
+        run: |
+          mkdir -p artifacts/carpathian-shipping
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/carpathian-shipping-parse" timeout 180 \
+            /tmp/godot/godot --headless --path . --editor --quit \
+            2>&1 | tee artifacts/carpathian-shipping/parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script|GDExtension.*failed|Cannot open dynamic library' artifacts/carpathian-shipping/parse.log; then
+            exit 1
+          fi
+
+      - name: Verify shipping height consistency and performance
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/carpathian-shipping-run" timeout 900 \
+            /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/carpathian_shipping_integration_gate.gd \
+            2>&1 | tee artifacts/carpathian-shipping/integration.log
+          grep -Fq 'CARPATHIAN_SHIPPING_INTEGRATION_PASS' artifacts/carpathian-shipping/integration.log
+          grep -Fq 'direct_cache_height_mismatches=0' artifacts/carpathian-shipping/integration.log
+          grep -Fq 'direct_cache_water_mismatches=0' artifacts/carpathian-shipping/integration.log
+
+      - name: Upload integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpathian-shipping-integration-evidence
+          path: artifacts/carpathian-shipping/
+          if-no-files-found: error

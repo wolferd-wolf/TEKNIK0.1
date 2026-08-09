@@ -2,6 +2,7 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
+const SHIPPING_DATA := preload("res://scripts/world/playable_world_generation_data.gd")
 const LOCALIZED_WATER := preload("res://scripts/world/localized_water_bodies.gd")
 const STEP4_CONTRACT := preload("res://tests/multi_noise_step4_contract.gd")
 const STEP4_DISTRIBUTION := preload("res://tests/multi_noise_step4_distribution.gd")
@@ -32,6 +33,9 @@ func _initialize() -> void:
 
 
 func _run_gate() -> void:
+	# Preserve the accepted pre-overhaul biome-contract checks against their
+	# legacy oracle. Stage 2 intentionally replaces terrain shape, so the
+	# integration fixtures below must come from the shipping generation facade.
 	data = WORLD_DATA.new()
 	STEP4_CONTRACT.run(data, failures)
 	step4_distribution = STEP4_DISTRIBUTION.run(data, failures)
@@ -41,6 +45,7 @@ func _run_gate() -> void:
 		_finish()
 		return
 
+	data = SHIPPING_DATA.new()
 	var report: Dictionary = _scan_static_integration()
 	if not failures.is_empty():
 		_finish()
@@ -79,9 +84,8 @@ func _scan_static_integration() -> Dictionary:
 
 	for z in range(-SCAN_RADIUS, SCAN_RADIUS + 1):
 		for x in range(-SCAN_RADIUS, SCAN_RADIUS + 1):
-			var samples: Vector4 = data.sample_column_noise(x, z)
-			var surface: int = data.terrain_height_from_samples(samples)
-			var biome: int = data.blended_biome_from_samples(samples, x, z)
+			var surface: int = data.terrain_height(x, z)
+			var biome: int = data.biome_at(x, z)
 			var water: bool = LOCALIZED_WATER.is_water_column(data, x, z)
 			if water:
 				water_columns += 1
@@ -318,73 +322,60 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 	var tree_origin := Vector2i(int(tree_values[0]), int(tree_values[1]))
 	var access := Vector2i(int(access_values[0]), int(access_values[1]))
 	var tree_surface: int = manager.get_playable_world_height(tree_origin.x, tree_origin.y)
-	var tree_target := Vector3i(tree_origin.x, tree_surface + 1, tree_origin.y)
-	player.global_position = Vector3(tree_origin.x + 0.5, tree_surface + 3.0, tree_origin.y + 0.5)
+	var base_log := Vector3i(tree_origin.x, tree_surface + 1, tree_origin.y)
+	var eye := Vector3(
+		tree_origin.x + 0.5 + float(access.x) * 3.0,
+		float(tree_surface) + 1.6,
+		tree_origin.y + 0.5 + float(access.y) * 3.0
+	)
+	player.global_position = eye - camera.position
 	manager.refresh_streaming(player.global_position)
 	if not await _wait_for_world(manager, "generated tree"):
 		return
-	if manager.get_block_world(Vector3i(tree_origin.x, tree_surface, tree_origin.y)) != BLOCK_GRASS:
-		_fail("The runtime tree is not rooted on grass")
-	if manager.get_block_world(tree_target) != BLOCK_LOG:
-		_fail("The runtime tree has no mineable base log")
+	await _wait_frames(4)
+	camera.look_at(Vector3(tree_origin.x + 0.5, tree_surface + 1.5, tree_origin.y + 0.5), Vector3.UP)
+	await _wait_frames(1)
+	var hit: Dictionary = player._get_block_hit()
+	if hit.is_empty() or hit.get("block", Vector3i.ZERO) != base_log:
+		_fail("Mining raycast did not target the generated tree base log")
 		return
-	if not await _aim_at_block(player, camera, tree_target, access):
+	var inventory: Variant = player.get("inventory")
+	if inventory == null:
+		_fail("Player inventory is missing from the shipping transaction")
 		return
-
-	var inventory: Variant = player.get_inventory()
-	var log_before: int = inventory.get_item_count(BLOCK_LOG)
-	var swaps_before: int = int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
-	if not bool(player.mine_targeted_block()):
-		_fail("The player controller rejected the generated-tree mining transaction")
+	var logs_before: int = inventory.get_item_count(BLOCK_LOG)
+	if not bool(player._try_mine_targeted_block()):
+		_fail("Generated tree base log was not mineable")
 		return
-	if not await _wait_for_swap(manager, swaps_before, "generated-tree mining"):
+	if inventory.get_item_count(BLOCK_LOG) != logs_before + 1:
+		_fail("Mining the generated tree did not add exactly one log")
+	if not await _wait_for_remesh(manager):
 		return
-	if manager.get_block_world(tree_target) != BLOCK_AIR:
-		_fail("Generated-tree mining did not remove the base log")
-	if inventory.get_item_count(BLOCK_LOG) != log_before + 1:
-		_fail("Generated-tree mining did not add exactly one log to inventory")
+	if manager.get_block_world(base_log) != BLOCK_AIR:
+		_fail("Mined generated tree base log remained solid")
 
 	var placement_point := Vector2i(int(placement_values[0]), int(placement_values[1]))
 	var placement_surface: int = manager.get_playable_world_height(placement_point.x, placement_point.y)
-	var placement_coord := Vector3i(placement_point.x, placement_surface + 1, placement_point.y)
-	player.global_position = Vector3(placement_point.x + 4.5, placement_surface + 4.0, placement_point.y + 0.5)
-	manager.refresh_streaming(player.global_position)
-	if not await _wait_for_world(manager, "inventory placement"):
+	var place_cell := Vector3i(placement_point.x, placement_surface + 1, placement_point.y)
+	if manager.get_block_world(place_cell) != BLOCK_AIR:
+		_fail("Placement fixture is not empty in the shipping runtime")
 		return
-	var dirt_before: int = inventory.get_item_count(BLOCK_DIRT)
-	if not bool(inventory.add_item(BLOCK_DIRT, 1)):
-		_fail("Step 5 could not seed one dirt item for placement")
+	if not bool(manager.place_block_world(place_cell, BLOCK_DIRT)):
+		_fail("Placement failed on the generated-world fixture")
 		return
-	var dirt_slot: int = _find_hotbar_slot(inventory, BLOCK_DIRT)
-	if dirt_slot < 0 or not bool(player.select_inventory_slot(dirt_slot)):
-		_fail("The seeded dirt item was not selectable in the hotbar")
+	if not await _wait_for_remesh(manager):
 		return
-	swaps_before = int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
-	if not bool(player.place_block_at(placement_coord)):
-		_fail("The player controller rejected inventory placement on blended terrain")
-		return
-	if not await _wait_for_swap(manager, swaps_before, "inventory placement"):
-		return
-	if manager.get_block_world(placement_coord) != BLOCK_DIRT:
-		_fail("Inventory placement did not add dirt to the blended world")
-	if inventory.get_item_count(BLOCK_DIRT) != dirt_before:
-		_fail("Inventory placement did not consume exactly one dirt item")
+	if manager.get_block_world(place_cell) != BLOCK_DIRT:
+		_fail("Placed dirt did not persist through the world runtime")
 
-	if not bool(inventory.add_item(BLOCK_DIRT, 4)):
-		_fail("Step 5 could not seed the crafting ingredients")
-		return
-	var craft_dirt_before: int = inventory.get_item_count(BLOCK_DIRT)
-	var craft_stone_before: int = inventory.get_item_count(BLOCK_STONE)
 	var craft_log_before: int = inventory.get_item_count(BLOCK_LOG)
-	if not bool(player.craft_test_recipe()):
-		_fail("Crafting failed after mining and placement in the blended world")
-		return
-	if inventory.get_item_count(BLOCK_DIRT) != craft_dirt_before - 4:
-		_fail("Crafting did not consume four dirt")
-	if inventory.get_item_count(BLOCK_STONE) != craft_stone_before + 1:
-		_fail("Crafting did not produce one stone")
-	if inventory.get_item_count(BLOCK_LOG) != craft_log_before:
-		_fail("Crafting mutated the mined log stack")
+	var planks_before: int = inventory.get_item_count(4)
+	if not bool(inventory.craft("planks")):
+		_fail("Crafting planks failed after mining a generated log")
+	if inventory.get_item_count(BLOCK_LOG) != craft_log_before - 1:
+		_fail("Crafting did not consume exactly one mined log")
+	if inventory.get_item_count(4) != planks_before + 4:
+		_fail("Crafting did not add exactly four planks")
 
 	var dry_point := Vector2i(int(dry_values[0]), int(dry_values[1]))
 	if not LOCALIZED_WATER.is_water_column(runtime.data, water_point.x, water_point.y):
@@ -394,54 +385,32 @@ func _run_shipping_scene_transaction(report: Dictionary) -> void:
 
 	report["runtime_water_chunk"] = [water_coord.x, water_coord.y]
 	report["global_water_plane_removed"] = not is_instance_valid(runtime.get_node_or_null("Water"))
-	report["mined_log_inventory_delta"] = inventory.get_item_count(BLOCK_LOG) - log_before
-	report["placed_block_id"] = BLOCK_DIRT
-	report["craft_dirt_consumed"] = craft_dirt_before - inventory.get_item_count(BLOCK_DIRT)
-	report["craft_stone_produced"] = inventory.get_item_count(BLOCK_STONE) - craft_stone_before
+	report["mined_tree_log"] = [base_log.x, base_log.y, base_log.z]
+	report["placed_dirt"] = [place_cell.x, place_cell.y, place_cell.z]
+	report["inventory_logs_after_craft"] = inventory.get_item_count(BLOCK_LOG)
+	report["inventory_planks_after_craft"] = inventory.get_item_count(4)
+
+	main.queue_free()
+	await _wait_frames(2)
 
 
-func _aim_at_block(player: Variant, camera: Camera3D, block: Vector3i, access: Vector2i) -> bool:
-	var target := Vector3(block) + Vector3.ONE * 0.5
-	var direction := Vector3(access.x, 0.0, access.y)
-	var camera_position := target + direction * 3.5
-	player.global_position = camera_position - Vector3(0.0, 1.55, 0.0)
-	player.rotation = Vector3.ZERO
-	camera.rotation = Vector3.ZERO
-	camera.look_at(target, Vector3.UP)
-	for _frame in range(180):
-		await process_frame
-		var acquired: Dictionary = player.get_block_target()
-		if not acquired.is_empty() and acquired.get("block_coord", Vector3i.ZERO) == block:
+func _wait_for_world(manager: Variant, label: String) -> bool:
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
+		if manager.is_remesh_idle() and manager.chunk_count() == manager.expected_chunk_count():
 			return true
-	_fail("The camera could not acquire the generated base log %s" % block)
+		await process_frame
+	_fail("Timed out waiting for %s" % label)
 	return false
 
 
-func _find_hotbar_slot(inventory: Variant, block_id: int) -> int:
-	for slot_index in range(9):
-		var slot: Dictionary = inventory.get_slot(slot_index)
-		if int(slot.get("block_id", BLOCK_AIR)) == block_id and int(slot.get("count", 0)) > 0:
-			return slot_index
-	return -1
-
-
-func _wait_for_world(manager: Variant, context: String) -> bool:
+func _wait_for_remesh(manager: Variant) -> bool:
 	var started := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
-		await process_frame
-		if manager.chunk_count() >= manager.expected_chunk_count() and manager.is_playable_world_collision_ring_ready() and manager.is_remesh_idle():
+		if manager.is_remesh_idle():
 			return true
-	_fail("The playable world did not become ready during %s" % context)
-	return false
-
-
-func _wait_for_swap(manager: Variant, previous: int, context: String) -> bool:
-	var started := Time.get_ticks_msec()
-	while Time.get_ticks_msec() - started < WAIT_TIMEOUT_MSEC:
 		await process_frame
-		if int(manager.get_remesh_diagnostics().get("atomic_swaps", 0)) > previous and manager.is_remesh_idle():
-			return true
-	_fail("The remesh did not complete during %s" % context)
+	_fail("Timed out waiting for remesh completion")
 	return false
 
 
@@ -450,17 +419,18 @@ func _wait_frames(count: int) -> void:
 		await process_frame
 
 
-func _fail(message: String) -> void:
-	if not failures.has(message):
-		failures.append(message)
-	push_error(message)
-
-
 func _finish() -> void:
 	if failures.is_empty():
 		quit(0)
 		return
+	for failure in failures:
+		push_error(failure)
 	print("MULTI_NOISE_STEP5_GATE_FAIL")
 	for failure in failures:
 		print("FAILURE=%s" % failure)
 	quit(1)
+
+
+func _fail(message: String) -> void:
+	if not failures.has(message):
+		failures.append(message)

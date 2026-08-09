@@ -1,0 +1,242 @@
+name: TEKNIK Plains Terrain Diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plains-terrain-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact branch revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+
+      - name: Create diagnostic-only Plains audit
+        shell: bash
+        run: |
+          cat > tests/.plains_terrain_diagnostic.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const AUDIT_DATA = preload("res://tests/world_overhaul_stage13_audit_data.gd")
+          const SHIPPING_CACHE = preload("res://scripts/world/playable_world_stage13_generation_cache_fast.gd")
+          const CHUNK_SIZE := 12
+          const PADDING := 2
+          const CACHE_WIDTH := 16
+          const AUDIT_CHUNK_RADIUS := 48
+          const FIXED_SEEDS := [734921, 19088743, 11235813]
+          const MODIFIER_NAMES := ["none", "hill", "plateau", "mountain", "valley"]
+
+          func _init() -> void:
+              var aggregate: Dictionary = _new_accumulator()
+              var per_seed: Array = []
+              for seed_variant in FIXED_SEEDS:
+                  var raw: Dictionary = _audit_seed(int(seed_variant))
+                  per_seed.append(_summarize(raw))
+                  _merge(aggregate, raw)
+              var report := {
+                  "source_model": "current Stage 13 shipping cache with Stage 13 deterministic seed adapter",
+                  "fixed_seeds": FIXED_SEEDS,
+                  "audit_extent_blocks_per_seed": AUDIT_CHUNK_RADIUS * 2 * CHUNK_SIZE,
+                  "per_seed": per_seed,
+                  "aggregate": _summarize(aggregate),
+              }
+              print("PLAINS_TERRAIN_DIAGNOSTIC_JSON=" + JSON.stringify(report))
+              print("PLAINS_TERRAIN_DIAGNOSTIC_PASS")
+              quit(0)
+
+          func _new_accumulator() -> Dictionary:
+              var hist: Array = []
+              hist.resize(150)
+              hist.fill(0)
+              return {
+                  "land": 0,
+                  "plains": 0,
+                  "land_mod": [0, 0, 0, 0, 0],
+                  "plains_mod": [0, 0, 0, 0, 0],
+                  "pn": 0,
+                  "sum": 0.0,
+                  "sq": 0.0,
+                  "min": 999,
+                  "max": -999,
+                  "hist": hist,
+                  "slopes": [0, 0, 0, 0, 0, 0],
+              }
+
+          func _audit_seed(seed_value: int) -> Dictionary:
+              var sampler = AUDIT_DATA.new()
+              sampler.configure_audit_seed(seed_value)
+              var a: Dictionary = _new_accumulator()
+              for cz in range(-AUDIT_CHUNK_RADIUS, AUDIT_CHUNK_RADIUS):
+                  for cx in range(-AUDIT_CHUNK_RADIUS, AUDIT_CHUNK_RADIUS):
+                      var cache: Dictionary = SHIPPING_CACHE.build(Vector2i(cx, cz), sampler)
+                      var heights: PackedInt32Array = cache["heights"]
+                      var biomes: PackedByteArray = cache["biomes"]
+                      var waters: PackedByteArray = cache["stage7_water_types"]
+                      var modifiers: PackedByteArray = cache["stage9_terrain_modifiers"]
+                      for lz in range(CHUNK_SIZE):
+                          var iz: int = lz + PADDING
+                          for lx in range(CHUNK_SIZE):
+                              var ix: int = lx + PADDING
+                              var i: int = iz * CACHE_WIDTH + ix
+                              if int(waters[i]) != sampler.WATER_NONE:
+                                  continue
+                              var modifier: int = int(modifiers[i])
+                              var land_mod: Array = a["land_mod"]
+                              a["land"] = int(a["land"]) + 1
+                              land_mod[modifier] = int(land_mod[modifier]) + 1
+                              if int(biomes[i]) != sampler.BIOME_PLAINS:
+                                  continue
+                              var plains_mod: Array = a["plains_mod"]
+                              a["plains"] = int(a["plains"]) + 1
+                              plains_mod[modifier] = int(plains_mod[modifier]) + 1
+                              if modifier != sampler.TERRAIN_MODIFIER_NONE:
+                                  continue
+                              var h: int = int(heights[i])
+                              a["pn"] = int(a["pn"]) + 1
+                              a["sum"] = float(a["sum"]) + float(h)
+                              a["sq"] = float(a["sq"]) + float(h * h)
+                              a["min"] = mini(int(a["min"]), h)
+                              a["max"] = maxi(int(a["max"]), h)
+                              var hist: Array = a["hist"]
+                              hist[h] = int(hist[h]) + 1
+                              var slope: int = 0
+                              slope = maxi(slope, absi(int(heights[i - 1]) - h))
+                              slope = maxi(slope, absi(int(heights[i + 1]) - h))
+                              slope = maxi(slope, absi(int(heights[i - CACHE_WIDTH]) - h))
+                              slope = maxi(slope, absi(int(heights[i + CACHE_WIDTH]) - h))
+                              var slopes: Array = a["slopes"]
+                              var b: int = mini(slope, 5)
+                              slopes[b] = int(slopes[b]) + 1
+              return a
+
+          func _merge(t: Dictionary, s: Dictionary) -> void:
+              for key in ["land", "plains", "pn"]:
+                  t[key] = int(t[key]) + int(s[key])
+              t["sum"] = float(t["sum"]) + float(s["sum"])
+              t["sq"] = float(t["sq"]) + float(s["sq"])
+              t["min"] = mini(int(t["min"]), int(s["min"]))
+              t["max"] = maxi(int(t["max"]), int(s["max"]))
+              var tl: Array = t["land_mod"]
+              var sl: Array = s["land_mod"]
+              var tp: Array = t["plains_mod"]
+              var sp: Array = s["plains_mod"]
+              for i in range(5):
+                  tl[i] = int(tl[i]) + int(sl[i])
+                  tp[i] = int(tp[i]) + int(sp[i])
+              var ts: Array = t["slopes"]
+              var ss: Array = s["slopes"]
+              for i in range(6):
+                  ts[i] = int(ts[i]) + int(ss[i])
+              var th: Array = t["hist"]
+              var sh: Array = s["hist"]
+              for i in range(150):
+                  th[i] = int(th[i]) + int(sh[i])
+
+          func _summarize(a: Dictionary) -> Dictionary:
+              var land: int = int(a["land"])
+              var plains: int = int(a["plains"])
+              var pn: int = int(a["pn"])
+              var lm: Array = a["land_mod"]
+              var pm: Array = a["plains_mod"]
+              var slopes: Array = a["slopes"]
+              var hist: Array = a["hist"]
+              var mean: float = float(a["sum"]) / float(pn) if pn > 0 else 0.0
+              var variance: float = maxf(float(a["sq"]) / float(pn) - mean * mean, 0.0) if pn > 0 else 0.0
+              var min_h: int = int(a["min"])
+              var max_h: int = int(a["max"])
+              var gentle: int = int(slopes[0]) + int(slopes[1])
+              return {
+                  "land_columns": land,
+                  "plains_columns": plains,
+                  "plains_percent_of_land": _pct(plains, land),
+                  "land_modifier_counts": _mods(lm, false, land),
+                  "land_modifier_percent": _mods(lm, true, land),
+                  "plains_modifier_counts": _mods(pm, false, plains),
+                  "plains_modifier_percent": _mods(pm, true, plains),
+                  "plains_hill_plus_mountain_percent": _pct(int(pm[1]) + int(pm[3]), plains),
+                  "plains_mountain_plus_valley_percent": _pct(int(pm[3]) + int(pm[4]), plains),
+                  "plains_any_non_none_modifier_percent": _pct(plains - int(pm[0]), plains),
+                  "plains_none": {
+                      "columns": pn,
+                      "height_min": min_h if pn > 0 else null,
+                      "height_max": max_h if pn > 0 else null,
+                      "height_range": max_h - min_h if pn > 0 else 0,
+                      "height_mean": mean,
+                      "height_variance": variance,
+                      "height_stddev": sqrt(variance),
+                      "height_p05": _quantile(hist, pn, 0.05),
+                      "height_p50": _quantile(hist, pn, 0.50),
+                      "height_p95": _quantile(hist, pn, 0.95),
+                      "max_height_percent_of_150_block_legal_range": float(max_h) / 150.0 * 100.0 if pn > 0 else 0.0,
+                      "slope_max_cardinal_delta_counts": {"0": int(slopes[0]), "1": int(slopes[1]), "2": int(slopes[2]), "3": int(slopes[3]), "4": int(slopes[4]), "5_plus": int(slopes[5])},
+                      "slope_0_percent": _pct(int(slopes[0]), pn),
+                      "slope_0_or_1_percent": _pct(gentle, pn),
+                      "slope_2_plus_percent": _pct(pn - gentle, pn),
+                  },
+                  "legal_world_height": 150,
+              }
+
+          func _mods(counts: Array, percentages: bool, total: int) -> Dictionary:
+              var out: Dictionary = {}
+              for i in range(5):
+                  out[MODIFIER_NAMES[i]] = _pct(int(counts[i]), total) if percentages else int(counts[i])
+              return out
+
+          func _quantile(hist: Array, total: int, q: float):
+              if total <= 0:
+                  return null
+              var target: int = maxi(1, ceili(float(total) * q))
+              var running: int = 0
+              for h in range(hist.size()):
+                  running += int(hist[h])
+                  if running >= target:
+                      return h
+              return hist.size() - 1
+
+          func _pct(value: int, total: int) -> float:
+              return float(value) * 100.0 / float(total) if total > 0 else 0.0
+          GDSCRIPT
+
+      - name: Parse project strictly
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-plains-diagnostic-parse" timeout 120 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee artifacts/plains-terrain-parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script' artifacts/plains-terrain-parse.log; then exit 1; fi
+
+      - name: Measure Plains terrain overlap and flatness
+        run: |
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/teknik-plains-diagnostic" timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/.plains_terrain_diagnostic.gd 2>&1 | tee artifacts/plains-terrain-diagnostic.log
+          grep -Fq 'PLAINS_TERRAIN_DIAGNOSTIC_PASS' artifacts/plains-terrain-diagnostic.log
+          grep -Fq 'PLAINS_TERRAIN_DIAGNOSTIC_JSON=' artifacts/plains-terrain-diagnostic.log
+
+      - name: Record exact source revision
+        run: git rev-parse HEAD | tee artifacts/source-commit.txt
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plains-terrain-diagnostic
+          path: artifacts/
+          if-no-files-found: error

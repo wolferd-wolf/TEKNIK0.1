@@ -1,0 +1,17 @@
+extends "res://scripts/world/playable_world_stage6_cache_aware_data.gd"
+
+# Final Stage 6 shipping data layer. It keeps the cache-aware candidate reuse
+# and also makes the historical biome/grid tree helper respect explicit water
+# topology. Public/static queries and the threaded runtime therefore share the
+# same lake/pond/river/ocean-aware tree-origin rule.
+func is_tree_origin_for_biome(
+	x: int,
+	z: int,
+	surface: int,
+	biome: int
+) -> bool:
+	# Keep the cheap deterministic tree-origin rejection first. Water topology is
+	# substantially more expensive and only needs to run for actual tree candidates.
+	if not super.is_tree_origin_for_biome(x, z, surface, biome):
+		return false
+	return water_type_at(x, z) == WATER_NONE
