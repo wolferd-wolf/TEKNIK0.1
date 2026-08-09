@@ -9,6 +9,45 @@ const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
 
 
+static func _restore_terrain_under_suppression(
+	mesher_overrides: Dictionary,
+	user_overrides: Dictionary,
+	heights: PackedInt32Array,
+	origin: Vector3i,
+	cache_width: int,
+	cache_padding: int
+) -> void:
+	# Stage 6's historical tree-suppression helper clears the old trunk/canopy
+	# volume with AIR overrides. On a higher neighboring terrain column, part of
+	# that volume can be real ground rather than foliage. Stage 12 is the shipping
+	# adapter, so protect cached terrain here without changing the frozen Stage 6
+	# oracle or overriding real player edits.
+	var erase_keys: Array[String] = []
+	for key_value: Variant in mesher_overrides.keys():
+		var key := String(key_value)
+		if user_overrides.has(key_value) or user_overrides.has(key):
+			continue
+		if int(mesher_overrides.get(key_value, BLOCK_AIR)) != BLOCK_AIR:
+			continue
+		var parts := key.split(",")
+		if parts.size() != 3:
+			continue
+		var cell := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+		var terrain_index: int = STAGE10_MESHER._cache_index_for_world(
+			cell.x,
+			cell.z,
+			origin,
+			cache_width,
+			cache_padding
+		)
+		if terrain_index < 0 or terrain_index >= heights.size():
+			continue
+		if cell.y <= int(heights[terrain_index]):
+			erase_keys.append(key)
+	for key: String in erase_keys:
+		mesher_overrides.erase(key)
+
+
 static func build(
 	coord: Vector2i,
 	heights: PackedInt32Array,
@@ -54,11 +93,14 @@ static func build(
 			blocked_mask[blocked_index] = 1
 			blocked_count += 1
 
-	# Suppress every legacy/generated origin first. This is the exact Stage 11
-	# rule, but membership is accumulated into the packed mask above.
-	for cache_z in range(1, cache_width - 1):
+	# Suppress every legacy/generated origin first. The base mesher can sample a
+	# tree origin from the outermost padded-cache ring when deciding whether an
+	# interior boundary face is occluded, so the suppression set must cover that
+	# same full padded domain. Previously this loop skipped ring 0/width-1, leaving
+	# phantom legacy canopies that culled real chunk-edge terrain faces.
+	for cache_z in range(cache_width):
 		var row: int = cache_z * cache_width
-		for cache_x in range(1, cache_width - 1):
+		for cache_x in range(cache_width):
 			var index: int = row + cache_x
 			var biome: int = int(biomes[index])
 			var world_x: int = origin.x + cache_x - cache_padding
@@ -92,6 +134,14 @@ static func build(
 		world_height,
 		sea_level,
 		combined_blocked
+	)
+	_restore_terrain_under_suppression(
+		mesher_overrides,
+		overrides,
+		heights,
+		origin,
+		cache_width,
+		cache_padding
 	)
 
 	var custom_origins: Array[Vector3i] = []
