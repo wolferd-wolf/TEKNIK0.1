@@ -119,6 +119,23 @@ jobs:
           cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
           /tmp/godot/godot --version | tee artifacts/godot-version.txt
 
+      - name: Give the A-B pair an isolated package id
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('export_presets.cfg')
+          text = path.read_text()
+          original = 'package/unique_name="com.wolferdwolf.teknik"'
+          replacement = 'package/unique_name="com.wolferdwolf.teknik.rendererab"'
+          if original not in text:
+              raise SystemExit('expected Android package id was not found')
+          text = text.replace(original, replacement)
+          text = text.replace('package/name="TEKNIK 0.1"', 'package/name="TEKNIK Renderer A-B"')
+          path.write_text(text)
+          PY
+          grep -Fq 'package/unique_name="com.wolferdwolf.teknik.rendererab"' export_presets.cfg
+          printf '%s\n' 'A-B package: com.wolferdwolf.teknik.rendererab' > artifacts/renderer-ab-package.txt
+
       - name: Export Compatibility OpenGL build
         run: |
           grep -Fq 'renderer/rendering_method="gl_compatibility"' project.godot
@@ -167,6 +184,7 @@ jobs:
             "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk"
             "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | sed -n '1,8p'
             unzip -Z1 "$apk" | grep -F 'libteknik_carpathian' >/dev/null
+            "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.wolferdwolf.teknik.rendererab'"
             sha256sum "$apk"
           done | tee artifacts/apk-verification.txt
 
