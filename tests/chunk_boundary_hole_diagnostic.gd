@@ -92,7 +92,7 @@ func _check_shared_cache(a: Vector2i, b: Vector2i, data, label: String) -> void:
 				continue
 			var ah := int(ha[ia])
 			var bh := int(hb[ib])
-			var direct := data.terrain_height(x, z)
+			var direct: int = int(data.terrain_height(x, z))
 			if ah != bh:
 				cache_height_mismatches += 1
 				if details_printed < 40:
@@ -132,8 +132,8 @@ func _check_boundary_faces(a: Vector2i, b: Vector2i, data, label: String) -> voi
 		var right_lookup: Dictionary = lb if a.x < b.x else la
 		var z0 := a.y * CHUNK_SIZE
 		for z in range(z0, z0 + CHUNK_SIZE):
-			var left_h := data.terrain_height(boundary_x - 1, z)
-			var right_h := data.terrain_height(boundary_x, z)
+			var left_h: int = int(data.terrain_height(boundary_x - 1, z))
+			var right_h: int = int(data.terrain_height(boundary_x, z))
 			if left_h > right_h:
 				for y in range(right_h + 1, left_h + 1):
 					_expect_wall_face(left_lookup, Vector3(boundary_x, y + 0.5, z + 0.5), Vector3.RIGHT, label, left_chunk)
@@ -148,8 +148,8 @@ func _check_boundary_faces(a: Vector2i, b: Vector2i, data, label: String) -> voi
 		var south_lookup: Dictionary = lb if a.y < b.y else la
 		var x0 := a.x * CHUNK_SIZE
 		for x in range(x0, x0 + CHUNK_SIZE):
-			var north_h := data.terrain_height(x, boundary_z - 1)
-			var south_h := data.terrain_height(x, boundary_z)
+			var north_h: int = int(data.terrain_height(x, boundary_z - 1))
+			var south_h: int = int(data.terrain_height(x, boundary_z))
 			if north_h > south_h:
 				for y in range(south_h + 1, north_h + 1):
 					_expect_wall_face(north_lookup, Vector3(x + 0.5, y + 0.5, boundary_z), Vector3.BACK, label, north_chunk)
