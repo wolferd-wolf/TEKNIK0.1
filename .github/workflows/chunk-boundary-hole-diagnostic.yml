@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'tests/chunk_boundary_hole_diagnostic.gd'
+      - 'tests/legacy_edge_tree_probe.gd'
       - 'scripts/world/**'
       - 'native/carpathian/**'
       - '.github/workflows/chunk-boundary-hole-diagnostic.yml'
@@ -73,6 +74,13 @@ jobs:
           if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script|GDExtension.*failed|Cannot open dynamic library' /tmp/parse.log; then
             exit 1
           fi
+
+      - name: Prove legacy edge tree source
+        run: |
+          set +e
+          set -o pipefail
+          timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/legacy_edge_tree_probe.gd 2>&1 | tee /tmp/legacy-edge.log
+          grep -Fq 'LEGACY_EDGE_PHANTOM_TREE_REPRODUCED' /tmp/legacy-edge.log
 
       - name: Reproduce screenshot chunk-boundary holes
         run: |
