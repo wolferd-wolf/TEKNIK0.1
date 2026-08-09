@@ -2,7 +2,7 @@ name: TEKNIK Carpathian Shipping Integration
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, fix/carpathian-seam-consistency]
     paths:
       - 'native/carpathian/**'
       - 'scripts/world/playable_world_carpathian_*.gd'
@@ -12,6 +12,7 @@ on:
       - 'tests/carpathian_shipping_integration_gate.gd'
       - 'tests/carpathian_seam_cache_diagnostic.gd'
       - 'tests/playable_world_face_winding_diagnostic.gd'
+      - 'tests/side_face_artifact_diagnostic.gd'
       - '.github/workflows/carpathian-shipping-integration.yml'
   workflow_dispatch:
 
@@ -92,6 +93,22 @@ jobs:
               --script res://tests/playable_world_face_winding_diagnostic.gd \
             2>&1 | tee artifacts/carpathian-shipping/face-winding.log
           grep -Fq 'PLAYABLE_FACE_WINDING_DIAGNOSTIC_PASS' artifacts/carpathian-shipping/face-winding.log
+
+      - name: Diagnose X-4 Z-9 side-face topology and lighting
+        run: |
+          set +e
+          set -o pipefail
+          XDG_DATA_HOME="$RUNNER_TEMP/side-face-artifact" timeout 300 \
+            /tmp/godot/godot --headless --audio-driver Dummy --path . \
+              --script res://tests/side_face_artifact_diagnostic.gd \
+            2>&1 | tee artifacts/carpathian-shipping/side-face-artifact.log
+          STATUS=${PIPESTATUS[0]}
+          grep -Fq 'SIDE_FACE_TOPOLOGY_PASS' artifacts/carpathian-shipping/side-face-artifact.log
+          grep -Fq 'SIDE_FACE_LIGHTING_ARTIFACT_REPRODUCED' artifacts/carpathian-shipping/side-face-artifact.log
+          if [ "$STATUS" -eq 0 ]; then
+            echo 'Expected the pre-fix lighting diagnostic to fail after reproducing the artifact.'
+          fi
+          exit 1
 
       - name: Verify neighboring padded caches agree on shared world columns
         run: |
