@@ -7,8 +7,10 @@ on:
       - 'native/carpathian/**'
       - 'scripts/world/playable_world_mesher.gd'
       - 'scripts/world/playable_world_stage12_mesher.gd'
+      - 'scripts/world/playable_world_generation_runtime.gd'
       - 'tests/native_voxel_mesher_equivalence_gate.gd'
       - 'tests/native_threaded_chunk_build_gate.gd'
+      - 'tests/chunk_apply_hitch_gate.gd'
       - '.github/workflows/native-voxel-mesher-equivalence.yml'
   workflow_dispatch:
 
@@ -90,6 +92,13 @@ jobs:
           grep -Fq 'NATIVE_THREADED_CHUNK_BUILD_JSON=' /tmp/native-threaded-chunks.log
           grep -Fq 'NATIVE_THREADED_CHUNK_BUILD_PASS' /tmp/native-threaded-chunks.log
 
+      - name: Measure split render and collision apply path
+        run: |
+          set -o pipefail
+          timeout 900 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/chunk_apply_hitch_gate.gd 2>&1 | tee /tmp/chunk-apply-hitch.log
+          grep -Fq 'CHUNK_APPLY_HITCH_GATE_JSON=' /tmp/chunk-apply-hitch.log
+          grep -Fq 'CHUNK_APPLY_HITCH_GATE_PASS' /tmp/chunk-apply-hitch.log
+
       - name: Upload equivalence evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,4 +107,5 @@ jobs:
           path: |
             /tmp/native-mesher-equivalence.log
             /tmp/native-threaded-chunks.log
+            /tmp/chunk-apply-hitch.log
           if-no-files-found: warn
