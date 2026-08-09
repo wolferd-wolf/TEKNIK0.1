@@ -6,7 +6,9 @@ on:
     paths:
       - 'native/carpathian/**'
       - 'scripts/world/playable_world_mesher.gd'
+      - 'scripts/world/playable_world_stage12_mesher.gd'
       - 'tests/native_voxel_mesher_equivalence_gate.gd'
+      - 'tests/native_threaded_chunk_build_gate.gd'
       - '.github/workflows/native-voxel-mesher-equivalence.yml'
   workflow_dispatch:
 
@@ -81,10 +83,19 @@ jobs:
           grep -Fq 'NATIVE_VOXEL_MESHER_EQUIVALENCE_JSON=' /tmp/native-mesher-equivalence.log
           grep -Fq 'NATIVE_VOXEL_MESHER_EQUIVALENCE_PASS' /tmp/native-mesher-equivalence.log
 
+      - name: Exercise shipping native mesher through WorkerThreadPool
+        run: |
+          set -o pipefail
+          timeout 900 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/native_threaded_chunk_build_gate.gd 2>&1 | tee /tmp/native-threaded-chunks.log
+          grep -Fq 'NATIVE_THREADED_CHUNK_BUILD_JSON=' /tmp/native-threaded-chunks.log
+          grep -Fq 'NATIVE_THREADED_CHUNK_BUILD_PASS' /tmp/native-threaded-chunks.log
+
       - name: Upload equivalence evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-voxel-mesher-equivalence
-          path: /tmp/native-mesher-equivalence.log
+          path: |
+            /tmp/native-mesher-equivalence.log
+            /tmp/native-threaded-chunks.log
           if-no-files-found: warn
