@@ -110,9 +110,9 @@ func _pump_builds() -> void:
 	_collect_completed_build_tasks()
 	_stream_apply_happened_this_frame = false
 	var applied_before := build_results_applied
-	# If a nearby chunk is waiting for collision, give that collision the frame
-	# instead of stacking it with another render-resource upload. This alternates
-	# the two expensive main-thread phases while the collision ring catches up.
+	# A queued nearby collision gets the next frame before another visual chunk.
+	# This avoids combining two independent engine-resource spikes without
+	# starving collision while a burst of completed render chunks is waiting.
 	var apply_budget := 0 if not collision_add_queue.is_empty() else MAX_BUILD_APPLIES_PER_FRAME
 	_apply_completed_builds(apply_budget)
 	_stream_apply_happened_this_frame = build_results_applied > applied_before
