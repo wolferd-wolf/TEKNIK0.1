@@ -62,12 +62,24 @@ func _init() -> void:
 		var mesh_data: Dictionary = result.get("mesh_data", {})
 		var vertices: PackedVector3Array = mesh_data.get("vertices", PackedVector3Array())
 		var indices: PackedInt32Array = mesh_data.get("indices", PackedInt32Array())
+		var collision_faces: PackedVector3Array = mesh_data.get(
+			SHIPPING_RUNTIME.COLLISION_FACES_KEY,
+			PackedVector3Array()
+		)
 		if int(mesh_data.get("face_count", 0)) <= 0:
 			_fail("Worker result %s has no faces" % key)
 		if vertices.is_empty() or indices.is_empty():
 			_fail("Worker result %s has empty mesh arrays" % key)
 		if indices.size() % 3 != 0:
 			_fail("Worker result %s has non-triangle index count" % key)
+		if collision_faces.size() != indices.size():
+			_fail("Worker result %s has incomplete pure collision data" % key)
+		elif not collision_faces.is_empty():
+			for sample_index in [0, collision_faces.size() / 2, collision_faces.size() - 1]:
+				var vertex_index := int(indices[int(sample_index)])
+				if collision_faces[int(sample_index)] != vertices[vertex_index]:
+					_fail("Worker result %s collision data does not match mesh indices" % key)
+					break
 
 	print("NATIVE_THREADED_CHUNK_BUILD_JSON=%s" % JSON.stringify({
 		"tasks_submitted": task_ids.size(),
