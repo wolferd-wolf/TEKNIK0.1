@@ -3,6 +3,7 @@ extends Node3D
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const WATER_BUILDER := preload("res://scripts/world/localized_water_mesh_builder.gd")
 const WORKER_DATA := preload("res://scripts/world/playable_world_worker_carpathian_data.gd")
+const OVERRIDE_SPATIAL_INDEX := preload("res://scripts/world/playable_world_override_spatial_index.gd")
 
 const CHUNK_SIZE := 12
 const RENDER_RADIUS := 3
@@ -25,6 +26,7 @@ var _water_revisions: Dictionary = {}
 var _water_dirty: Dictionary = {}
 var _override_signature := 0
 var _override_snapshot: Dictionary = {}
+var _override_index = OVERRIDE_SPATIAL_INDEX.new()
 var _water_stale_drops := 0
 var _water_apply_count := 0
 var _water_mesh_build_count := 0
@@ -32,6 +34,7 @@ var _water_max_build_usec := 0
 var _water_max_apply_usec := 0
 var _water_last_face_count := 0
 var _water_last_vertex_count := 0
+var _water_last_voxel_count := 0
 
 
 func _ready() -> void:
@@ -82,6 +85,7 @@ func _activate_for_mobile_world() -> void:
 	_data = runtime.data
 	_override_snapshot = _data.overrides.duplicate()
 	_override_signature = hash(_data.overrides)
+	_override_index.rebuild(_data.overrides, CHUNK_SIZE)
 	var global_plane := runtime.get_node_or_null("Water")
 	if is_instance_valid(global_plane):
 		global_plane.queue_free()
@@ -176,6 +180,15 @@ func _mark_water_chunk_dirty(coord: Vector2i) -> void:
 		_water_queue.push_front(coord)
 
 
+func _parse_override_cell(key_value: Variant) -> Variant:
+	if key_value is Vector3i:
+		return key_value
+	var parts := String(key_value).split(",")
+	if parts.size() != 3:
+		return null
+	return Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+
+
 func _sync_external_edits() -> void:
 	var current: Dictionary = _data.overrides
 	var current_signature := hash(current)
@@ -183,15 +196,18 @@ func _sync_external_edits() -> void:
 		return
 	var changed_cells: Array[Vector3i] = []
 	for key_value: Variant in current.keys():
-		var key: Vector3i = key_value
-		if not _override_snapshot.has(key) or int(current[key]) != int(_override_snapshot[key]):
-			changed_cells.append(key)
+		if not _override_snapshot.has(key_value) or int(current[key_value]) != int(_override_snapshot[key_value]):
+			var parsed := _parse_override_cell(key_value)
+			if parsed is Vector3i:
+				changed_cells.append(parsed)
 	for key_value: Variant in _override_snapshot.keys():
-		var key: Vector3i = key_value
-		if not current.has(key):
-			changed_cells.append(key)
+		if not current.has(key_value):
+			var parsed := _parse_override_cell(key_value)
+			if parsed is Vector3i:
+				changed_cells.append(parsed)
 	_override_snapshot = current.duplicate()
 	_override_signature = current_signature
+	_override_index.rebuild(current, CHUNK_SIZE)
 	for cell in changed_cells:
 		notify_world_change(cell)
 
@@ -210,6 +226,7 @@ func diagnostics() -> Dictionary:
 		"water_max_apply_ms": _water_max_apply_usec / 1000.0,
 		"water_last_faces": _water_last_face_count,
 		"water_last_vertices": _water_last_vertex_count,
+		"water_last_voxels": _water_last_voxel_count,
 	}
 
 
@@ -247,7 +264,8 @@ func _pump_water_tasks() -> void:
 		_water_max_build_usec = maxi(_water_max_build_usec, int(result.get("build_usec", 0)))
 		_water_last_face_count = int(result.get("face_count", 0))
 		_water_last_vertex_count = int(result.get("vertex_count", 0))
-		_record_water_event("WATER_MESH_BUILD", "chunk=%s build_ms=%.3f faces=%d vertices=%d quads=%d" % [coord, int(result.get("build_usec", 0)) / 1000.0, _water_last_face_count, _water_last_vertex_count, int(result.get("quad_count", 0))])
+		_water_last_voxel_count = int(result.get("water_voxel_count", 0))
+		_record_water_event("WATER_MESH_BUILD", "chunk=%s build_ms=%.3f faces=%d vertices=%d quads=%d water_voxels=%d" % [coord, int(result.get("build_usec", 0)) / 1000.0, _water_last_face_count, _water_last_vertex_count, int(result.get("quad_count", 0)), _water_last_voxel_count])
 		_create_chunk_from_data(coord, result)
 
 	while _water_active_tasks.size() < MAX_WATER_WORKERS and not _water_queue.is_empty():
@@ -262,7 +280,8 @@ func _pump_water_tasks() -> void:
 func _dispatch_water_task(coord: Vector2i) -> void:
 	var generation := _water_build_generation
 	var revision := int(_water_revisions.get(coord, 0))
-	var task_callable := Callable(get_script(), "_build_water_worker").bind(coord, generation, revision, _water_completed_results, _water_result_mutex)
+	var override_snapshot := _override_index.snapshot_for_chunk(coord, CHUNK_SIZE, 1)
+	var task_callable := Callable(get_script(), "_build_water_worker").bind(coord, generation, revision, override_snapshot, _water_completed_results, _water_result_mutex)
 	var task_id := WorkerThreadPool.add_task(task_callable, false, "TEKNIK water mesh %s r%d" % [coord, revision])
 	if task_id < 0:
 		_water_queue.push_back(coord)
@@ -271,9 +290,10 @@ func _dispatch_water_task(coord: Vector2i) -> void:
 	_water_active_tasks[coord] = {"task_id": task_id, "generation": generation, "revision": revision}
 
 
-static func _build_water_worker(coord: Vector2i, generation: int, revision: int, result_sink: Dictionary, result_mutex: Mutex) -> void:
+static func _build_water_worker(coord: Vector2i, generation: int, revision: int, override_snapshot: Dictionary, result_sink: Dictionary, result_mutex: Mutex) -> void:
 	var started_usec := Time.get_ticks_usec()
 	var sampler = WORKER_DATA.new()
+	sampler.overrides = override_snapshot
 	var mesh_data := WATER_BUILDER.build(sampler, coord, CHUNK_SIZE)
 	var result := {
 		"coord": coord,
@@ -287,6 +307,7 @@ static func _build_water_worker(coord: Vector2i, generation: int, revision: int,
 		"face_count": int(mesh_data.get("indices", PackedInt32Array()).size() / 3),
 		"vertex_count": int(mesh_data.get("vertices", PackedVector3Array()).size()),
 		"quad_count": int(mesh_data.get("quad_count", 0)),
+		"water_voxel_count": int(mesh_data.get("water_voxel_count", 0)),
 	}
 	result_mutex.lock()
 	result_sink[coord] = result
