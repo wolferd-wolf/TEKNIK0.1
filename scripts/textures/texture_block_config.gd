@@ -3,9 +3,12 @@ class_name TextureBlockConfig
 
 @export var block_type: String = ""
 @export_enum("organic", "cellular") var noise_mode: String = "organic"
+@export_enum("generic", "grass", "soil", "rock", "sand", "wood_grain", "foliage") var material_style: String = "generic"
 @export var palette: Array[Color] = []
 @export_range(0.01, 1.0, 0.01) var frequency: float = 0.2
 @export var seed_offset: int = 0
+@export_range(0.0, 1.0, 0.01) var detail_density: float = 0.18
+@export_range(0.01, 1.0, 0.01) var detail_frequency: float = 0.35
 @export_enum("none", "speckle", "vein") var overlay_mode: String = "none"
 @export var overlay_palette: Array[Color] = []
 @export_range(0.0, 1.0, 0.005) var overlay_density: float = 0.0

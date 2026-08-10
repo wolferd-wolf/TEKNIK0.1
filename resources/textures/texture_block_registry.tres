@@ -11,53 +11,74 @@ palette = [Color(0,0,0,0)]
 [sub_resource type="Resource" id="Grass"]
 script = ExtResource("2")
 block_type = "grass"
+material_style = "grass"
 palette = [Color(0.20,0.38,0.10,1),Color(0.27,0.48,0.13,1),Color(0.34,0.56,0.16,1),Color(0.41,0.63,0.19,1)]
 frequency = 0.22
 seed_offset = 101
+detail_density = 0.24
+detail_frequency = 0.28
 
 [sub_resource type="Resource" id="Dirt"]
 script = ExtResource("2")
 block_type = "dirt"
+material_style = "soil"
 palette = [Color(0.25,0.14,0.07,1),Color(0.32,0.19,0.10,1),Color(0.39,0.24,0.13,1),Color(0.46,0.29,0.16,1)]
 frequency = 0.24
 seed_offset = 211
+detail_density = 0.26
+detail_frequency = 0.20
 
 [sub_resource type="Resource" id="Stone"]
 script = ExtResource("2")
 block_type = "stone"
 noise_mode = "cellular"
+material_style = "rock"
 palette = [Color(0.28,0.28,0.27,1),Color(0.36,0.36,0.35,1),Color(0.44,0.44,0.42,1),Color(0.51,0.50,0.47,1)]
 frequency = 0.19
 seed_offset = 307
+detail_density = 0.22
+detail_frequency = 0.31
 
 [sub_resource type="Resource" id="Sand"]
 script = ExtResource("2")
 block_type = "sand"
+material_style = "sand"
 palette = [Color(0.69,0.57,0.31,1),Color(0.77,0.65,0.38,1),Color(0.84,0.72,0.44,1)]
 frequency = 0.30
 seed_offset = 401
+detail_density = 0.20
+detail_frequency = 0.42
 
 [sub_resource type="Resource" id="Log"]
 script = ExtResource("2")
 block_type = "log"
+material_style = "wood_grain"
 palette = [Color(0.24,0.12,0.05,1),Color(0.34,0.18,0.07,1),Color(0.44,0.24,0.10,1),Color(0.52,0.30,0.13,1)]
 frequency = 0.16
 seed_offset = 503
+detail_density = 0.30
+detail_frequency = 0.55
 
 [sub_resource type="Resource" id="Leaves"]
 script = ExtResource("2")
 block_type = "leaves"
+material_style = "foliage"
 palette = [Color(0.10,0.28,0.08,1),Color(0.14,0.38,0.10,1),Color(0.18,0.47,0.13,1),Color(0.24,0.55,0.16,1)]
 frequency = 0.27
 seed_offset = 607
+detail_density = 0.20
+detail_frequency = 0.34
 
 [sub_resource type="Resource" id="IronOre"]
 script = ExtResource("2")
 block_type = "iron_ore"
 noise_mode = "cellular"
+material_style = "rock"
 palette = [Color(0.28,0.28,0.27,1),Color(0.36,0.36,0.35,1),Color(0.44,0.44,0.42,1),Color(0.51,0.50,0.47,1)]
 frequency = 0.19
 seed_offset = 709
+detail_density = 0.22
+detail_frequency = 0.31
 overlay_mode = "vein"
 overlay_palette = [Color(0.63,0.33,0.18,1),Color(0.76,0.42,0.22,1)]
 overlay_density = 0.65
