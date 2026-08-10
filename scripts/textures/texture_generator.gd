@@ -55,11 +55,13 @@ static func _wood(im: Image,c: TextureBlockConfig,s:int)->void:
         for y in range(SIZE):
             var x:=x0+int(round(sin(y*.27+band*1.7+_hash(band,407,s)*5.0)*1.3))
             if x<0 or x>=SIZE: continue
-            im.set_pixel(x,y,dark); if x+1<SIZE: im.set_pixel(x+1,y,mid)
+            im.set_pixel(x,y,dark)
+            if x+1<SIZE: im.set_pixel(x+1,y,mid)
             if y%3==0 and x+2<SIZE and _hash(x,y,s+421)>.55: im.set_pixel(x+2,y,hi)
     for i in range(3):
         var x:=6+int(_hash(i,451,s)*20.0); var y:=5+int(_hash(i,463,s)*22.0)
-        _cluster(im,x,y,3,2,dark,s+471+i,.62); if x+3<SIZE: im.set_pixel(x+3,y,light)
+        _cluster(im,x,y,3,2,dark,s+471+i,.62)
+        if x+3<SIZE: im.set_pixel(x+3,y,light)
 
 static func _grass(im: Image,c: TextureBlockConfig,s:int)->void:
     im.fill(_p(c,1)); var dark:=_p(c,0); var base:=_p(c,2); var hi:=_p(c,3)
@@ -72,12 +74,15 @@ static func _foliage(im: Image,c: TextureBlockConfig,s:int)->void:
     for i in range(6): _cluster(im,3+int(_hash(i,771,s)*26.0),3+int(_hash(i,789,s)*26.0),2+i%2,2,hi if i%3==0 else base,s+801+i,.58)
 
 static func _sand(im: Image,c: TextureBlockConfig,s:int)->void:
-    im.fill(_p(c,1)); for i in range(9):
+    im.fill(_p(c,1))
+    for i in range(9):
         var x:=2+int(_hash(i,841,s)*28.0); var y:=2+int(_hash(i,859,s)*28.0)
         _cluster(im,x,y,2+i%2,1+i%2,_p(c,2) if i%3 else _p(c,0),s+877+i,.60)
 
 static func _generic(im: Image,c: TextureBlockConfig,s:int)->void:
-    im.fill(_p(c,1)); for i in range(7): _cluster(im,3+int(_hash(i,901,s)*26.0),3+int(_hash(i,919,s)*26.0),3+i%3,2+(i+1)%3,_p(c,i%c.palette.size()),s+937+i,.62)
+    im.fill(_p(c,1))
+    for i in range(7):
+        _cluster(im,3+int(_hash(i,901,s)*26.0),3+int(_hash(i,919,s)*26.0),3+i%3,2+(i+1)%3,_p(c,i%c.palette.size()),s+937+i,.62)
 
 static func _cluster(im: Image,cx:int,cy:int,rx:int,ry:int,col:Color,s:int,bias:float)->void:
     rx=maxi(rx,1); ry=maxi(ry,1)
@@ -94,13 +99,15 @@ static func _crack(im:Image,x:int,y:int,length:int,dir:int,col:Color,s:int)->voi
     var cx:=x; var cy:=y
     for step in range(length):
         if cx>=0 and cx<SIZE and cy>=0 and cy<SIZE: im.set_pixel(cx,cy,col)
-        cx+=1; if _hash(step,y,s)>.45: cy+=dir
+        cx+=1
+        if _hash(step,y,s)>.45: cy+=dir
 
 static func _blades(im:Image,cx:int,cy:int,col:Color,s:int)->void:
     for i in range(3):
         var x:=cx+i-1; var n:=2+int(_hash(i,cy,s)*3.0)
         for j in range(n):
-            var y:=cy-j; if x>=0 and x<SIZE and y>=0 and y<SIZE: im.set_pixel(x,y,col)
+            var y:=cy-j
+            if x>=0 and x<SIZE and y>=0 and y<SIZE: im.set_pixel(x,y,col)
 
 static func _speckles(im:Image,c:TextureBlockConfig,s:int)->void:
     if c.overlay_palette.is_empty(): return
