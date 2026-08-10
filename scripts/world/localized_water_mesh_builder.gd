@@ -6,10 +6,8 @@ const WATER_SURFACE_OFFSET := 1.0
 const WATER_TOP_COLOR := Color(0.18, 0.50, 0.72, 0.86)
 const WATER_SIDE_COLOR := Color(0.12, 0.36, 0.56, 0.86)
 
-
-# Dedicated fluid mesher. Water remains world data, but only exposed surfaces
-# are emitted. Continuous equal-height surfaces are greedily merged into large
-# quads so a lake is represented by regions rather than one quad per cell.
+# Dedicated fluid mesher. Water remains world data, but only explicit water
+# state is rendered. Continuous equal-height surfaces are greedily merged.
 static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 	var cache_width := chunk_size + 2
 	var cache_count := cache_width * cache_width
@@ -40,8 +38,6 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 	var top_visited := PackedByteArray()
 	top_visited.resize(chunk_size * chunk_size)
 
-	# Greedy top-surface pass. A cell is merge-compatible when it contains water
-	# above its terrain floor and has the same fluid surface height.
 	for local_z in range(chunk_size):
 		for local_x in range(chunk_size):
 			var local_index := local_z * chunk_size + local_x
@@ -56,10 +52,8 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 			var width := 1
 			while local_x + width < chunk_size:
 				var next_local_index := local_z * chunk_size + local_x + width
-				if top_visited[next_local_index] != 0:
-					break
 				var next_cache_index := (local_z + 1) * cache_width + local_x + width + 1
-				if not _has_visible_water(terrain_heights, water_types, water_surfaces, next_cache_index):
+				if top_visited[next_local_index] != 0 or not _has_visible_water(terrain_heights, water_types, water_surfaces, next_cache_index):
 					break
 				if int(water_surfaces[next_cache_index]) != surface_y:
 					break
@@ -70,14 +64,8 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 				var row_compatible := true
 				for span_x in range(width):
 					var check_local_index := (local_z + height) * chunk_size + local_x + span_x
-					if top_visited[check_local_index] != 0:
-						row_compatible = false
-						break
 					var check_cache_index := (local_z + height + 1) * cache_width + local_x + span_x + 1
-					if not _has_visible_water(terrain_heights, water_types, water_surfaces, check_cache_index):
-						row_compatible = false
-						break
-					if int(water_surfaces[check_cache_index]) != surface_y:
+					if top_visited[check_local_index] != 0 or not _has_visible_water(terrain_heights, water_types, water_surfaces, check_cache_index) or int(water_surfaces[check_cache_index]) != surface_y:
 						row_compatible = false
 						break
 				if not row_compatible:
@@ -90,65 +78,32 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 
 			var top_y := float(surface_y) + WATER_SURFACE_OFFSET
 			_append_quad(vertices, normals, colors, indices,
-				Vector3(local_x, top_y, local_z),
-				Vector3(local_x, top_y, local_z + height),
-				Vector3(local_x + width, top_y, local_z + height),
-				Vector3(local_x + width, top_y, local_z),
+				Vector3(local_x, top_y, local_z), Vector3(local_x, top_y, local_z + height),
+				Vector3(local_x + width, top_y, local_z + height), Vector3(local_x + width, top_y, local_z),
 				Vector3.UP, WATER_TOP_COLOR)
 
-	# Exposed shoreline/vertical faces. Neighboring water columns suppress the
-	# face entirely; each exposed vertical run is one quad instead of one quad
-	# per water block.
 	for local_z in range(chunk_size):
-		var cache_z := local_z + 1
-		for local_x in range(chunk_size):
-			var cache_x := local_x + 1
-			var index := cache_z * cache_width + cache_x
-			if not _has_visible_water(terrain_heights, water_types, water_surfaces, index):
-				continue
-			var floor_y := int(terrain_heights[index])
-			var surface_y := int(water_surfaces[index])
-			_append_exposed_side(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
-				cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
-			_append_exposed_side(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
-				cache_width, cache_x - 1, cache_z, Vector3.LEFT)
-			_append_exposed_side(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
-				cache_width, cache_x, cache_z + 1, Vector3.BACK)
-			_append_exposed_side(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
-				cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
+			for local_x in range(chunk_size):
+				var cache_x := local_x + 1
+				var cache_z := local_z + 1
+				var index := cache_z * cache_width + cache_x
+				if not _has_visible_water(terrain_heights, water_types, water_surfaces, index):
+					continue
+				var floor_y := int(terrain_heights[index])
+				var surface_y := int(water_surfaces[index])
+				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
+				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x - 1, cache_z, Vector3.LEFT)
+				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z + 1, Vector3.BACK)
+				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
 
-	return {
-		"vertices": vertices,
-		"normals": normals,
-		"colors": colors,
-		"indices": indices,
-		"top_quad_count": _triangle_index_quad_count(indices, WATER_TOP_COLOR, colors),
-		"quad_count": vertices.size() / 4,
-	}
+	return {"vertices": vertices, "normals": normals, "colors": colors, "indices": indices, "top_quad_count": indices.size() / 6, "quad_count": vertices.size() / 4}
 
 
 static func water_info(data, x: int, z: int) -> Vector2i:
+	# Water is authoritative world data. Never infer water from terrain height.
 	if data.has_method("water_info_at"):
 		return data.water_info_at(x, z)
-	if data.has_method("is_ocean_column"):
-		if bool(data.is_ocean_column(x, z)):
-			return Vector2i(1, WORLD_DATA.SEA_LEVEL)
-		return Vector2i(WATER_NONE, -1)
-	if data.terrain_height(x, z) >= WORLD_DATA.SEA_LEVEL:
-		return Vector2i(WATER_NONE, -1)
-	var connected_neighbors := 0
-	for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		if data.terrain_height(x + offset.x, z + offset.y) < WORLD_DATA.SEA_LEVEL:
-			connected_neighbors += 1
-	if connected_neighbors >= 2:
+	if data.has_method("is_ocean_column") and bool(data.is_ocean_column(x, z)):
 		return Vector2i(1, WORLD_DATA.SEA_LEVEL)
 	return Vector2i(WATER_NONE, -1)
 
@@ -180,25 +135,10 @@ static func _append_exposed_side(vertices: PackedVector3Array, normals: PackedVe
 		_append_quad(vertices, normals, colors, indices, Vector3(local_x, bottom, local_z), Vector3(local_x, top, local_z), Vector3(local_x + 1, top, local_z), Vector3(local_x + 1, bottom, local_z), normal, WATER_SIDE_COLOR)
 
 
-static func _triangle_index_quad_count(indices: PackedInt32Array, target_color: Color, colors: PackedColorArray) -> int:
-	# Kept as a diagnostic field without changing the mesh. Top quads are not
-	# distinguished in the index stream, so this reports the total quad count;
-	# the dedicated test suite verifies greedy top merging independently.
-	return indices.size() / 6
-
-
 static func _append_quad(vertices: PackedVector3Array, normals: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array, v0: Vector3, v1: Vector3, v2: Vector3, v3: Vector3, normal: Vector3, color: Color) -> void:
 	var base := vertices.size()
-	vertices.append(v0)
-	vertices.append(v1)
-	vertices.append(v2)
-	vertices.append(v3)
+	vertices.append(v0); vertices.append(v1); vertices.append(v2); vertices.append(v3)
 	for _index in range(4):
-		normals.append(normal)
-		colors.append(color)
-	indices.append(base)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base)
-	indices.append(base + 2)
-	indices.append(base + 3)
+		normals.append(normal); colors.append(color)
+	indices.append(base); indices.append(base + 1); indices.append(base + 2)
+	indices.append(base); indices.append(base + 2); indices.append(base + 3)
