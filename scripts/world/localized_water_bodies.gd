@@ -23,6 +23,8 @@ var _water_result_mutex := Mutex.new()
 var _water_build_generation := 0
 var _water_revisions: Dictionary = {}
 var _water_dirty: Dictionary = {}
+var _override_signature := 0
+var _override_snapshot: Dictionary = {}
 var _water_stale_drops := 0
 var _water_apply_count := 0
 var _water_mesh_build_count := 0
@@ -51,6 +53,7 @@ func _exit_tree() -> void:
 func _process(_delta: float) -> void:
 	if not _active:
 		return
+	_sync_external_edits()
 	_pump_water_tasks()
 	var target := get_node_or_null(streaming_target_path) as Node3D
 	if not is_instance_valid(target):
@@ -77,6 +80,8 @@ func _activate_for_mobile_world() -> void:
 		call_deferred("_activate_for_mobile_world")
 		return
 	_data = runtime.data
+	_override_snapshot = _data.overrides.duplicate()
+	_override_signature = hash(_data.overrides)
 	var global_plane := runtime.get_node_or_null("Water")
 	if is_instance_valid(global_plane):
 		global_plane.queue_free()
@@ -115,47 +120,49 @@ func _set_center(next_center: Vector2i) -> void:
 		var coord: Vector2i = coord_value
 		if maxi(absi(coord.x - _center.x), absi(coord.y - _center.y)) <= RENDER_RADIUS + 1:
 			continue
-		var mesh_instance := _chunks[coord] as MeshInstance3D
-		if is_instance_valid(mesh_instance):
-			mesh_instance.queue_free()
-		_chunks.erase(coord)
+		_remove_chunk(coord)
 
 	_record_water_event("WATER_CENTER_BUILD", "center=%s queue=%d elapsed_ms=%.3f" % [_center, _water_queue.size(), (Time.get_ticks_usec() - started_usec) / 1000.0])
 
 
 func _water_coord_less(a: Vector2i, b: Vector2i) -> bool:
-	var a_distance := maxi(absi(a.x - _center.x), absi(a.y - _center.y)
-	)
-	var b_distance := maxi(absi(b.x - _center.x), absi(b.y - _center.y)
-	)
+	var a_distance := maxi(absi(a.x - _center.x), absi(a.y - _center.y))
+	var b_distance := maxi(absi(b.x - _center.x), absi(b.y - _center.y))
 	if a_distance != b_distance:
 		return a_distance < b_distance
 	return absi(a.x - _center.x) + absi(a.y - _center.y) < absi(b.x - _center.x) + absi(b.y - _center.y)
 
 
-func notify_world_change(cell: Vector3i) -> void:
-	# A changed column can alter its own fluid state and the four side-neighbor
-	# visibility decisions. Only the chunks containing those five columns are
-	# dirtied; boundary columns naturally invalidate the neighboring chunk.
-	var affected_cells := [
+static func affected_chunks_for_world_cell(cell: Vector3i, chunk_size: int) -> Array[Vector2i]:
+	var cells := [
 		Vector2i(cell.x, cell.z),
 		Vector2i(cell.x + 1, cell.z),
 		Vector2i(cell.x - 1, cell.z),
 		Vector2i(cell.x, cell.z + 1),
 		Vector2i(cell.x, cell.z - 1),
 	]
-	for world_cell in affected_cells:
-		_mark_water_chunk_dirty(_world_to_chunk(world_cell.x, world_cell.y))
-	_record_water_event("WATER_DIRTY", "cell=%s affected=%d" % [cell, affected_cells.size()])
+	var result: Array[Vector2i] = []
+	for world_cell in cells:
+		var coord := Vector2i(floori(float(world_cell.x) / float(chunk_size)), floori(float(world_cell.y) / float(chunk_size)))
+		if not result.has(coord):
+			result.append(coord)
+	return result
+
+
+static func water_result_is_stale(result_generation: int, current_generation: int, result_revision: int, current_revision: int, wanted: bool) -> bool:
+	return result_generation != current_generation or result_revision != current_revision or not wanted
+
+
+func notify_world_change(cell: Vector3i) -> void:
+	var affected := affected_chunks_for_world_cell(cell, CHUNK_SIZE)
+	for coord in affected:
+		_mark_water_chunk_dirty(coord)
+	_record_water_event("WATER_DIRTY", "cell=%s affected_chunks=%s" % [cell, affected])
 
 
 func mark_water_chunk_dirty(coord: Vector2i) -> void:
 	_mark_water_chunk_dirty(coord)
 	_record_water_event("WATER_DIRTY", "chunk=%s explicit=1" % coord)
-
-
-func _world_to_chunk(x: int, z: int) -> Vector2i:
-	return Vector2i(floori(float(x) / float(CHUNK_SIZE)), floori(float(z) / float(CHUNK_SIZE)))
 
 
 func _mark_water_chunk_dirty(coord: Vector2i) -> void:
@@ -167,6 +174,26 @@ func _mark_water_chunk_dirty(coord: Vector2i) -> void:
 		return
 	if not _water_queue.has(coord) and not _water_active_tasks.has(coord):
 		_water_queue.push_front(coord)
+
+
+func _sync_external_edits() -> void:
+	var current: Dictionary = _data.overrides
+	var current_signature := hash(current)
+	if current_signature == _override_signature:
+		return
+	var changed_cells: Array[Vector3i] = []
+	for key_value: Variant in current.keys():
+		var key: Vector3i = key_value
+		if not _override_snapshot.has(key) or int(current[key]) != int(_override_snapshot[key]):
+			changed_cells.append(key)
+	for key_value: Variant in _override_snapshot.keys():
+		var key: Vector3i = key_value
+		if not current.has(key):
+			changed_cells.append(key)
+	_override_snapshot = current.duplicate()
+	_override_signature = current_signature
+	for cell in changed_cells:
+		notify_world_change(cell)
 
 
 func diagnostics() -> Dictionary:
@@ -204,15 +231,11 @@ func _pump_water_tasks() -> void:
 		_water_completed_results.erase(coord)
 		_water_result_mutex.unlock()
 
-		var task_data: Dictionary = {}
-		# The active entry was erased above; the immutable generation/revision is
-		# carried in the result itself.
 		var expected_generation := int(result.get("generation", -1))
 		var expected_revision := int(result.get("revision", -1))
 		var current_revision := int(_water_revisions.get(coord, 0))
 		var wanted := maxi(absi(coord.x - _center.x), absi(coord.y - _center.y)) <= RENDER_RADIUS
-		var stale := result.is_empty() or expected_generation != _water_build_generation or expected_revision != current_revision or not wanted
-		if stale:
+		if result.is_empty() or water_result_is_stale(expected_generation, _water_build_generation, expected_revision, current_revision, wanted):
 			_water_stale_drops += 1
 			_record_water_event("WATER_STALE_DROP", "chunk=%s result_generation=%d current_generation=%d result_revision=%d current_revision=%d wanted=%s" % [coord, expected_generation, _water_build_generation, expected_revision, current_revision, wanted])
 			if wanted and _water_dirty.get(coord, false) and not _water_queue.has(coord):
@@ -224,7 +247,7 @@ func _pump_water_tasks() -> void:
 		_water_max_build_usec = maxi(_water_max_build_usec, int(result.get("build_usec", 0)))
 		_water_last_face_count = int(result.get("face_count", 0))
 		_water_last_vertex_count = int(result.get("vertex_count", 0))
-		_record_water_event("WATER_MESH_BUILD", "chunk=%s build_ms=%.3f faces=%d vertices=%d" % [coord, int(result.get("build_usec", 0)) / 1000.0, _water_last_face_count, _water_last_vertex_count])
+		_record_water_event("WATER_MESH_BUILD", "chunk=%s build_ms=%.3f faces=%d vertices=%d quads=%d" % [coord, int(result.get("build_usec", 0)) / 1000.0, _water_last_face_count, _water_last_vertex_count, int(result.get("quad_count", 0))])
 		_create_chunk_from_data(coord, result)
 
 	while _water_active_tasks.size() < MAX_WATER_WORKERS and not _water_queue.is_empty():
@@ -239,17 +262,9 @@ func _pump_water_tasks() -> void:
 func _dispatch_water_task(coord: Vector2i) -> void:
 	var generation := _water_build_generation
 	var revision := int(_water_revisions.get(coord, 0))
-	var task_callable := Callable(get_script(), "_build_water_worker").bind(
-		coord, generation, revision, _water_completed_results, _water_result_mutex
-	)
-	var task_id := WorkerThreadPool.add_task(
-		task_callable,
-		false,
-		"TEKNIK water mesh %s r%d" % [coord, revision]
-	)
+	var task_callable := Callable(get_script(), "_build_water_worker").bind(coord, generation, revision, _water_completed_results, _water_result_mutex)
+	var task_id := WorkerThreadPool.add_task(task_callable, false, "TEKNIK water mesh %s r%d" % [coord, revision])
 	if task_id < 0:
-		# Never synchronously build water on the main thread. Retry later instead;
-		# this preserves the PR #55 hitch protection even if the pool is exhausted.
 		_water_queue.push_back(coord)
 		_record_water_event("WATER_WORKER_SUBMIT_FAILURE", "chunk=%s error=%d" % [coord, task_id])
 		return
