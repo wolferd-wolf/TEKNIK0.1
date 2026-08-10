@@ -20,6 +20,6 @@ func _init() -> void:
 	for i in range(blocks.size()): preview.blit_rect(TextureGenerator.generate(blocks[i],SEED).get_image(),Rect2i(0,0,16,16),Vector2i((i%4)*16,(i/4)*16))
 	var dir=ProjectSettings.globalize_path("res://artifacts"); DirAccess.make_dir_recursive_absolute(dir); preview.resize(512,256,Image.INTERPOLATE_NEAREST); preview.save_png(dir+"/texture_generator_preview.png")
 	if failures.is_empty():
-		print("TEXTURE_GENERATOR_GATE_PASS"); print("DETERMINISM_PASS blocks=%d seed=%d"%[blocks.size(),SEED]); print("SEED_VARIATION_PASS"); print("ORE_SPECKLES=%d"%speckles); quit(0)
+		print("TEXTURE_GENERATOR_GATE_PASS"); print("DETERMINISM_PASS blocks=%d seed=%d"%[blocks.size(),SEED]); print("SEED_VARIATION_PASS"); print("ORE_SPECKLES=%d"%speckles); OS.set_exit_code(0); quit()
 	for failure in failures: push_error(failure)
-	quit(1)
+	OS.set_exit_code(1); quit()
