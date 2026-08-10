@@ -5,6 +5,7 @@ extends "res://scripts/world/playable_world_stage13_data.gd"
 # valid regression oracles. If the extension is absent, every method falls back
 # to the accepted Stage 13 implementation.
 const CARPATHIAN_CLASS := &"TeknikCarpathianSampler"
+const BLOCK_WATER := 7
 # Luanti Carpathian's nominal no-mountain surface is Y=6 with BASE_LEVEL=12.
 # TEKNIK's accepted inland base is Y=18, so a pure +12 translation preserves
 # Carpathian relief while placing its plains at TEKNIK's established altitude.
@@ -262,17 +263,21 @@ func get_block(cell: Vector3i) -> int:
 
 	var fields: Vector4 = sample_world_fields(cell.x, cell.z)
 	var height: int = terrain_height(cell.x, cell.z)
-	var water_type: int = water_type_at(cell.x, cell.z)
+	var water_info: Vector2i = water_info_at(cell.x, cell.z)
+	var water_surface: int = water_info.y
+	if water_info.x != WATER_NONE and cell.y > height and cell.y <= water_surface:
+		return BLOCK_WATER
+
 	var climate: Vector2 = sample_biome_climate(cell.x, cell.z)
-	var biome: int = stage8_classify_climate(climate, water_type)
+	var biome: int = stage8_classify_climate(climate, water_info.x)
 	if cell.y <= height:
 		if cell.y < height - 2:
 			return stage8_surface_block(cell, height, biome)
 		var terrain_modifier: int = stage9_terrain_modifier_from_fields(
-			fields.x, fields.y, water_type
+			fields.x, fields.y, water_info.x
 		)
 		var slope: float = stage7_surface_slope_at(cell.x, cell.z, height)
-		var transition_code: int = stage10_transition_code_for_climate(climate, water_type)
+		var transition_code: int = stage10_transition_code_for_climate(climate, water_info.x)
 		var hydrology_modifier: int = stage11_hydrology_modifier_at(cell.x, cell.z)
 		return stage11_surface_block(
 			cell,
