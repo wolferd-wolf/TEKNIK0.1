@@ -46,30 +46,22 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 			var surface_y := int(water_surfaces[index])
 			if surface_y <= floor_y:
 				continue
-
 			var top_y := float(surface_y) + WATER_SURFACE_OFFSET
 			_append_quad(vertices, normals, colors, indices,
-				Vector3(local_x, top_y, local_z),
-				Vector3(local_x, top_y, local_z + 1),
-				Vector3(local_x + 1, top_y, local_z + 1),
-				Vector3(local_x + 1, top_y, local_z),
+				Vector3(local_x, top_y, local_z), Vector3(local_x, top_y, local_z + 1),
+				Vector3(local_x + 1, top_y, local_z + 1), Vector3(local_x + 1, top_y, local_z),
 				Vector3.UP, WATER_TOP_COLOR)
-
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
+				local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
+				local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x - 1, cache_z, Vector3.LEFT)
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
+				local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x, cache_z + 1, Vector3.BACK)
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				local_x, local_z, floor_y, surface_y,
-				terrain_heights, water_types, water_surfaces,
+				local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
 
 	return {"vertices": vertices, "normals": normals, "colors": colors, "indices": indices}
@@ -86,7 +78,7 @@ static func water_info(data, x: int, z: int) -> Vector2i:
 		return Vector2i(WATER_NONE, -1)
 	var connected_neighbors := 0
 	for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		if data.terrain_height(x + offset.x, z + offset.z) < WORLD_DATA.SEA_LEVEL:
+		if data.terrain_height(x + offset.x, z + offset.y) < WORLD_DATA.SEA_LEVEL:
 			connected_neighbors += 1
 	if connected_neighbors >= 2:
 		return Vector2i(1, WORLD_DATA.SEA_LEVEL)
