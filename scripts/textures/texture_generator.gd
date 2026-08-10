@@ -62,12 +62,13 @@ static func _apply_cluster_detail(image: Image, config: TextureBlockConfig, seed
 
 static func _stamp_pixel_cluster(image: Image, cx: int, cy: int, color: Color, seed: int) -> void:
 	var shape := int(floor(_hash_2d(cx, cy, seed) * 3.0))
-	var points := [[Vector2i(0, 0), Vector2i(1, 0)], [Vector2i(0, 0), Vector2i(0, 1), Vector2i(1, 0)], [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1)]]
-	for point in points[shape]:
-		var px := cx + point.x
-		var py := cy + point.y
-		if px >= 0 and px < SIZE and py >= 0 and py < SIZE:
-			image.set_pixel(px, py, color)
+	image.set_pixel(cx, cy, color)
+	if cx + 1 < SIZE:
+		image.set_pixel(cx + 1, cy, color)
+	if shape >= 1 and cy + 1 < SIZE:
+		image.set_pixel(cx, cy + 1, color)
+	if shape == 2 and cx + 1 < SIZE and cy + 1 < SIZE:
+		image.set_pixel(cx + 1, cy + 1, color)
 
 static func _apply_rock_detail(image: Image, config: TextureBlockConfig, seed: int) -> void:
 	if config.palette.size() < 3: return
