@@ -1,7 +1,7 @@
 extends RefCounted
 class_name TextureGenerator
 
-const SIZE := 16
+const SIZE := 32
 const REGISTRY = preload("res://resources/textures/texture_block_registry.tres")
 static var _texture_cache: Dictionary = {}
 
