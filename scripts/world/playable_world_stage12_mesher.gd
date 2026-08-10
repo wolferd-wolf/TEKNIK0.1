@@ -7,6 +7,7 @@ const BASE_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const BLOCK_AIR := 0
 const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
+const NATIVE_MESHER_CLASS := &"TeknikVoxelMesher"
 
 
 static func _restore_terrain_under_suppression(
@@ -46,6 +47,45 @@ static func _restore_terrain_under_suppression(
 			erase_keys.append(key)
 	for key: String in erase_keys:
 		mesher_overrides.erase(key)
+
+
+static func _build_base_mesh(
+	coord: Vector2i,
+	heights: PackedInt32Array,
+	mesher_overrides: Dictionary,
+	chunk_size: int,
+	world_height: int,
+	sea_level: int,
+	biomes: PackedByteArray
+) -> Dictionary:
+	# Shipping Android/Linux builds already carry the native Carpathian
+	# GDExtension. Reuse that library for the CPU-heavy block-cache, lighting/AO,
+	# face-culling and vertex emission loops. Keep the original GDScript mesher as
+	# an exact fallback/oracle for editor and tests where the extension is absent.
+	if ClassDB.class_exists(NATIVE_MESHER_CLASS):
+		var native_mesher: Object = ClassDB.instantiate(NATIVE_MESHER_CLASS)
+		if native_mesher != null:
+			var native_result: Variant = native_mesher.call(
+				"build",
+				coord,
+				heights,
+				mesher_overrides,
+				chunk_size,
+				world_height,
+				sea_level,
+				biomes
+			)
+			if native_result is Dictionary:
+				return native_result as Dictionary
+	return BASE_MESHER.build(
+		coord,
+		heights,
+		mesher_overrides,
+		chunk_size,
+		world_height,
+		sea_level,
+		biomes
+	)
 
 
 static func build(
@@ -238,7 +278,7 @@ static func build(
 						continue
 					mesher_overrides[key] = BLOCK_LEAVES
 
-	return BASE_MESHER.build(
+	return _build_base_mesh(
 		coord,
 		heights,
 		mesher_overrides,

@@ -1,0 +1,111 @@
+name: TEKNIK Native Voxel Mesher Equivalence
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'native/carpathian/**'
+      - 'scripts/world/playable_world_mesher.gd'
+      - 'scripts/world/playable_world_stage12_mesher.gd'
+      - 'scripts/world/playable_world_generation_runtime.gd'
+      - 'tests/native_voxel_mesher_equivalence_gate.gd'
+      - 'tests/native_threaded_chunk_build_gate.gd'
+      - 'tests/chunk_apply_hitch_gate.gd'
+      - '.github/workflows/native-voxel-mesher-equivalence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  equivalence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Build native extension
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          printf '%s\n' '{"enabled_classes":["RefCounted","OS"]}' > native/carpathian/build_profile.json
+          cat > native/carpathian/SConstruct <<'PY'
+          #!/usr/bin/env python
+          env = SConscript("godot-cpp/SConstruct")
+          env.Append(CPPPATH=["src/"])
+          sources = Glob("src/*.cpp")
+          library = env.SharedLibrary(
+              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+              source=sources,
+          )
+          env.NoCache(library)
+          Default(library)
+          PY
+          scons -C native/carpathian platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j2
+          LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
+          test -n "$LIB_PATH"
+          LIB_NAME="$(basename "$LIB_PATH")"
+          cat > native/carpathian/teknik_carpathian.gdextension <<EOF
+          [configuration]
+          entry_symbol = "teknik_carpathian_library_init"
+          compatibility_minimum = "4.3"
+
+          [libraries]
+          linux.debug.x86_64 = "res://native/carpathian/bin/$LIB_NAME"
+          EOF
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Strict parse with extension loaded
+        run: |
+          set -o pipefail
+          timeout 180 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee /tmp/parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script|GDExtension.*failed|Cannot open dynamic library' /tmp/parse.log; then
+            exit 1
+          fi
+
+      - name: Compare native and GDScript mesh output
+        run: |
+          set -o pipefail
+          timeout 900 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/native_voxel_mesher_equivalence_gate.gd 2>&1 | tee /tmp/native-mesher-equivalence.log
+          grep -Fq 'NATIVE_VOXEL_MESHER_EQUIVALENCE_JSON=' /tmp/native-mesher-equivalence.log
+          grep -Fq 'NATIVE_VOXEL_MESHER_EQUIVALENCE_PASS' /tmp/native-mesher-equivalence.log
+
+      - name: Exercise shipping native mesher through WorkerThreadPool
+        run: |
+          set -o pipefail
+          timeout 900 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/native_threaded_chunk_build_gate.gd 2>&1 | tee /tmp/native-threaded-chunks.log
+          grep -Fq 'NATIVE_THREADED_CHUNK_BUILD_JSON=' /tmp/native-threaded-chunks.log
+          grep -Fq 'NATIVE_THREADED_CHUNK_BUILD_PASS' /tmp/native-threaded-chunks.log
+
+      - name: Measure split render and collision apply path
+        run: |
+          set -o pipefail
+          timeout 900 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/chunk_apply_hitch_gate.gd 2>&1 | tee /tmp/chunk-apply-hitch.log
+          grep -Fq 'CHUNK_APPLY_HITCH_GATE_JSON=' /tmp/chunk-apply-hitch.log
+          grep -Fq 'CHUNK_APPLY_HITCH_GATE_PASS' /tmp/chunk-apply-hitch.log
+
+      - name: Upload equivalence evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-voxel-mesher-equivalence
+          path: |
+            /tmp/native-mesher-equivalence.log
+            /tmp/native-threaded-chunks.log
+            /tmp/chunk-apply-hitch.log
+          if-no-files-found: warn
