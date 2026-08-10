@@ -20,11 +20,9 @@ static func _generate_image(config: TextureBlockConfig, seed: int) -> Image:
 	if config == null:
 		image.fill(Color.MAGENTA)
 		return image
-	for y in range(SIZE):
-		for x in range(SIZE):
-			var value := _cellular_value(x, y, config.frequency, seed + config.seed_offset) if config.noise_mode == "cellular" else _value_noise(x, y, config.frequency, seed + config.seed_offset)
-			image.set_pixel(x, y, _palette_sample(config.palette, value))
-	_apply_material_detail(image, config, seed)
+	var base_index := clampi(int(floor(config.palette.size() * 0.45)), 0, config.palette.size() - 1)
+	image.fill(config.palette[base_index])
+	_apply_material_shapes(image, config, seed)
 	if config.overlay_mode == "speckle": _apply_speckles(image, config, seed)
 	elif config.overlay_mode == "vein": _apply_veins(image, config, seed)
 	return image
@@ -93,6 +91,102 @@ static func _apply_wood_grain(image: Image, config: TextureBlockConfig, seed: in
 			var grain := _value_noise(grain_x, y, 0.22, seed + 2701)
 			if grain < 0.25 and _hash_2d(x, y / 2, seed + 2711) < config.detail_density * 0.45: image.set_pixel(x, y, dark)
 			elif grain > 0.78 and _hash_2d(x, y / 2, seed + 2729) < config.detail_density * 0.32: image.set_pixel(x, y, light)
+
+static func _apply_material_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	match config.material_style:
+		"grass": _apply_grass_shapes(image, config, seed)
+		"soil": _apply_soil_shapes(image, config, seed)
+		"rock": _apply_rock_shapes(image, config, seed)
+		"sand": _apply_sand_shapes(image, config, seed)
+		"wood_grain": _apply_wood_shapes(image, config, seed)
+		"foliage": _apply_foliage_shapes(image, config, seed)
+		_: _apply_generic_shapes(image, config, seed)
+
+static func _apply_grass_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 3: return
+	_stamp_blob(image, 7, 7, 8, 6, config.palette[1], seed + 11, 0.86)
+	_stamp_blob(image, 23, 10, 7, 8, config.palette[0], seed + 23, 0.82)
+	_stamp_blob(image, 13, 24, 9, 7, config.palette[2], seed + 37, 0.84)
+	_stamp_blob(image, 27, 25, 6, 6, config.palette[0], seed + 41, 0.80)
+	_stamp_blade_cluster(image, 5, 18, config.palette[3] if config.palette.size() > 3 else config.palette[2], seed + 53)
+	_stamp_blade_cluster(image, 19, 5, config.palette[2], seed + 67)
+	_stamp_blade_cluster(image, 25, 20, config.palette[3] if config.palette.size() > 3 else config.palette[2], seed + 79)
+
+static func _apply_soil_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 3: return
+	var shapes := [[5, 6, 5, 4], [18, 7, 6, 5], [27, 14, 5, 4], [8, 18, 6, 5], [21, 22, 7, 5], [13, 29, 5, 3]]
+	for i in range(shapes.size()):
+		var s: Array = shapes[i]
+		var color := config.palette[1] if i % 3 != 0 else config.palette[0]
+		_stamp_blob(image, int(s[0]), int(s[1]), int(s[2]), int(s[3]), color, seed + 101 + i * 17, 0.78)
+		if i % 2 == 0 and config.palette.size() > 3: _stamp_highlight(image, int(s[0]) - 1, int(s[1]) - 1, config.palette[3], seed + 300 + i)
+
+static func _apply_rock_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 3: return
+	var shapes := [[6, 6, 6, 5], [17, 5, 7, 5], [27, 8, 6, 7], [9, 17, 7, 6], [21, 16, 6, 7], [29, 23, 5, 5], [5, 27, 5, 4], [16, 27, 7, 4]]
+	for i in range(shapes.size()):
+		var s: Array = shapes[i]
+		var cx := int(s[0]); var cy := int(s[1]); var rx := int(s[2]); var ry := int(s[3])
+		_stamp_blob(image, cx + 1, cy + 1, rx, ry, config.palette[0], seed + 401 + i * 31, 0.72)
+		_stamp_blob(image, cx, cy, rx, ry, config.palette[1], seed + 431 + i * 31, 0.82)
+		if config.palette.size() > 3 and i % 2 == 0: _stamp_highlight(image, cx - rx / 2, cy - ry / 2, config.palette[3], seed + 461 + i * 31)
+
+static func _apply_sand_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 2: return
+	var light := config.palette[config.palette.size() - 1]; var dark := config.palette[0]
+	for i in range(7):
+		var cx := 3 + int(floor(_hash_2d(i, 13, seed + 501) * 26.0)); var cy := 3 + int(floor(_hash_2d(i, 29, seed + 503) * 26.0))
+		var rx := 3 + int(floor(_hash_2d(i, 47, seed + 507) * 4.0)); var ry := 2 + int(floor(_hash_2d(i, 61, seed + 509) * 3.0))
+		_stamp_blob(image, cx, cy, rx, ry, light if i % 3 else dark, seed + 520 + i, 0.70)
+
+static func _apply_wood_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 3: return
+	for band in range(5):
+		var y0 := 3 + band * 6 + int(floor(_hash_2d(band, 71, seed + 601) * 3.0))
+		for x in range(SIZE):
+			var wobble := int(floor(sin(float(x) * 0.42 + band * 1.7 + seed * 0.001) * 1.3)); var y := y0 + wobble
+			if y < 0 or y >= SIZE: continue
+			var gap := _hash_2d(x / 2, band, seed + 607 + band * 19)
+			if gap > 0.22: image.set_pixel(x, y, config.palette[0])
+			if gap > 0.58 and y + 1 < SIZE: image.set_pixel(x, y + 1, config.palette[1])
+	for x in [4, 13, 24]: _stamp_highlight(image, x, 4 + int(_hash_2d(x, 83, seed + 631) * 22.0), config.palette[3] if config.palette.size() > 3 else config.palette[2], seed + x)
+
+static func _apply_foliage_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 3: return
+	_stamp_blob(image, 7, 8, 7, 6, config.palette[0], seed + 701, 0.82)
+	_stamp_blob(image, 20, 7, 8, 7, config.palette[2], seed + 719, 0.82)
+	_stamp_blob(image, 12, 21, 8, 7, config.palette[1], seed + 733, 0.82)
+	_stamp_blob(image, 27, 24, 6, 5, config.palette[0], seed + 751, 0.80)
+	_stamp_highlight(image, 21, 14, config.palette[3] if config.palette.size() > 3 else config.palette[2], seed + 761)
+
+static func _apply_generic_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.palette.size() < 2: return
+	for i in range(6):
+		var cx := 4 + int(floor(_hash_2d(i, 97, seed + 811) * 24.0)); var cy := 4 + int(floor(_hash_2d(i, 101, seed + 813) * 24.0))
+		_stamp_blob(image, cx, cy, 3 + i % 3, 3 + (i + 1) % 3, config.palette[i % config.palette.size()], seed + 821 + i, 0.75)
+
+static func _stamp_blob(image: Image, cx: int, cy: int, rx: int, ry: int, color: Color, seed: int, edge_keep: float) -> void:
+	for y in range(maxi(0, cy - ry - 1), mini(SIZE, cy + ry + 2)):
+		for x in range(maxi(0, cx - rx - 1), mini(SIZE, cx + rx + 2)):
+			var nx := float(x - cx) / maxf(float(rx), 1.0); var ny := float(y - cy) / maxf(float(ry), 1.0); var distance := nx * nx + ny * ny
+			if distance > 1.12: continue
+			var jitter := (_hash_2d(x, y, seed) - 0.5) * 0.28
+			if distance + jitter <= 1.0:
+				if distance > 0.78 and _hash_2d(x + 17, y - 11, seed + 7) > edge_keep: continue
+				image.set_pixel(x, y, color)
+
+static func _stamp_highlight(image: Image, cx: int, cy: int, color: Color, seed: int) -> void:
+	var shape := int(floor(_hash_2d(cx, cy, seed) * 3.0))
+	if cx >= 0 and cx < SIZE and cy >= 0 and cy < SIZE: image.set_pixel(cx, cy, color)
+	if shape > 0 and cx + 1 < SIZE and cy >= 0: image.set_pixel(cx + 1, cy, color)
+	if shape == 2 and cy + 1 < SIZE and cx >= 0: image.set_pixel(cx, cy + 1, color)
+
+static func _stamp_blade_cluster(image: Image, cx: int, cy: int, color: Color, seed: int) -> void:
+	for i in range(4):
+		var x := cx + i - 1; var height := 2 + int(floor(_hash_2d(i, cy, seed) * 3.0))
+		for j in range(height):
+			var y := cy - j
+			if x >= 0 and x < SIZE and y >= 0 and y < SIZE: image.set_pixel(x, y, color)
 
 static func _apply_speckles(image: Image, config: TextureBlockConfig, seed: int) -> void:
 	if config.overlay_palette.is_empty(): return
