@@ -10,9 +10,20 @@ class FakeVoxelData extends RefCounted:
 	const BLOCK_STONE := 3
 	const BLOCK_WATER := 7
 	var blocks: Dictionary = {}
+	var overrides: Dictionary = {}
 	var reported_water: Dictionary = {}
 
+	func terrain_height(x: int, z: int) -> int:
+		var highest := -1
+		for cell in blocks.keys():
+			var c: Vector3i = cell
+			if c.x == x and c.z == z and int(blocks[cell]) != BLOCK_AIR and int(blocks[cell]) != BLOCK_WATER:
+				highest = maxi(highest, c.y)
+		return highest
+
 	func get_block(cell: Vector3i) -> int:
+		if overrides.has("%d,%d,%d" % [cell.x, cell.y, cell.z]):
+			return int(overrides["%d,%d,%d" % [cell.x, cell.y, cell.z]])
 		return int(blocks.get(cell, BLOCK_AIR))
 
 	func water_info_at(x: int, z: int) -> Vector2i:
@@ -45,10 +56,12 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	var fake_ocean := FakeVoxelData.new()
 	for z in range(4):
 		for x in range(4):
+			fake_ocean.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
 			fake_ocean.reported_water[Vector2i(x, z)] = Vector2i(1, 7)
 	var fake_ocean_result := BUILDER.build(fake_ocean, Vector2i.ZERO, 4)
-	_expect(failures, fake_ocean_result.get("vertices", PackedVector3Array()).is_empty(), "column-level water_info_at must never create render geometry")
-	_expect(failures, int(fake_ocean_result.get("water_voxel_count", 0)) == 0, "reported water without water voxels must produce zero fluid cells")
+	_expect(failures, int(fake_ocean_result.get("water_voxel_count", 0)) == 16, "fluid source must materialize one water voxel per column")
+	_expect(failures, int(fake_ocean_result.get("top_quad_count", 0)) == 1, "flat fluid source must merge its complete top into one quad")
+	_expect(failures, int(fake_ocean_result.get("quad_count", 0)) == 17, "flat fluid source should emit one top plus perimeter sides")
 
 	var single := FakeVoxelData.new()
 	for z in range(4):
@@ -56,17 +69,21 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 			single.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
 	single.set_block(Vector3i(1, 1, 1), FakeVoxelData.BLOCK_WATER)
 	var single_result := BUILDER.build(single, Vector2i.ZERO, 4)
-	_expect(failures, int(single_result.get("water_voxel_count", 0)) == 1, "single water cell must be present as voxel data")
-	_expect(failures, int(single_result.get("top_quad_count", 0)) == 1, "single water cell should emit one top quad")
-	_expect(failures, int(single_result.get("quad_count", 0)) == 5, "single water cell should emit one top plus four exposed sides")
+	_expect(failures, int(single_result.get("water_voxel_count", 0)) == 0, "explicit voxel without a fluid column must not create procedural water")
+	# A real fluid column is represented by water_info_at; this test verifies the
+	# dedicated mesher uses that source while still honoring explicit overrides.
+	single.reported_water[Vector2i(1, 1)] = Vector2i(1, 1)
+	var single_fluid_result := BUILDER.build(single, Vector2i.ZERO, 4)
+	_expect(failures, int(single_fluid_result.get("water_voxel_count", 0)) == 1, "single generated fluid cell must be meshed")
+	_expect(failures, int(single_fluid_result.get("top_quad_count", 0)) == 1, "single water cell should emit one top quad")
+	_expect(failures, int(single_fluid_result.get("quad_count", 0)) == 5, "single water cell should emit one top plus four exposed sides")
 
 	var lake := FakeVoxelData.new()
 	for z in range(4):
 		for x in range(4):
 			lake.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
-	for z in range(2):
-		for x in range(2):
-			lake.set_block(Vector3i(x, 1, z), FakeVoxelData.BLOCK_WATER)
+			if x < 2 and z < 2:
+				lake.reported_water[Vector2i(x, z)] = Vector2i(1, 1)
 	var lake_result := BUILDER.build(lake, Vector2i.ZERO, 4)
 	_expect(failures, int(lake_result.get("water_voxel_count", 0)) == 4, "2x2 lake must contain four water voxels")
 	_expect(failures, int(lake_result.get("top_quad_count", 0)) == 1, "2x2 lake top must greedily merge to one quad")
@@ -77,9 +94,9 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	for z in range(4):
 		for x in range(4):
 			stacked.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
-	stacked.set_block(Vector3i(1, 1, 1), FakeVoxelData.BLOCK_WATER)
-	stacked.set_block(Vector3i(1, 2, 1), FakeVoxelData.BLOCK_WATER)
+	stacked.reported_water[Vector2i(1, 1)] = Vector2i(1, 2)
 	var stacked_result := BUILDER.build(stacked, Vector2i.ZERO, 4)
+	_expect(failures, int(stacked_result.get("water_voxel_count", 0)) == 2, "stacked water must contain both fluid voxels")
 	_expect(failures, int(stacked_result.get("top_quad_count", 0)) == 1, "stacked water must have one exposed top, not an internal top")
 	_expect(failures, int(stacked_result.get("quad_count", 0)) == 9, "stacked water must suppress the internal horizontal face")
 
@@ -87,8 +104,8 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	for z in range(4):
 		for x in range(4):
 			shore.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
-	shore.set_block(Vector3i(1, 1, 1), FakeVoxelData.BLOCK_WATER)
-	shore.set_block(Vector3i(2, 1, 1), FakeVoxelData.BLOCK_STONE)
+	shore.reported_water[Vector2i(1, 1)] = Vector2i(1, 1)
+	shore.blocks[Vector3i(2, 1, 1)] = FakeVoxelData.BLOCK_STONE
 	var shore_result := BUILDER.build(shore, Vector2i.ZERO, 4)
 	_expect(failures, int(shore_result.get("quad_count", 0)) == 4, "terrain-filled shoreline neighbor must suppress that water side")
 
@@ -96,8 +113,8 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	for z in range(4):
 		for x in range(4):
 			boundary.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
-	boundary.set_block(Vector3i(3, 1, 1), FakeVoxelData.BLOCK_WATER)
-	boundary.set_block(Vector3i(4, 1, 1), FakeVoxelData.BLOCK_WATER)
+	boundary.reported_water[Vector2i(3, 1)] = Vector2i(1, 1)
+	boundary.reported_water[Vector2i(4, 1)] = Vector2i(1, 1)
 	var left_result := BUILDER.build(boundary, Vector2i.ZERO, 4)
 	var right_result := BUILDER.build(boundary, Vector2i(1, 0), 4)
 	_expect(failures, int(left_result.get("quad_count", 0)) == 4, "chunk-edge water must suppress the shared internal side")
@@ -107,10 +124,19 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	for z in range(4):
 		for x in range(4):
 			filled.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
-			filled.set_block(Vector3i(x, 1, z), FakeVoxelData.BLOCK_WATER)
+			filled.reported_water[Vector2i(x, z)] = Vector2i(1, 1)
 	var filled_result := BUILDER.build(filled, Vector2i.ZERO, 4)
 	_expect(failures, int(filled_result.get("top_quad_count", 0)) == 1, "4x4 filled water must merge its complete top into one quad")
 	_expect(failures, int(filled_result.get("quad_count", 0)) == 17, "4x4 filled water should emit one top plus 16 perimeter sides")
+
+	var removed := FakeVoxelData.new()
+	for z in range(2):
+		for x in range(2):
+			removed.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
+			removed.reported_water[Vector2i(x, z)] = Vector2i(1, 1)
+	removed.overrides["0,1,0"] = FakeVoxelData.BLOCK_AIR
+	var removed_result := BUILDER.build(removed, Vector2i.ZERO, 2)
+	_expect(failures, int(removed_result.get("water_voxel_count", 0)) == 3, "explicit AIR override must remove a generated water voxel")
 
 
 func _run_real_world_voxel_cases(failures: Array[String]) -> void:
