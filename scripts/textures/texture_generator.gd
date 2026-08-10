@@ -90,7 +90,7 @@ static func _cluster(im: Image,cx:int,cy:int,rx:int,ry:int,col:Color,s:int,bias:
         var span=maxi(1,int(round(float(rx)*(1.0-absf(float(row)/ry)*.55))))
         var off=int(_hash(row+101,cy+103,s)*3.0)-1
         for colx in range(-span,span+1):
-            var x:=cx+colx+off; var y:=cy+row
+            var x:int=cx+colx+off; var y:int=cy+row
             if x<0 or x>=SIZE or y<0 or y>=SIZE: continue
             if absf(float(colx)/span)>.68 and _hash(x,y,s+17)>bias: continue
             im.set_pixel(x,y,col)
@@ -135,7 +135,7 @@ static func _vein_stamp(mask:PackedByteArray,cx:int,cy:int,w:int,s:int)->void:
         for ox in range(-w,w+1):
             var x:=cx+ox; var y:=cy+oy
             if x<0 or x>=SIZE or y<0 or y>=SIZE: continue
-            var d:=abs(ox)+abs(oy); var keep:=1.0 if d==0 else (.90 if d==1 else .30)
+            var d:int=abs(ox)+abs(oy); var keep:float=1.0 if d==0 else (.90 if d==1 else .30)
             if _hash(x,y,s)<keep: mask[y*SIZE+x]=1
 
 static func _p(c:TextureBlockConfig,i:int)->Color: return c.palette[clampi(i,0,c.palette.size()-1)]
