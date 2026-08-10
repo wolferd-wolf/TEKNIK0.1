@@ -112,6 +112,61 @@ func stage6_stage5_height_at(x: int, z: int) -> int:
 	return finalize_height(_carpathian_stage5_height(fields, stage4_height, x, z))
 
 
+func _stage6_candidate_common_ok(
+	center: Vector2i,
+	radius_max: float,
+	inland_min: float,
+	max_structure: float,
+	accept_roll: float,
+	base_chance: float,
+	moisture_bonus: float
+) -> Dictionary:
+	if not carpathian_enabled():
+		return super._stage6_candidate_common_ok(
+			center,
+			radius_max,
+			inland_min,
+			max_structure,
+			accept_roll,
+			base_chance,
+			moisture_bonus
+		)
+
+	# The inherited Stage 6 optimization reconstructs center_height through the
+	# legacy Stage 2 provisional-terrain function. That is equivalent for the
+	# historical generator, but not after shipping terrain is replaced by the
+	# native Carpathian sampler. Cached candidates already reuse the Carpathian
+	# Stage 5 height, so the fallback/direct path must derive the same value here.
+	var center_xf: float = float(center.x)
+	var center_zf: float = float(center.y)
+	var continentalness: float = continentalness_noise.get_noise_2d(center_xf, center_zf)
+	if continentalness < inland_min:
+		return {}
+	var moisture: float = biome_moisture_noise.get_noise_2d(center_xf, center_zf)
+	if accept_roll >= _stage6_moisture_chance(moisture, base_chance, moisture_bonus):
+		return {}
+	var structure: float = stage3_terrain_structure(center.x, center.y)
+	if structure > max_structure:
+		return {}
+	var river_value: float = stage5_river_signal(center.x, center.y)
+	var river_clearance: float = (
+		radius_max
+		+ STAGE5_VALLEY_OUTER * stage5_river_width_scale(continentalness)
+		+ STAGE6_RIVER_CLEARANCE_MARGIN
+	)
+	if river_value <= river_clearance:
+		return {}
+	var center_height: int = stage6_stage5_height_at(center.x, center.y)
+	if center_height < SEA_LEVEL + STAGE6_MIN_WATER_ALTITUDE:
+		return {}
+	return {
+		"continentalness": continentalness,
+		"moisture": moisture,
+		"structure": structure,
+		"center_height": center_height,
+	}
+
+
 func terrain_height(x: int, z: int) -> int:
 	if not carpathian_enabled():
 		return super.terrain_height(x, z)
