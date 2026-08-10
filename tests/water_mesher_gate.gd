@@ -81,6 +81,15 @@ func _run_invalidation_cases(failures: Array[String]) -> void:
 	_expect(failures, WATER_MANAGER.water_result_is_stale(2, 2, 3, 4, true), "old revision result must be rejected")
 	_expect(failures, WATER_MANAGER.water_result_is_stale(2, 2, 4, 4, false), "out-of-radius result must be rejected")
 
+	var manager = WATER_MANAGER.new()
+	manager.notify_world_change(Vector3i(11, 4, 11))
+	var diagnostics: Dictionary = manager.diagnostics()
+	_expect(failures, int(diagnostics.get("water_dirty_chunks", 0)) == 3, "terrain edit at chunk corner must dirty exactly the affected three chunks")
+	manager.mark_water_chunk_dirty(Vector2i(5, 5))
+	diagnostics = manager.diagnostics()
+	_expect(failures, int(diagnostics.get("water_dirty_chunks", 0)) == 4, "water edit must dirty its affected chunk without rebuilding unrelated chunks")
+	manager.free()
+
 
 func _expect(failures: Array[String], condition: bool, message: String) -> void:
 	if not condition:
