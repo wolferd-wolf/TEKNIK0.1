@@ -7,13 +7,10 @@ const WATER_TOP_COLOR := Color(0.18, 0.50, 0.72, 0.86)
 const WATER_SIDE_COLOR := Color(0.12, 0.36, 0.56, 0.86)
 
 # Dedicated fluid mesher.
-#
 # The world owns water as voxel/fluid state. The procedural water source is the
 # same water_info_at() state used by the world data to materialize BLOCK_WATER
 # in get_block(). The mesher consumes that compact column state rather than
-# calling get_block() for every voxel in the 60-block column. This keeps water
-# rendering faithful to the existing fluid data while avoiding the old global
-# plane and the very expensive full-voxel scan.
+# calling get_block() for every voxel in the 60-block column.
 #
 # Rendering rules:
 # - only exposed water tops are emitted;
@@ -57,9 +54,8 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 	var top_quad_count := 0
 	var water_voxel_count := 0
 
-	# Count actual fluid voxels and emit one merged top region for each connected
-	# equal-height rectangular run. The source is columnar, but the rendered result
-	# is still voxel water: floor+1 .. water_surface is the water stack.
+	# The column source is converted into the same full water-voxel range used by
+	# gameplay: floor+1 through water_surface inclusive.
 	for local_z in range(chunk_size):
 		for local_x in range(chunk_size):
 			var cache_x := local_x + 1
@@ -127,8 +123,8 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 				Vector3.UP, WATER_TOP_COLOR)
 			top_quad_count += 1
 
-	# Emit only the exposed vertical parts of each water stack. A neighbor water
-	# column occupies the same y-range, so water/water interfaces are suppressed.
+	# Emit only exposed vertical parts of each water stack. Neighbor water at the
+	# same y occupies the interface, so water/water faces are suppressed.
 	for local_z in range(chunk_size):
 		for local_x in range(chunk_size):
 			var cache_x := local_x + 1
@@ -141,22 +137,22 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 				continue
 
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				data, origin_x + local_x, origin_z + local_z,
+				data, local_x, local_z, origin_x + local_x, origin_z + local_z,
 				floor_y, surface_y, water_type,
 				terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				data, origin_x + local_x, origin_z + local_z,
+				data, local_x, local_z, origin_x + local_x, origin_z + local_z,
 				floor_y, surface_y, water_type,
 				terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x - 1, cache_z, Vector3.LEFT)
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				data, origin_x + local_x, origin_z + local_z,
+				data, local_x, local_z, origin_x + local_x, origin_z + local_z,
 				floor_y, surface_y, water_type,
 				terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x, cache_z + 1, Vector3.BACK)
 			_append_exposed_side_stack(vertices, normals, colors, indices,
-				data, origin_x + local_x, origin_z + local_z,
+				data, local_x, local_z, origin_x + local_x, origin_z + local_z,
 				floor_y, surface_y, water_type,
 				terrain_heights, water_types, water_surfaces,
 				cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
@@ -212,6 +208,8 @@ static func _append_exposed_side_stack(
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
 	data,
+	local_x: int,
+	local_z: int,
 	world_x: int,
 	world_z: int,
 	floor_y: int,
@@ -244,10 +242,10 @@ static func _append_exposed_side_stack(
 		if exposed and run_start < 0:
 			run_start = block_y
 		elif not exposed and run_start >= 0:
-			_append_vertical_side_quad(vertices, normals, colors, indices, world_x, world_z, run_start, block_y, normal)
+			_append_vertical_side_quad(vertices, normals, colors, indices, local_x, local_z, run_start, block_y, normal)
 			run_start = -1
 	if run_start >= 0:
-		_append_vertical_side_quad(vertices, normals, colors, indices, world_x, world_z, run_start, surface_y + 1, normal)
+		_append_vertical_side_quad(vertices, normals, colors, indices, local_x, local_z, run_start, surface_y + 1, normal)
 
 
 static func _append_vertical_side_quad(
@@ -255,22 +253,22 @@ static func _append_vertical_side_quad(
 	normals: PackedVector3Array,
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
-	world_x: int,
-	world_z: int,
+	local_x: int,
+	local_z: int,
 	bottom_y: int,
 	top_y: int,
 	normal: Vector3
 ) -> void:
-	var local_x := float(world_x)
-	var local_z := float(world_z)
+	var x := float(local_x)
+	var z := float(local_z)
 	if normal == Vector3.RIGHT:
-		_append_quad(vertices, normals, colors, indices, Vector3(local_x + 1.0, bottom_y, local_z), Vector3(local_x + 1.0, top_y, local_z), Vector3(local_x + 1.0, top_y, local_z + 1.0), Vector3(local_x + 1.0, bottom_y, local_z + 1.0), normal, WATER_SIDE_COLOR)
+		_append_quad(vertices, normals, colors, indices, Vector3(x + 1.0, bottom_y, z), Vector3(x + 1.0, top_y, z), Vector3(x + 1.0, top_y, z + 1.0), Vector3(x + 1.0, bottom_y, z + 1.0), normal, WATER_SIDE_COLOR)
 	elif normal == Vector3.LEFT:
-		_append_quad(vertices, normals, colors, indices, Vector3(local_x, bottom_y, local_z), Vector3(local_x, bottom_y, local_z + 1.0), Vector3(local_x, top_y, local_z + 1.0), Vector3(local_x, top_y, local_z), normal, WATER_SIDE_COLOR)
+		_append_quad(vertices, normals, colors, indices, Vector3(x, bottom_y, z), Vector3(x, bottom_y, z + 1.0), Vector3(x, top_y, z + 1.0), Vector3(x, top_y, z), normal, WATER_SIDE_COLOR)
 	elif normal == Vector3.BACK:
-		_append_quad(vertices, normals, colors, indices, Vector3(local_x, bottom_y, local_z + 1.0), Vector3(local_x + 1.0, bottom_y, local_z + 1.0), Vector3(local_x + 1.0, top_y, local_z + 1.0), Vector3(local_x, top_y, local_z + 1.0), normal, WATER_SIDE_COLOR)
+		_append_quad(vertices, normals, colors, indices, Vector3(x, bottom_y, z + 1.0), Vector3(x + 1.0, bottom_y, z + 1.0), Vector3(x + 1.0, top_y, z + 1.0), Vector3(x, top_y, z + 1.0), normal, WATER_SIDE_COLOR)
 	else:
-		_append_quad(vertices, normals, colors, indices, Vector3(local_x, bottom_y, local_z), Vector3(local_x, top_y, local_z), Vector3(local_x + 1.0, top_y, local_z), Vector3(local_x + 1.0, bottom_y, local_z), normal, WATER_SIDE_COLOR)
+		_append_quad(vertices, normals, colors, indices, Vector3(x, bottom_y, z), Vector3(x, top_y, z), Vector3(x + 1.0, top_y, z), Vector3(x + 1.0, bottom_y, z), normal, WATER_SIDE_COLOR)
 
 
 static func _override_value(data, cell: Vector3i) -> Vector2i:
