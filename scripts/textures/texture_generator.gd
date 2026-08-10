@@ -129,7 +129,7 @@ static func _apply_vein_stamp(mask: PackedByteArray, cx: int, cy: int, width: in
 		for ox in range(-width, width + 1):
 			var x := cx + ox; var y := cy + oy
 			if x < 0 or x >= SIZE or y < 0 or y >= SIZE: continue
-			var distance := abs(ox) + abs(oy)
+			var distance: int = abs(ox) + abs(oy)
 			var keep_chance := 1.0 if distance == 0 else (0.78 if distance == 1 else 0.45)
 			if _hash_2d(x, y, seed) < keep_chance: mask[y * SIZE + x] = 1
 
