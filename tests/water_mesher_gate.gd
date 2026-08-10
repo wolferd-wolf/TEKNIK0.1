@@ -13,6 +13,12 @@ class FakeWaterData extends RefCounted:
 	func water_info_at(x: int, z: int) -> Vector2i:
 		return waters.get(Vector2i(x, z), Vector2i(0, -1))
 
+class TerrainOnlyData extends RefCounted:
+	var heights: Dictionary = {}
+
+	func terrain_height(x: int, z: int) -> int:
+		return int(heights.get(Vector2i(x, z), 0))
+
 
 func _initialize() -> void:
 	var failures: Array[String] = []
@@ -32,6 +38,13 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	var empty := FakeWaterData.new()
 	var empty_result := BUILDER.build(empty, Vector2i.ZERO, 4)
 	_expect(failures, empty_result.get("vertices", PackedVector3Array()).is_empty(), "empty water region must emit no geometry")
+
+	var terrain_only := TerrainOnlyData.new()
+	for z in range(4):
+		for x in range(4):
+			terrain_only.heights[Vector2i(x, z)] = 0
+	var terrain_only_result := BUILDER.build(terrain_only, Vector2i.ZERO, 4)
+	_expect(failures, terrain_only_result.get("vertices", PackedVector3Array()).is_empty(), "terrain-only data must never be inferred as water")
 
 	var single := FakeWaterData.new()
 	single.waters[Vector2i(1, 1)] = Vector2i(1, 7)
@@ -75,7 +88,6 @@ func _run_invalidation_cases(failures: Array[String]) -> void:
 	_expect(failures, affected.has(Vector2i(1, 0)), "x-boundary terrain edit must invalidate neighboring chunk")
 	_expect(failures, affected.has(Vector2i(0, 1)), "z-boundary terrain edit must invalidate neighboring chunk")
 	_expect(failures, not affected.has(Vector2i(1, 1)), "single-cell edit must not invalidate diagonal chunk without an affected column")
-
 	_expect(failures, not WATER_MANAGER.water_result_is_stale(2, 2, 4, 4, true), "matching generation/revision result must be accepted")
 	_expect(failures, WATER_MANAGER.water_result_is_stale(1, 2, 4, 4, true), "old generation result must be rejected")
 	_expect(failures, WATER_MANAGER.water_result_is_stale(2, 2, 3, 4, true), "old revision result must be rejected")
