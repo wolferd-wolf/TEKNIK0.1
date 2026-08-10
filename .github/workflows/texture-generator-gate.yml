@@ -34,6 +34,7 @@ jobs:
           grep -F 'DETERMINISM_PASS' texture-generator-gate.log
           grep -F 'SEED_VARIATION_PASS' texture-generator-gate.log
           grep -F 'ORE_VEIN_PIXELS=' texture-generator-gate.log
+          grep -F 'ORE_LARGEST_CLUSTER=' texture-generator-gate.log
           test "$godot_status" -eq 0
       - name: Render 3D block texture preview
         run: |
