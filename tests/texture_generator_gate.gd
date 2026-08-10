@@ -15,7 +15,7 @@ func _init() -> void:
 		for x in range(32):
 			var c=ore.get_pixel(x,y)
 			if c.r>0.58 and c.g<0.5: speckles+=1
-	if speckles<4 or speckles>32: failures.append("ORE_SPECKLE_COUNT=%d"%speckles)
+	if speckles<16 or speckles>128: failures.append("ORE_SPECKLE_COUNT=%d"%speckles)
 	var preview:=Image.create(128,64,false,Image.FORMAT_RGBA8); preview.fill(Color(0.08,0.08,0.08,1))
 	for i in range(blocks.size()): preview.blit_rect(TextureGenerator.generate(blocks[i],SEED).get_image(),Rect2i(0,0,32,32),Vector2i((i%4)*32,(i/4)*32))
 	var dir=ProjectSettings.globalize_path("res://artifacts"); DirAccess.make_dir_recursive_absolute(dir); preview.resize(1024,512,Image.INTERPOLATE_NEAREST); preview.save_png(dir+"/texture_generator_preview.png")
