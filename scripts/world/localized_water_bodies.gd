@@ -30,6 +30,16 @@ func _ready() -> void:
 	call_deferred("_activate_for_mobile_world")
 
 
+func _exit_tree() -> void:
+	for coord_value: Variant in _water_active_tasks.keys():
+		var task_id := int(_water_active_tasks[coord_value])
+		WorkerThreadPool.wait_for_task_completion(task_id)
+	_water_active_tasks.clear()
+	_water_result_mutex.lock()
+	_water_completed_results.clear()
+	_water_result_mutex.unlock()
+
+
 func _process(_delta: float) -> void:
 	if not _active:
 		return
@@ -90,6 +100,7 @@ func _set_center(next_center: Vector2i) -> void:
 			if _chunks.has(coord) or _water_active_tasks.has(coord):
 				continue
 			_water_queue.append(coord)
+	_water_queue.sort_custom(Callable(self, "_water_coord_less"))
 
 	for coord_value: Variant in _chunks.keys():
 		var coord: Vector2i = coord_value
@@ -99,6 +110,14 @@ func _set_center(next_center: Vector2i) -> void:
 		if is_instance_valid(mesh_instance):
 			mesh_instance.queue_free()
 		_chunks.erase(coord)
+
+
+func _water_coord_less(a: Vector2i, b: Vector2i) -> bool:
+	var a_distance := maxi(absi(a.x - _center.x), absi(a.y - _center.y))
+	var b_distance := maxi(absi(b.x - _center.x), absi(b.y - _center.y))
+	if a_distance != b_distance:
+		return a_distance < b_distance
+	return absi(a.x - _center.x) + absi(a.y - _center.y) < absi(b.x - _center.x) + absi(b.y - _center.y)
 
 
 func _pump_water_tasks() -> void:
@@ -131,10 +150,8 @@ func _pump_water_tasks() -> void:
 			continue
 		if _chunks.has(coord) or _water_active_tasks.has(coord):
 			continue
-		var generation := _water_build_generation
-		var result_key := "%d:%d:%d" % [generation, coord.x, coord.y]
 		var task_callable := Callable(get_script(), "_build_water_worker").bind(
-			coord, result_key, _water_completed_results, _water_result_mutex
+			coord, _water_completed_results, _water_result_mutex
 		)
 		var task_id := WorkerThreadPool.add_task(
 			task_callable,
@@ -142,25 +159,17 @@ func _pump_water_tasks() -> void:
 			"TEKNIK water mesh %s" % coord
 		)
 		if task_id < 0:
-			# Rare fallback: build only the data synchronously, then create the
-			# render resource on this thread. Normal Android path never uses this.
 			var fallback_data := WATER_BUILDER.build(_data, coord, CHUNK_SIZE)
 			_create_chunk_from_data(coord, fallback_data)
 			continue
 		_water_active_tasks[coord] = task_id
 
 
-static func _build_water_worker(
-	coord: Vector2i,
-	result_key: String,
-	result_sink: Dictionary,
-	result_mutex: Mutex
-) -> void:
+static func _build_water_worker(coord: Vector2i, result_sink: Dictionary, result_mutex: Mutex) -> void:
 	var sampler = WORKER_DATA.new()
 	var result := WATER_BUILDER.build(sampler, coord, CHUNK_SIZE)
 	result_mutex.lock()
 	result_sink[coord] = result
-	result_sink["_key_%s" % result_key] = true
 	result_mutex.unlock()
 
 
