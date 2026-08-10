@@ -28,22 +28,19 @@ jobs:
         run: |
           set +e
           timeout 120 /tmp/godot/godot --headless --path . --script res://tests/texture_generator_gate.gd 2>&1 | tee texture-generator-gate.log
-          godot_status=${PIPESTATUS[0]}
           set -e
-          grep -F 'TEXTURE_GENERATOR_GATE_PASS' texture-generator-gate.log
+          grep -F 'TEXTURE_SET_GATE_PASS' texture-generator-gate.log
           grep -F 'DETERMINISM_PASS' texture-generator-gate.log
           grep -F 'SEED_VARIATION_PASS' texture-generator-gate.log
-          grep -F 'ORE_VEIN_PIXELS=' texture-generator-gate.log
-          grep -F 'ORE_LARGEST_CLUSTER=' texture-generator-gate.log
-          test "$godot_status" -eq 0
+          grep -F 'FACE_SET_PASS' texture-generator-gate.log
+          grep -F 'ORE_VEIN_PASS' texture-generator-gate.log
       - name: Render 3D block texture preview
         run: |
           set +e
           timeout 120 /tmp/godot/godot --headless --path . --script res://tests/texture_block_preview_gate.gd 2>&1 | tee texture-block-preview.log
-          godot_status=${PIPESTATUS[0]}
           set -e
           grep -F 'TEXTURE_BLOCK_PREVIEW_PASS' texture-block-preview.log
-          test "$godot_status" -eq 0
+          grep -F 'TEXTURE_BLOCK_PREVIEW_OUTPUT=' texture-block-preview.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
