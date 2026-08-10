@@ -59,7 +59,9 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 			fake_ocean.blocks[Vector3i(x, 0, z)] = FakeVoxelData.BLOCK_STONE
 			fake_ocean.reported_water[Vector2i(x, z)] = Vector2i(1, 7)
 	var fake_ocean_result := BUILDER.build(fake_ocean, Vector2i.ZERO, 4)
-	_expect(failures, int(fake_ocean_result.get("water_voxel_count", 0)) == 16, "fluid source must materialize one water voxel per column")
+	# surface_y is the highest water voxel coordinate, so floor=0/surface=7
+	# represents seven full water voxels in every one of the 16 columns.
+	_expect(failures, int(fake_ocean_result.get("water_voxel_count", 0)) == 112, "fluid source must materialize the complete water voxel stack per column")
 	_expect(failures, int(fake_ocean_result.get("top_quad_count", 0)) == 1, "flat fluid source must merge its complete top into one quad")
 	_expect(failures, int(fake_ocean_result.get("quad_count", 0)) == 17, "flat fluid source should emit one top plus perimeter sides")
 
@@ -98,7 +100,9 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 	var stacked_result := BUILDER.build(stacked, Vector2i.ZERO, 4)
 	_expect(failures, int(stacked_result.get("water_voxel_count", 0)) == 2, "stacked water must contain both fluid voxels")
 	_expect(failures, int(stacked_result.get("top_quad_count", 0)) == 1, "stacked water must have one exposed top, not an internal top")
-	_expect(failures, int(stacked_result.get("quad_count", 0)) == 9, "stacked water must suppress the internal horizontal face")
+	# The two water cells form one continuous vertical side stack. Internal
+	# water/water faces are suppressed, so this remains one top + four sides.
+	_expect(failures, int(stacked_result.get("quad_count", 0)) == 5, "stacked water must suppress the internal horizontal face")
 
 	var shore := FakeVoxelData.new()
 	for z in range(4):
