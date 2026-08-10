@@ -75,8 +75,6 @@ static func _apply_rock_detail(image: Image, config: TextureBlockConfig, seed: i
 	var dark := config.palette[0]
 	var mid := config.palette[1]
 	var light := config.palette[config.palette.size() - 1]
-	for y in range(SIZE):
-		for x in range(SIZE):
 	for cell_y in range(0, SIZE, 2):
 		for cell_x in range(0, SIZE, 2):
 			var face := _cellular_value(cell_x, cell_y, config.detail_frequency, seed + 2201)
