@@ -51,12 +51,23 @@ static func _apply_cluster_detail(image: Image, config: TextureBlockConfig, seed
 	if config.palette.size() < 2: return
 	var dark := config.palette[0]
 	var light := config.palette[config.palette.size() - 1]
-	for y in range(SIZE):
-		for x in range(SIZE):
-			var value := _value_noise(x, y, config.detail_frequency, seed + 1701)
-			var chance := config.detail_density * strength
-			if value > 0.72 and _hash_2d(x / 2, y / 2, seed + 1811) < chance: image.set_pixel(x, y, light)
-			elif value < 0.28 and _hash_2d(x / 2, y / 2, seed + 1913) < chance * 0.7: image.set_pixel(x, y, dark)
+	var chance := config.detail_density * strength
+	for cell_y in range(0, SIZE, 2):
+		for cell_x in range(0, SIZE, 2):
+			var value := _value_noise(cell_x, cell_y, config.detail_frequency * 0.72, seed + 1701)
+			if value > 0.70 and _hash_2d(cell_x / 2, cell_y / 2, seed + 1811) < chance:
+				_stamp_pixel_cluster(image, cell_x, cell_y, light, seed + cell_x * 31 + cell_y * 17)
+			elif value < 0.30 and _hash_2d(cell_x / 2, cell_y / 2, seed + 1913) < chance * 0.72:
+				_stamp_pixel_cluster(image, cell_x, cell_y, dark, seed + cell_x * 47 + cell_y * 23)
+
+static func _stamp_pixel_cluster(image: Image, cx: int, cy: int, color: Color, seed: int) -> void:
+	var shape := int(floor(_hash_2d(cx, cy, seed) * 3.0))
+	var points := [[Vector2i(0, 0), Vector2i(1, 0)], [Vector2i(0, 0), Vector2i(0, 1), Vector2i(1, 0)], [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1)]]
+	for point in points[shape]:
+		var px := cx + point.x
+		var py := cy + point.y
+		if px >= 0 and px < SIZE and py >= 0 and py < SIZE:
+			image.set_pixel(px, py, color)
 
 static func _apply_rock_detail(image: Image, config: TextureBlockConfig, seed: int) -> void:
 	if config.palette.size() < 3: return
@@ -65,11 +76,13 @@ static func _apply_rock_detail(image: Image, config: TextureBlockConfig, seed: i
 	var light := config.palette[config.palette.size() - 1]
 	for y in range(SIZE):
 		for x in range(SIZE):
-			var face := _cellular_value(x, y, config.detail_frequency, seed + 2201)
-			var micro := _hash_2d(x / 2, y / 2, seed + 2299)
-			if face < 0.18 and micro < config.detail_density * 0.65: image.set_pixel(x, y, dark)
-			elif face > 0.84 and micro < config.detail_density * 0.5: image.set_pixel(x, y, light)
-			elif micro < config.detail_density * 0.18: image.set_pixel(x, y, mid)
+	for cell_y in range(0, SIZE, 2):
+		for cell_x in range(0, SIZE, 2):
+			var face := _cellular_value(cell_x, cell_y, config.detail_frequency, seed + 2201)
+			var micro := _hash_2d(cell_x / 2, cell_y / 2, seed + 2299)
+			if face < 0.18 and micro < config.detail_density * 0.65: _stamp_pixel_cluster(image, cell_x, cell_y, dark, seed + 2201)
+			elif face > 0.84 and micro < config.detail_density * 0.5: _stamp_pixel_cluster(image, cell_x, cell_y, light, seed + 2303)
+			elif micro < config.detail_density * 0.18: image.set_pixel(cell_x, cell_y, mid)
 
 static func _apply_wood_grain(image: Image, config: TextureBlockConfig, seed: int) -> void:
 	if config.palette.size() < 2: return
