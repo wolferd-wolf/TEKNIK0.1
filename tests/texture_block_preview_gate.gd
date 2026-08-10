@@ -3,9 +3,9 @@ extends SceneTree
 const PREVIEW_SCENE = preload("res://scenes/texture_block_preview_3d.tscn")
 const OUTPUT_PATH := "artifacts/texture_block_preview_3d.png"
 
-func _initialize() -> void:
+func _init() -> void:
 	get_root().size = Vector2i(1280, 720)
-	var preview = PREVIEW_SCENE.instantiate()
+	var preview := PREVIEW_SCENE.instantiate()
 	get_root().add_child(preview)
 	await process_frame
 	await process_frame
