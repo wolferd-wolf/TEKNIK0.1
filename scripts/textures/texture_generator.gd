@@ -113,13 +113,20 @@ static func _apply_grass_shapes(image: Image, config: TextureBlockConfig, seed: 
 	_stamp_blade_cluster(image, 25, 20, config.palette[3] if config.palette.size() > 3 else config.palette[2], seed + 79)
 
 static func _apply_soil_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
-	if config.palette.size() < 3: return
-	var shapes := [[5, 6, 5, 4], [18, 7, 6, 5], [27, 14, 5, 4], [8, 18, 6, 5], [21, 22, 7, 5], [13, 29, 5, 3]]
+	if config.palette.size() < 3:
+		return
+	var shapes := [[5, 6, 4, 3], [18, 7, 5, 3], [27, 14, 4, 3], [8, 18, 4, 3], [21, 22, 5, 4], [13, 29, 4, 2]]
 	for i in range(shapes.size()):
-		var s: Array = shapes[i]
-		var color := config.palette[1] if i % 3 != 0 else config.palette[0]
-		_stamp_blob(image, int(s[0]), int(s[1]), int(s[2]), int(s[3]), color, seed + 101 + i * 17, 0.78)
-		if i % 2 == 0 and config.palette.size() > 3: _stamp_highlight(image, int(s[0]) - 1, int(s[1]) - 1, config.palette[3], seed + 300 + i)
+		var sh: Array = shapes[i]
+		var color: Color = config.palette[1] if i % 3 != 0 else config.palette[0]
+		_stamp_blob(image, int(sh[0]), int(sh[1]), int(sh[2]), int(sh[3]), color, seed + 101 + i * 17, 0.84)
+		if i % 2 == 0 and config.palette.size() > 3:
+			_stamp_highlight(image, int(sh[0]) - 1, int(sh[1]) - 1, config.palette[3], seed + 300 + i)
+	for i in range(12):
+		var cx := 2 + int(floor(_hash_2d(i, 41, seed + 501) * 28.0))
+		var cy := 2 + int(floor(_hash_2d(i, 73, seed + 503) * 28.0))
+		var color: Color = config.palette[2] if i % 3 else config.palette[0]
+		_stamp_blob(image, cx, cy, 1 + int(i % 2), 1 + int((i + 1) % 2), color, seed + 520 + i, 0.88)
 
 static func _apply_rock_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
 	if config.palette.size() < 3: return
@@ -140,16 +147,30 @@ static func _apply_sand_shapes(image: Image, config: TextureBlockConfig, seed: i
 		_stamp_blob(image, cx, cy, rx, ry, light if i % 3 else dark, seed + 520 + i, 0.70)
 
 static func _apply_wood_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
-	if config.palette.size() < 3: return
-	for band in range(5):
-		var y0 := 3 + band * 6 + int(floor(_hash_2d(band, 71, seed + 601) * 3.0))
-		for x in range(SIZE):
-			var wobble := int(floor(sin(float(x) * 0.42 + band * 1.7 + seed * 0.001) * 1.3)); var y := y0 + wobble
-			if y < 0 or y >= SIZE: continue
-			var gap := _hash_2d(x / 2, band, seed + 607 + band * 19)
-			if gap > 0.22: image.set_pixel(x, y, config.palette[0])
-			if gap > 0.58 and y + 1 < SIZE: image.set_pixel(x, y + 1, config.palette[1])
-	for x in [4, 13, 24]: _stamp_highlight(image, x, 4 + int(_hash_2d(x, 83, seed + 631) * 22.0), config.palette[3] if config.palette.size() > 3 else config.palette[2], seed + x)
+	if config.palette.size() < 3:
+		return
+	var dark: Color = config.palette[0]
+	var mid: Color = config.palette[1]
+	var light: Color = config.palette[config.palette.size() - 1]
+	for band in range(7):
+		var x0 := 2 + band * 4 + int(floor(_hash_2d(band, 71, seed + 601) * 3.0))
+		var wobble := _hash_2d(band, 91, seed + 603) * TAU
+		for y in range(SIZE):
+			var center := x0 + int(round(sin(float(y) * 0.28 + wobble) * 1.3))
+			if center < 0 or center >= SIZE:
+				continue
+			image.set_pixel(center, y, dark)
+			if center + 1 < SIZE:
+				image.set_pixel(center + 1, y, mid)
+			if center - 1 >= 0 and _hash_2d(center, y / 2, seed + 607 + band * 19) > 0.42:
+				image.set_pixel(center - 1, y, mid)
+			if y % 5 == 0 and center + 2 < SIZE and _hash_2d(center, y, seed + 617) > 0.62:
+				image.set_pixel(center + 2, y, light)
+	for i in range(8):
+		var cx := 2 + int(floor(_hash_2d(i, 101, seed + 631) * 28.0))
+		var cy := 2 + int(floor(_hash_2d(i, 131, seed + 633) * 28.0))
+		if _hash_2d(i, 151, seed + 637) > 0.45:
+			image.set_pixel(cx, cy, light)
 
 static func _apply_foliage_shapes(image: Image, config: TextureBlockConfig, seed: int) -> void:
 	if config.palette.size() < 3: return
@@ -221,11 +242,14 @@ static func _apply_veins(image: Image, config: TextureBlockConfig, seed: int) ->
 static func _apply_vein_stamp(mask: PackedByteArray, cx: int, cy: int, width: int, seed: int) -> void:
 	for oy in range(-width, width + 1):
 		for ox in range(-width, width + 1):
-			var x := cx + ox; var y := cy + oy
-			if x < 0 or x >= SIZE or y < 0 or y >= SIZE: continue
-			var distance: int = abs(ox) + abs(oy)
-			var keep_chance := 1.0 if distance == 0 else (0.78 if distance == 1 else 0.45)
-			if _hash_2d(x, y, seed) < keep_chance: mask[y * SIZE + x] = 1
+			var x := cx + ox
+			var y := cy + oy
+			if x < 0 or x >= SIZE or y < 0 or y >= SIZE:
+				continue
+			var distance := abs(ox) + abs(oy)
+			var keep_chance := 1.0 if distance == 0 else (0.92 if distance == 1 else 0.35)
+			if _hash_2d(x, y, seed) < keep_chance:
+				mask[y * SIZE + x] = 1
 
 static func _palette_sample(palette: Array[Color], value: float) -> Color:
 	if palette.is_empty(): return Color.WHITE
