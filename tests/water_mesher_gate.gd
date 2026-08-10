@@ -19,6 +19,11 @@ class TerrainOnlyData extends RefCounted:
 	func terrain_height(x: int, z: int) -> int:
 		return int(heights.get(Vector2i(x, z), 0))
 
+	func is_ocean_column(_x: int, _z: int) -> bool:
+		# Deliberately claims every column is ocean. This must never become a
+		# rendering source in the absence of explicit water state.
+		return true
+
 
 func _initialize() -> void:
 	var failures: Array[String] = []
@@ -45,6 +50,7 @@ func _run_mesh_cases(failures: Array[String]) -> void:
 			terrain_only.heights[Vector2i(x, z)] = 0
 	var terrain_only_result := BUILDER.build(terrain_only, Vector2i.ZERO, 4)
 	_expect(failures, terrain_only_result.get("vertices", PackedVector3Array()).is_empty(), "terrain-only data must never be inferred as water")
+	_expect(failures, int(terrain_only_result.get("quad_count", 0)) == 0, "ocean-column classification must not create a synthetic world water plane")
 
 	var single := FakeWaterData.new()
 	single.waters[Vector2i(1, 1)] = Vector2i(1, 7)
