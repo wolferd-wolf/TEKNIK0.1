@@ -8,6 +8,7 @@ const OVERRIDE_SPATIAL_INDEX := preload("res://scripts/world/playable_world_over
 const CHUNK_SIZE := 12
 const RENDER_RADIUS := 3
 const WATER_NONE := 0
+const WATER_SURFACE_OFFSET := 1.0
 const MAX_WATER_WORKERS := 2
 
 @export var streaming_target_path := NodePath("../../Player")
@@ -197,12 +198,12 @@ func _sync_external_edits() -> void:
 	var changed_cells: Array[Vector3i] = []
 	for key_value: Variant in current.keys():
 		if not _override_snapshot.has(key_value) or int(current[key_value]) != int(_override_snapshot[key_value]):
-			var parsed := _parse_override_cell(key_value)
+			var parsed: Variant = _parse_override_cell(key_value)
 			if parsed is Vector3i:
 				changed_cells.append(parsed)
 	for key_value: Variant in _override_snapshot.keys():
 		if not current.has(key_value):
-			var parsed := _parse_override_cell(key_value)
+			var parsed: Variant = _parse_override_cell(key_value)
 			if parsed is Vector3i:
 				changed_cells.append(parsed)
 	_override_snapshot = current.duplicate()
@@ -269,7 +270,7 @@ func _pump_water_tasks() -> void:
 		_create_chunk_from_data(coord, result)
 
 	while _water_active_tasks.size() < MAX_WATER_WORKERS and not _water_queue.is_empty():
-		var coord := _water_queue.pop_front()
+		var coord: Vector2i = _water_queue.pop_front()
 		if maxi(absi(coord.x - _center.x), absi(coord.y - _center.y)) > RENDER_RADIUS:
 			continue
 		if _water_active_tasks.has(coord):
@@ -280,7 +281,7 @@ func _pump_water_tasks() -> void:
 func _dispatch_water_task(coord: Vector2i) -> void:
 	var generation := _water_build_generation
 	var revision := int(_water_revisions.get(coord, 0))
-	var override_snapshot := _override_index.snapshot_for_chunk(coord, CHUNK_SIZE, 1)
+	var override_snapshot: Dictionary = _override_index.snapshot_for_chunk(coord, CHUNK_SIZE, 1)
 	var task_callable := Callable(get_script(), "_build_water_worker").bind(coord, generation, revision, override_snapshot, _water_completed_results, _water_result_mutex)
 	var task_id := WorkerThreadPool.add_task(task_callable, false, "TEKNIK water mesh %s r%d" % [coord, revision])
 	if task_id < 0:
