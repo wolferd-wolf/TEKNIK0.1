@@ -25,34 +25,85 @@ static func _generate_image(config: TextureBlockConfig, seed: int) -> Image:
 		return image
 	for y in range(SIZE):
 		for x in range(SIZE):
-			var value := _cellular_value(x,y,config.frequency,seed+config.seed_offset) if config.noise_mode == "cellular" else _value_noise(x,y,config.frequency,seed+config.seed_offset)
-			image.set_pixel(x,y,_palette_sample(config.palette,value))
+			var value := _cellular_value(x, y, config.frequency, seed + config.seed_offset) if config.noise_mode == "cellular" else _value_noise(x, y, config.frequency, seed + config.seed_offset)
+			image.set_pixel(x, y, _palette_sample(config.palette, value))
 	if config.overlay_mode == "speckle":
-		for y in range(SIZE):
-			for x in range(SIZE):
-				if _hash_2d(x,y,seed+config.overlay_seed_offset) < config.overlay_density:
-					var i := clampi(int(floor(_hash_2d(x+17,y-11,seed+271)*config.overlay_palette.size())),0,config.overlay_palette.size()-1)
-					image.set_pixel(x,y,config.overlay_palette[i])
+		_apply_speckles(image, config, seed)
+	elif config.overlay_mode == "vein":
+		_apply_veins(image, config, seed)
 	return image
+
+static func _apply_speckles(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.overlay_palette.is_empty():
+		return
+	for y in range(SIZE):
+		for x in range(SIZE):
+			if _hash_2d(x, y, seed + config.overlay_seed_offset) < config.overlay_density:
+				var i := clampi(int(floor(_hash_2d(x + 17, y - 11, seed + 271) * config.overlay_palette.size())), 0, config.overlay_palette.size() - 1)
+				image.set_pixel(x, y, config.overlay_palette[i])
+
+static func _apply_veins(image: Image, config: TextureBlockConfig, seed: int) -> void:
+	if config.overlay_palette.is_empty():
+		return
+	var mask := PackedByteArray()
+	mask.resize(SIZE * SIZE)
+	var cluster_count := maxi(config.overlay_cluster_count, 1)
+	for cluster in range(cluster_count):
+		var cluster_seed := seed + config.overlay_seed_offset + cluster * 104729
+		var px := int(floor(_hash_2d(cluster, 17, cluster_seed) * SIZE))
+		var py := int(floor(_hash_2d(cluster, 53, cluster_seed + 97) * SIZE))
+		var angle := _hash_2d(cluster, 89, cluster_seed + 193) * TAU
+		var length := maxi(config.overlay_vein_length, 2)
+		var width := maxi(config.overlay_vein_width, 1)
+		var branch_chance := clampf(config.overlay_density, 0.0, 1.0)
+		for step in range(length):
+			var jitter := (_hash_2d(step, cluster, cluster_seed + 313) - 0.5) * 0.9
+			var dx := cos(angle + jitter) * float(step)
+			var dy := sin(angle + jitter) * float(step)
+			_apply_vein_stamp(mask, int(round(px + dx)), int(round(py + dy)), width, cluster_seed + step * 17)
+			if step > 1 and _hash_2d(step, cluster, cluster_seed + 617) < branch_chance * 0.18:
+				var branch_angle := angle + (PI * 0.45 if _hash_2d(step, cluster, cluster_seed + 911) > 0.5 else -PI * 0.45)
+				for branch_step in range(2, 5):
+					var bdx := cos(branch_angle) * float(branch_step)
+					var bdy := sin(branch_angle) * float(branch_step)
+					_apply_vein_stamp(mask, int(round(px + dx + bdx)), int(round(py + dy + bdy)), width, cluster_seed + branch_step * 31)
+	for y in range(SIZE):
+		for x in range(SIZE):
+			if mask[y * SIZE + x] == 0:
+				continue
+			var i := clampi(int(floor(_hash_2d(x + 7, y - 13, seed + config.overlay_seed_offset + 4243) * config.overlay_palette.size())), 0, config.overlay_palette.size() - 1)
+			image.set_pixel(x, y, config.overlay_palette[i])
+
+static func _apply_vein_stamp(mask: PackedByteArray, cx: int, cy: int, width: int, seed: int) -> void:
+	for oy in range(-width, width + 1):
+		for ox in range(-width, width + 1):
+			var x := cx + ox
+			var y := cy + oy
+			if x < 0 or x >= SIZE or y < 0 or y >= SIZE:
+				continue
+			var distance := abs(ox) + abs(oy)
+			var keep_chance := 1.0 if distance == 0 else (0.78 if distance == 1 else 0.45)
+			if _hash_2d(x, y, seed) < keep_chance:
+				mask[y * SIZE + x] = 1
 
 static func _palette_sample(palette: Array[Color], value: float) -> Color:
 	if palette.is_empty(): return Color.WHITE
-	return palette[clampi(int(floor(value*palette.size())),0,palette.size()-1)]
+	return palette[clampi(int(floor(value * palette.size())), 0, palette.size() - 1)]
 
-static func _value_noise(x:int,y:int,f:float,seed:int)->float:
-	var fx=x*f; var fy=y*f; var x0=int(floor(fx)); var y0=int(floor(fy)); var tx=fx-x0; var ty=fy-y0
-	tx=tx*tx*(3.0-2.0*tx); ty=ty*ty*(3.0-2.0*ty)
-	return clampf(lerpf(lerpf(_hash_2d(x0,y0,seed),_hash_2d(x0+1,y0,seed),tx),lerpf(_hash_2d(x0,y0+1,seed),_hash_2d(x0+1,y0+1,seed),tx),ty),0.0,0.999999)
+static func _value_noise(x: int, y: int, f: float, seed: int) -> float:
+	var fx = x * f; var fy = y * f; var x0 = int(floor(fx)); var y0 = int(floor(fy)); var tx = fx - x0; var ty = fy - y0
+	tx = tx * tx * (3.0 - 2.0 * tx); ty = ty * ty * (3.0 - 2.0 * ty)
+	return clampf(lerpf(lerpf(_hash_2d(x0, y0, seed), _hash_2d(x0 + 1, y0, seed), tx), lerpf(_hash_2d(x0, y0 + 1, seed), _hash_2d(x0 + 1, y0 + 1, seed), tx), ty), 0.0, 0.999999)
 
-static func _cellular_value(x:int,y:int,f:float,seed:int)->float:
-	var fx=x*f; var fy=y*f; var cx=int(floor(fx)); var cy=int(floor(fy)); var nearest=999.0
-	for oy in range(-1,2):
-		for ox in range(-1,2):
-			var gx=cx+ox; var gy=cy+oy; var px=gx+_hash_2d(gx,gy,seed); var py=gy+_hash_2d(gx,gy,seed+7919); var dx=px-fx; var dy=py-fy
-			nearest=minf(nearest,dx*dx+dy*dy)
-	return 1.0-clampf(sqrt(nearest)/0.7071,0.0,1.0)
+static func _cellular_value(x: int, y: int, f: float, seed: int) -> float:
+	var fx = x * f; var fy = y * f; var cx = int(floor(fx)); var cy = int(floor(fy)); var nearest = 999.0
+	for oy in range(-1, 2):
+		for ox in range(-1, 2):
+			var gx = cx + ox; var gy = cy + oy; var px = gx + _hash_2d(gx, gy, seed); var py = gy + _hash_2d(gx, gy, seed + 7919); var dx = px - fx; var dy = py - fy
+			nearest = minf(nearest, dx * dx + dy * dy)
+	return 1.0 - clampf(sqrt(nearest) / 0.7071, 0.0, 1.0)
 
-static func _hash_2d(x:int,y:int,seed:int)->float:
-	var n:int=x*374761393+y*668265263+seed*1442695041
-	n=(n^(n>>13))*1274126177; n=n^(n>>16)
-	return float(n&0x7fffffff)/2147483647.0
+static func _hash_2d(x: int, y: int, seed: int) -> float:
+	var n: int = x * 374761393 + y * 668265263 + seed * 1442695041
+	n = (n ^ (n >> 13)) * 1274126177; n = n ^ (n >> 16)
+	return float(n & 0x7fffffff) / 2147483647.0

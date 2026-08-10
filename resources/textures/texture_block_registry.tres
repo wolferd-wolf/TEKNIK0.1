@@ -58,10 +58,13 @@ noise_mode = "cellular"
 palette = [Color(0.28,0.28,0.27,1),Color(0.36,0.36,0.35,1),Color(0.44,0.44,0.42,1),Color(0.51,0.50,0.47,1)]
 frequency = 0.19
 seed_offset = 709
-overlay_mode = "speckle"
+overlay_mode = "vein"
 overlay_palette = [Color(0.63,0.33,0.18,1),Color(0.76,0.42,0.22,1)]
-overlay_density = 0.055
+overlay_density = 0.65
 overlay_seed_offset = 809
+overlay_cluster_count = 3
+overlay_vein_length = 8
+overlay_vein_width = 1
 
 [resource]
 script = ExtResource("1")
