@@ -1,9 +1,7 @@
 extends RefCounted
-class_name TextureGenerator
 
 const SIZE = 32
-const REGISTRY = preload("res://resources/textures/texture_block_registry.tres")
-
+static var _registry = null
 static var _cache = {}
 
 static func generate(block_type: String, seed: int) -> ImageTexture:
@@ -13,7 +11,8 @@ static func generate_face(block_type: String, face: String, seed: int) -> ImageT
 	var key = "%s:%s:%d" % [block_type, face, seed]
 	if _cache.has(key):
 		return _cache[key]
-	var config = REGISTRY.get_config(block_type)
+	var registry = _get_registry()
+	var config = registry.get_config(block_type)
 	var image = _make_face(config, face, seed)
 	var texture = ImageTexture.create_from_image(image)
 	_cache[key] = texture
@@ -26,10 +25,15 @@ static func generate_set(block_type: String, seed: int) -> Dictionary:
 	result["bottom"] = generate_face(block_type, "bottom", seed)
 	return result
 
+static func _get_registry():
+	if _registry == null:
+		_registry = load("res://resources/textures/texture_block_registry.tres")
+	return _registry
+
 static func _make_face(config, face: String, seed: int) -> Image:
 	var image = Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
 	if config == null:
-		image.fill(Color.MAGENTA)
+		image.fill(Color(1, 0, 1, 1))
 		return image
 	var style = config.side_style
 	if face == "top":
@@ -302,7 +306,7 @@ static func _palette(source: Array, count: int) -> Array:
 		result.append(source[i])
 		i += 1
 	if result.is_empty():
-		result.append(Color.MAGENTA)
+		result.append(Color(1, 0, 1, 1))
 	return result
 
 static func _face_offset(face: String) -> int:
