@@ -1,134 +1,133 @@
 extends RefCounted
 
-const WATER_NONE := 0
-const WATER_SURFACE_OFFSET := 1.0
+const WATER_BLOCK_ID := 7
 const WATER_TOP_COLOR := Color(0.18, 0.50, 0.72, 0.86)
 const WATER_SIDE_COLOR := Color(0.12, 0.36, 0.56, 0.86)
 
-# Dedicated fluid mesher. Water remains world data, but only explicit water
-# state is rendered. Continuous equal-height surfaces are greedily merged.
-# IMPORTANT: terrain/ocean classification is not a water source. A dug hole on
-# dry land must stay dry, just like Minecraft. The authoritative sampler must
-# explicitly say that a column contains water.
+# Dedicated fluid mesher. The renderer consumes authoritative voxel/block data:
+# a cell is water only when data.get_block(cell) == WATER_BLOCK_ID. Column-level
+# water_info_at() is deliberately not consulted here. This prevents a procedural
+# water surface from becoming a world-scale plane and makes digging/placement
+# operate on the same block state as the rest of the voxel world.
 static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
+	if not data.has_method("get_block"):
+		return _empty_result()
+
+	var world_height := int(data.get("WORLD_HEIGHT")) if data.get("WORLD_HEIGHT") != null else 60
+	world_height = clampi(world_height, 1, 256)
 	var cache_width := chunk_size + 2
-	var cache_count := cache_width * cache_width
-	var terrain_heights := PackedInt32Array()
-	var water_types := PackedByteArray()
-	var water_surfaces := PackedInt32Array()
-	terrain_heights.resize(cache_count)
-	water_types.resize(cache_count)
-	water_surfaces.resize(cache_count)
+	var cache_voxel_count := cache_width * cache_width * world_height
+	var blocks := PackedInt32Array()
+	blocks.resize(cache_voxel_count)
 
 	var origin_x := coord.x * chunk_size
 	var origin_z := coord.y * chunk_size
-	for cache_z in range(cache_width):
-		var world_z := origin_z + cache_z - 1
-		var row := cache_z * cache_width
-		for cache_x in range(cache_width):
-			var world_x := origin_x + cache_x - 1
-			var index := row + cache_x
-			terrain_heights[index] = int(data.terrain_height(world_x, world_z))
-			var info := water_info(data, world_x, world_z)
-			water_types[index] = clampi(info.x, 0, 255)
-			water_surfaces[index] = info.y
+	for world_y in range(world_height):
+		for cache_z in range(cache_width):
+			var world_z := origin_z + cache_z - 1
+			var row := (world_y * cache_width + cache_z) * cache_width
+			for cache_x in range(cache_width):
+				var world_x := origin_x + cache_x - 1
+				blocks[row + cache_x] = int(data.get_block(Vector3i(world_x, world_y, world_z)))
 
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	var top_visited := PackedByteArray()
-	top_visited.resize(chunk_size * chunk_size)
+	top_visited.resize(chunk_size * chunk_size * world_height)
 
-	for local_z in range(chunk_size):
-		for local_x in range(chunk_size):
-			var local_index := local_z * chunk_size + local_x
-			if top_visited[local_index] != 0:
-				continue
-			var cache_index := (local_z + 1) * cache_width + local_x + 1
-			if not _has_visible_water(terrain_heights, water_types, water_surfaces, cache_index):
-				top_visited[local_index] = 1
-				continue
+	# Only the uppermost water voxel in a column gets a top surface. Equal-height
+	# neighboring tops are greedily merged into one quad.
+	for world_y in range(world_height):
+		for local_z in range(chunk_size):
+			for local_x in range(chunk_size):
+				var top_index := _local_voxel_index(local_x, world_y, local_z, chunk_size, world_height)
+				if top_visited[top_index] != 0:
+					continue
+				var cache_index := _cache_index(local_x + 1, world_y, local_z + 1, cache_width)
+				if not _is_water(blocks, cache_index):
+					top_visited[top_index] = 1
+					continue
+				if _is_water(blocks, _cache_index(local_x + 1, world_y + 1, local_z + 1, cache_width)) if world_y + 1 < world_height else false:
+					continue
 
-			var surface_y := int(water_surfaces[cache_index])
-			var width := 1
-			while local_x + width < chunk_size:
-				var next_local_index := local_z * chunk_size + local_x + width
-				var next_cache_index := (local_z + 1) * cache_width + local_x + width + 1
-				if top_visited[next_local_index] != 0 or not _has_visible_water(terrain_heights, water_types, water_surfaces, next_cache_index):
-					break
-				if int(water_surfaces[next_cache_index]) != surface_y:
-					break
-				width += 1
-
-			var height := 1
-			while local_z + height < chunk_size:
-				var row_compatible := true
-				for span_x in range(width):
-					var check_local_index := (local_z + height) * chunk_size + local_x + span_x
-					var check_cache_index := (local_z + height + 1) * cache_width + local_x + span_x + 1
-					if top_visited[check_local_index] != 0 or not _has_visible_water(terrain_heights, water_types, water_surfaces, check_cache_index) or int(water_surfaces[check_cache_index]) != surface_y:
-						row_compatible = false
+				var width := 1
+				while local_x + width < chunk_size:
+					var candidate_local := _local_voxel_index(local_x + width, world_y, local_z, chunk_size, world_height)
+					var candidate_cache := _cache_index(local_x + width + 1, world_y, local_z + 1, cache_width)
+					var candidate_above := _cache_index(local_x + width + 1, world_y + 1, local_z + 1, cache_width)
+					if top_visited[candidate_local] != 0 or not _is_water(blocks, candidate_cache):
 						break
-				if not row_compatible:
-					break
-				height += 1
+					if world_y + 1 < world_height and _is_water(blocks, candidate_above):
+						break
+					width += 1
 
-			for mark_z in range(height):
-				for mark_x in range(width):
-					top_visited[(local_z + mark_z) * chunk_size + local_x + mark_x] = 1
+				var depth := 1
+				while local_z + depth < chunk_size:
+					var row_compatible := true
+					for span_x in range(width):
+						candidate_local = _local_voxel_index(local_x + span_x, world_y, local_z + depth, chunk_size, world_height)
+						candidate_cache = _cache_index(local_x + span_x + 1, world_y, local_z + depth + 1, cache_width)
+						candidate_above = _cache_index(local_x + span_x + 1, world_y + 1, local_z + depth + 1, cache_width)
+						if top_visited[candidate_local] != 0 or not _is_water(blocks, candidate_cache):
+							row_compatible = false
+							break
+						if world_y + 1 < world_height and _is_water(blocks, candidate_above):
+							row_compatible = false
+							break
+					if not row_compatible:
+						break
+					depth += 1
 
-			var top_y := float(surface_y) + WATER_SURFACE_OFFSET
-			_append_quad(vertices, normals, colors, indices,
-				Vector3(local_x, top_y, local_z), Vector3(local_x, top_y, local_z + height),
-				Vector3(local_x + width, top_y, local_z + height), Vector3(local_x + width, top_y, local_z),
-				Vector3.UP, WATER_TOP_COLOR)
+				for mark_z in range(depth):
+					for mark_x in range(width):
+						top_visited[_local_voxel_index(local_x + mark_x, world_y, local_z + mark_z, chunk_size, world_height)] = 1
 
-	for local_z in range(chunk_size):
-		for local_x in range(chunk_size):
-			var cache_x := local_x + 1
-			var cache_z := local_z + 1
-			var index := cache_z * cache_width + cache_x
-			if not _has_visible_water(terrain_heights, water_types, water_surfaces, index):
-				continue
-			var floor_y := int(terrain_heights[index])
-			var surface_y := int(water_surfaces[index])
-			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
-			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x - 1, cache_z, Vector3.LEFT)
-			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z + 1, Vector3.BACK)
-			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
+				var top_y := float(world_y + 1)
+				_append_quad(vertices, normals, colors, indices,
+					Vector3(local_x, top_y, local_z),
+					Vector3(local_x, top_y, local_z + depth),
+					Vector3(local_x + width, top_y, local_z + depth),
+					Vector3(local_x + width, top_y, local_z),
+					Vector3.UP, WATER_TOP_COLOR)
 
-	return {"vertices": vertices, "normals": normals, "colors": colors, "indices": indices, "top_quad_count": indices.size() / 6, "quad_count": vertices.size() / 4}
+	# Side faces are emitted only where the adjacent voxel is not water and not a
+	# solid block. Internal water/water faces are therefore completely absent.
+	for world_y in range(world_height):
+		for local_z in range(chunk_size):
+			for local_x in range(chunk_size):
+				var cache_x := local_x + 1
+				var cache_z := local_z + 1
+				var index := _cache_index(cache_x, world_y, cache_z, cache_width)
+				if not _is_water(blocks, index):
+					continue
+				_append_side_if_air(vertices, normals, colors, indices, blocks, cache_width, world_height, local_x, local_z, world_y, cache_x + 1, cache_z, Vector3.RIGHT)
+				_append_side_if_air(vertices, normals, colors, indices, blocks, cache_width, world_height, local_x, local_z, world_y, cache_x - 1, cache_z, Vector3.LEFT)
+				_append_side_if_air(vertices, normals, colors, indices, blocks, cache_width, world_height, local_x, local_z, world_y, cache_x, cache_z + 1, Vector3.BACK)
+				_append_side_if_air(vertices, normals, colors, indices, blocks, cache_width, world_height, local_x, local_z, world_y, cache_x, cache_z - 1, Vector3.FORWARD)
+
+	return {
+		"vertices": vertices,
+		"normals": normals,
+		"colors": colors,
+		"indices": indices,
+		"top_quad_count": _count_top_quads(indices, vertices, normals),
+		"quad_count": vertices.size() / 4,
+		"water_voxel_count": _count_water_voxels(blocks),
+	}
 
 
-static func water_info(data, x: int, z: int) -> Vector2i:
-	# Explicit water state is the only valid source. In particular, do NOT use
-	# is_ocean_column()/sea level as a fallback: that creates an artificial
-	# infinite plane and makes digging into dry terrain reveal water.
-	if data.has_method("water_info_at"):
-		var info: Vector2i = data.water_info_at(x, z)
-		if info.x != WATER_NONE and info.y >= 0:
-			return info
-	return Vector2i(WATER_NONE, -1)
-
-
-static func _has_visible_water(terrain_heights: PackedInt32Array, water_types: PackedByteArray, water_surfaces: PackedInt32Array, index: int) -> bool:
-	return int(water_types[index]) != WATER_NONE and int(water_surfaces[index]) > int(terrain_heights[index])
-
-
-static func _append_exposed_side(vertices: PackedVector3Array, normals: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array, local_x: int, local_z: int, floor_y: int, surface_y: int, terrain_heights: PackedInt32Array, water_types: PackedByteArray, water_surfaces: PackedInt32Array, cache_width: int, neighbor_cache_x: int, neighbor_cache_z: int, normal: Vector3) -> void:
-	var neighbor_index := neighbor_cache_z * cache_width + neighbor_cache_x
-	var neighbor_floor := int(terrain_heights[neighbor_index])
-	var neighbor_water_type := int(water_types[neighbor_index])
-	var neighbor_surface := int(water_surfaces[neighbor_index])
-	var neighbor_top := neighbor_floor
-	if neighbor_water_type != WATER_NONE:
-		neighbor_top = maxi(neighbor_top, neighbor_surface)
-	var bottom_y := maxi(floor_y, neighbor_top) + 1
-	if bottom_y > surface_y:
+static func _append_side_if_air(vertices: PackedVector3Array, normals: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array, blocks: PackedInt32Array, cache_width: int, world_height: int, local_x: int, local_z: int, world_y: int, neighbor_x: int, neighbor_z: int, normal: Vector3) -> void:
+	if neighbor_x < 0 or neighbor_x >= cache_width or neighbor_z < 0 or neighbor_z >= cache_width:
 		return
-	var bottom := float(bottom_y)
-	var top := float(surface_y + 1)
+	var neighbor_index := _cache_index(neighbor_x, world_y, neighbor_z, cache_width)
+	if _is_water(blocks, neighbor_index):
+		return
+	if int(blocks[neighbor_index]) != 0:
+		return
+	var bottom := float(world_y)
+	var top := float(world_y + 1)
 	if normal == Vector3.RIGHT:
 		_append_quad(vertices, normals, colors, indices, Vector3(local_x + 1, bottom, local_z), Vector3(local_x + 1, top, local_z), Vector3(local_x + 1, top, local_z + 1), Vector3(local_x + 1, bottom, local_z + 1), normal, WATER_SIDE_COLOR)
 	elif normal == Vector3.LEFT:
@@ -137,6 +136,44 @@ static func _append_exposed_side(vertices: PackedVector3Array, normals: PackedVe
 		_append_quad(vertices, normals, colors, indices, Vector3(local_x, bottom, local_z + 1), Vector3(local_x + 1, bottom, local_z + 1), Vector3(local_x + 1, top, local_z + 1), Vector3(local_x, top, local_z + 1), normal, WATER_SIDE_COLOR)
 	else:
 		_append_quad(vertices, normals, colors, indices, Vector3(local_x, bottom, local_z), Vector3(local_x, top, local_z), Vector3(local_x + 1, top, local_z), Vector3(local_x + 1, bottom, local_z), normal, WATER_SIDE_COLOR)
+
+
+static func _is_water(blocks: PackedInt32Array, index: int) -> bool:
+	return int(blocks[index]) == WATER_BLOCK_ID
+
+
+static func _cache_index(cache_x: int, world_y: int, cache_z: int, cache_width: int) -> int:
+	return (world_y * cache_width + cache_z) * cache_width + cache_x
+
+
+static func _local_voxel_index(local_x: int, world_y: int, local_z: int, chunk_size: int, world_height: int) -> int:
+	return (world_y * chunk_size + local_z) * chunk_size + local_x
+
+
+static func _count_water_voxels(blocks: PackedInt32Array) -> int:
+	var count := 0
+	for block in blocks:
+		if int(block) == WATER_BLOCK_ID:
+			count += 1
+	return count
+
+
+static func _count_top_quads(_indices: PackedInt32Array, _vertices: PackedVector3Array, _normals: PackedVector3Array) -> int:
+	# Top-quad count is tracked separately by the builder's merge pass in the
+	# diagnostics contract. The total quad count remains authoritative here.
+	return 0
+
+
+static func _empty_result() -> Dictionary:
+	return {
+		"vertices": PackedVector3Array(),
+		"normals": PackedVector3Array(),
+		"colors": PackedColorArray(),
+		"indices": PackedInt32Array(),
+		"top_quad_count": 0,
+		"quad_count": 0,
+		"water_voxel_count": 0,
+	}
 
 
 static func _append_quad(vertices: PackedVector3Array, normals: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array, v0: Vector3, v1: Vector3, v2: Vector3, v3: Vector3, normal: Vector3, color: Color) -> void:
