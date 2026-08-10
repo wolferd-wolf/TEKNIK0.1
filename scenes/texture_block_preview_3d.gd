@@ -44,13 +44,13 @@ func _build_blocks() -> void:
 
 func _create_block(block_id: String, position: Vector3) -> void:
 	var root := Node3D.new(); root.position = position; add_child(root)
-	var set := TextureGenerator.generate_set(block_id, PREVIEW_SEED)
-	_add_face(root, set["top"], Vector3(0, 1.3, 0), Vector3(-90, 0, 0))
-	_add_face(root, set["bottom"], Vector3(0, -1.3, 0), Vector3(90, 0, 0))
-	_add_face(root, set["side"], Vector3(0, 0, 1.3), Vector3.ZERO)
-	_add_face(root, set["side"], Vector3(0, 0, -1.3), Vector3(0, 180, 0))
-	_add_face(root, set["side"], Vector3(1.3, 0, 0), Vector3(0, 90, 0))
-	_add_face(root, set["side"], Vector3(-1.3, 0, 0), Vector3(0, -90, 0))
+	var texture_set: Dictionary = TextureGenerator.generate_set(block_id, PREVIEW_SEED)
+	_add_face(root, texture_set["top"], Vector3(0, 1.3, 0), Vector3(-90, 0, 0))
+	_add_face(root, texture_set["bottom"], Vector3(0, -1.3, 0), Vector3(90, 0, 0))
+	_add_face(root, texture_set["side"], Vector3(0, 0, 1.3), Vector3.ZERO)
+	_add_face(root, texture_set["side"], Vector3(0, 0, -1.3), Vector3(0, 180, 0))
+	_add_face(root, texture_set["side"], Vector3(1.3, 0, 0), Vector3(0, 90, 0))
+	_add_face(root, texture_set["side"], Vector3(-1.3, 0, 0), Vector3(0, -90, 0))
 	var label := Label3D.new(); label.text = LABELS[block_id]; label.font_size = 32; label.modulate = Color(0.96, 0.96, 0.96); label.outline_size = 8; label.position = Vector3(0, 1.95, 0); label.billboard = BaseMaterial3D.BILLBOARD_ENABLED; root.add_child(label)
 
 func _add_face(root: Node3D, texture: Texture2D, position: Vector3, rotation: Vector3) -> void:

@@ -275,7 +275,7 @@ static func _blob(image: Image, cx: int, cy: int, rx: int, ry: int, color: Color
 	ry = max(ry, 1)
 	var row = -ry
 	while row <= ry:
-		var span = max(1, int(round(float(rx) * (1.0 - abs(float(row) / ry) * 0.55)))
+		var span = max(1, int(round(float(rx) * (1.0 - abs(float(row) / ry) * 0.55))))
 		var offset = int(_hash(row + 101, cy + 103, seed) * 3.0) - 1
 		var column = -span
 		while column <= span:
