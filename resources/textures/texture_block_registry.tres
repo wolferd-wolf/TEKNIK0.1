@@ -1,0 +1,87 @@
+[gd_resource type="Resource" script_class="TextureBlockRegistry" load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/textures/texture_block_registry.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/textures/texture_block_config.gd" id="2"]
+
+[sub_resource type="Resource" id="Air"]
+script = ExtResource("2")
+block_type = "air"
+top_style = "air"
+side_style = "air"
+bottom_style = "air"
+palette = [Color(0, 0, 0, 0)]
+
+[sub_resource type="Resource" id="Grass"]
+script = ExtResource("2")
+block_type = "grass"
+top_style = "grass_top"
+side_style = "grass_side"
+bottom_style = "soil"
+palette = [Color(0.20, 0.38, 0.10, 1), Color(0.27, 0.48, 0.13, 1), Color(0.34, 0.56, 0.16, 1), Color(0.41, 0.63, 0.19, 1)]
+secondary_palette = [Color(0.12, 0.32, 0.07, 1), Color(0.22, 0.45, 0.10, 1), Color(0.32, 0.56, 0.14, 1), Color(0.40, 0.63, 0.18, 1)]
+seed_offset = 101
+
+[sub_resource type="Resource" id="Dirt"]
+script = ExtResource("2")
+block_type = "dirt"
+top_style = "soil"
+side_style = "soil"
+bottom_style = "soil"
+palette = [Color(0.25, 0.14, 0.07, 1), Color(0.32, 0.19, 0.10, 1), Color(0.39, 0.24, 0.13, 1), Color(0.46, 0.29, 0.16, 1)]
+seed_offset = 211
+
+[sub_resource type="Resource" id="Stone"]
+script = ExtResource("2")
+block_type = "stone"
+noise_mode = "cellular"
+top_style = "rock"
+side_style = "rock"
+bottom_style = "rock"
+palette = [Color(0.28, 0.28, 0.27, 1), Color(0.36, 0.36, 0.35, 1), Color(0.44, 0.44, 0.42, 1), Color(0.51, 0.50, 0.47, 1)]
+seed_offset = 307
+
+[sub_resource type="Resource" id="Sand"]
+script = ExtResource("2")
+block_type = "sand"
+top_style = "sand"
+side_style = "sand"
+bottom_style = "sand"
+palette = [Color(0.72, 0.63, 0.42, 1), Color(0.80, 0.73, 0.53, 1), Color(0.86, 0.79, 0.62, 1), Color(0.93, 0.88, 0.73, 1)]
+seed_offset = 401
+
+[sub_resource type="Resource" id="Log"]
+script = ExtResource("2")
+block_type = "log"
+noise_mode = "directional"
+top_style = "wood_end"
+side_style = "bark"
+bottom_style = "wood_end"
+palette = [Color(0.24, 0.12, 0.05, 1), Color(0.34, 0.18, 0.07, 1), Color(0.44, 0.24, 0.10, 1), Color(0.52, 0.30, 0.13, 1)]
+seed_offset = 503
+
+[sub_resource type="Resource" id="Leaves"]
+script = ExtResource("2")
+block_type = "leaves"
+top_style = "foliage"
+side_style = "foliage"
+bottom_style = "foliage"
+palette = [Color(0.10, 0.28, 0.08, 1), Color(0.14, 0.38, 0.10, 1), Color(0.18, 0.47, 0.13, 1), Color(0.24, 0.55, 0.16, 1)]
+seed_offset = 607
+
+[sub_resource type="Resource" id="IronOre"]
+script = ExtResource("2")
+block_type = "iron_ore"
+noise_mode = "cellular"
+top_style = "ore"
+side_style = "ore"
+bottom_style = "ore"
+palette = [Color(0.28, 0.28, 0.27, 1), Color(0.36, 0.36, 0.35, 1), Color(0.44, 0.44, 0.42, 1), Color(0.51, 0.50, 0.47, 1)]
+accent_palette = [Color(0.48, 0.31, 0.20, 1), Color(0.67, 0.43, 0.28, 1), Color(0.82, 0.58, 0.40, 1)]
+seed_offset = 709
+vein_density = 0.35
+vein_count = 3
+vein_width = 1
+
+[resource]
+script = ExtResource("1")
+blocks = [SubResource("Air"), SubResource("Grass"), SubResource("Dirt"), SubResource("Stone"), SubResource("Sand"), SubResource("Log"), SubResource("Leaves"), SubResource("IronOre")]
