@@ -1,6 +1,5 @@
 extends RefCounted
 
-const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const WATER_NONE := 0
 const WATER_SURFACE_OFFSET := 1.0
 const WATER_TOP_COLOR := Color(0.18, 0.50, 0.72, 0.86)
@@ -8,6 +7,9 @@ const WATER_SIDE_COLOR := Color(0.12, 0.36, 0.56, 0.86)
 
 # Dedicated fluid mesher. Water remains world data, but only explicit water
 # state is rendered. Continuous equal-height surfaces are greedily merged.
+# IMPORTANT: terrain/ocean classification is not a water source. A dug hole on
+# dry land must stay dry, just like Minecraft. The authoritative sampler must
+# explicitly say that a column contains water.
 static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 	var cache_width := chunk_size + 2
 	var cache_count := cache_width * cache_width
@@ -83,28 +85,30 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 				Vector3.UP, WATER_TOP_COLOR)
 
 	for local_z in range(chunk_size):
-			for local_x in range(chunk_size):
-				var cache_x := local_x + 1
-				var cache_z := local_z + 1
-				var index := cache_z * cache_width + cache_x
-				if not _has_visible_water(terrain_heights, water_types, water_surfaces, index):
-					continue
-				var floor_y := int(terrain_heights[index])
-				var surface_y := int(water_surfaces[index])
-				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
-				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x - 1, cache_z, Vector3.LEFT)
-				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z + 1, Vector3.BACK)
-				_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
+		for local_x in range(chunk_size):
+			var cache_x := local_x + 1
+			var cache_z := local_z + 1
+			var index := cache_z * cache_width + cache_x
+			if not _has_visible_water(terrain_heights, water_types, water_surfaces, index):
+				continue
+			var floor_y := int(terrain_heights[index])
+			var surface_y := int(water_surfaces[index])
+			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x + 1, cache_z, Vector3.RIGHT)
+			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x - 1, cache_z, Vector3.LEFT)
+			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z + 1, Vector3.BACK)
+			_append_exposed_side(vertices, normals, colors, indices, local_x, local_z, floor_y, surface_y, terrain_heights, water_types, water_surfaces, cache_width, cache_x, cache_z - 1, Vector3.FORWARD)
 
 	return {"vertices": vertices, "normals": normals, "colors": colors, "indices": indices, "top_quad_count": indices.size() / 6, "quad_count": vertices.size() / 4}
 
 
 static func water_info(data, x: int, z: int) -> Vector2i:
-	# Water is authoritative world data. Never infer water from terrain height.
+	# Explicit water state is the only valid source. In particular, do NOT use
+	# is_ocean_column()/sea level as a fallback: that creates an artificial
+	# infinite plane and makes digging into dry terrain reveal water.
 	if data.has_method("water_info_at"):
-		return data.water_info_at(x, z)
-	if data.has_method("is_ocean_column") and bool(data.is_ocean_column(x, z)):
-		return Vector2i(1, WORLD_DATA.SEA_LEVEL)
+		var info: Vector2i = data.water_info_at(x, z)
+		if info.x != WATER_NONE and info.y >= 0:
+			return info
 	return Vector2i(WATER_NONE, -1)
 
 
