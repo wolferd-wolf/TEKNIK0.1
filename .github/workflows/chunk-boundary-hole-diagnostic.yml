@@ -1,0 +1,96 @@
+name: TEKNIK Chunk Boundary Hole Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/chunk_boundary_hole_diagnostic.gd'
+      - 'tests/legacy_edge_tree_probe.gd'
+      - 'scripts/world/**'
+      - 'native/carpathian/**'
+      - '.github/workflows/chunk-boundary-hole-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential scons git unzip wget libgl1 libx11-6 libxcursor1 libxinerama1 libxi6 libxrandr2 libasound2t64
+
+      - name: Build exact native Carpathian sampler
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          printf '%s\n' '{"enabled_classes":["RefCounted","OS"]}' > native/carpathian/build_profile.json
+          cat > native/carpathian/SConstruct <<'PY'
+          #!/usr/bin/env python
+          env = SConscript("godot-cpp/SConstruct")
+          env.Append(CPPPATH=["src/"])
+          sources = Glob("src/*.cpp")
+          library = env.SharedLibrary(
+              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+              source=sources,
+          )
+          env.NoCache(library)
+          Default(library)
+          PY
+          scons -C native/carpathian platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j2
+          LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
+          test -n "$LIB_PATH"
+          LIB_NAME="$(basename "$LIB_PATH")"
+          cat > native/carpathian/teknik_carpathian.gdextension <<EOF
+          [configuration]
+          entry_symbol = "teknik_carpathian_library_init"
+          compatibility_minimum = "4.3"
+
+          [libraries]
+          linux.debug.x86_64 = "res://native/carpathian/bin/$LIB_NAME"
+          EOF
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          /tmp/godot/godot --version
+
+      - name: Strict parse
+        run: |
+          set -o pipefail
+          timeout 180 /tmp/godot/godot --headless --path . --editor --quit 2>&1 | tee /tmp/parse.log
+          if grep -E 'SCRIPT ERROR: Parse Error|Failed to load script|GDExtension.*failed|Cannot open dynamic library' /tmp/parse.log; then
+            exit 1
+          fi
+
+      - name: Prove legacy edge tree source
+        run: |
+          set +e
+          set -o pipefail
+          timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/legacy_edge_tree_probe.gd 2>&1 | tee /tmp/legacy-edge.log
+          grep -Fq 'LEGACY_EDGE_PHANTOM_TREE_REPRODUCED' /tmp/legacy-edge.log
+
+      - name: Reproduce screenshot chunk-boundary holes
+        run: |
+          set +e
+          set -o pipefail
+          timeout 600 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/chunk_boundary_hole_diagnostic.gd 2>&1 | tee /tmp/boundary.log
+          STATUS=${PIPESTATUS[0]}
+          grep -Fq 'CHUNK_BOUNDARY_HOLE_REPRODUCED' /tmp/boundary.log
+          if [ "$STATUS" -eq 0 ]; then
+            echo 'Expected the pre-fix diagnostic to fail after reproducing the device boundary defect.'
+            exit 1
+          fi
+          exit 1
