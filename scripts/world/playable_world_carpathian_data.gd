@@ -1,20 +1,8 @@
 extends "res://scripts/world/playable_world_stage13_data.gd"
 
-# Shipping-only terrain adapter used when the native Luanti-Carpathian sampler
-# is present. Historical Stage 0-13 classes stay untouched and therefore remain
-# valid regression oracles. If the extension is absent, every method falls back
-# to the accepted Stage 13 implementation.
 const CARPATHIAN_CLASS := &"TeknikCarpathianSampler"
 const BLOCK_WATER := 7
-# Luanti Carpathian's nominal no-mountain surface is Y=6 with BASE_LEVEL=12.
-# TEKNIK's accepted inland base is Y=18, so a pure +12 translation preserves
-# Carpathian relief while placing its plains at TEKNIK's established altitude.
 const CARPATHIAN_HEIGHT_OFFSET := 12
-
-# Shipping-only tree jitter. Stage 8's fixed modulo origins made otherwise
-# natural-looking trees line up in rows. One deterministic random position is
-# chosen inside each ecology spacing cell instead, preserving controlled density
-# without changing tree silhouettes or biome ownership.
 const CARPATHIAN_TREE_JITTER_X_SALT := 0x4b1d53a7
 const CARPATHIAN_TREE_JITTER_Z_SALT := 0x7c29e411
 const CARPATHIAN_TREE_ACCEPT_SALT := 0x326f9bd5
@@ -43,27 +31,11 @@ func carpathian_height_from_raw(raw_height: int) -> int:
 	return clampi(raw_height + CARPATHIAN_HEIGHT_OFFSET, 3, STAGE2_SAFE_TERRAIN_TOP)
 
 
-func carpathian_generate_grid(
-	origin_x: int,
-	origin_z: int,
-	width: int,
-	depth: int,
-	step: int = 1
-) -> PackedInt32Array:
+func carpathian_generate_grid(origin_x: int, origin_z: int, width: int, depth: int, step: int = 1) -> PackedInt32Array:
 	var native: Object = _native_carpathian()
 	if native == null:
 		return PackedInt32Array()
-	return native.call(
-		"generate_grid_shifted",
-		origin_x,
-		origin_z,
-		width,
-		depth,
-		step,
-		CARPATHIAN_HEIGHT_OFFSET,
-		3,
-		STAGE2_SAFE_TERRAIN_TOP
-	)
+	return native.call("generate_grid_shifted", origin_x, origin_z, width, depth, step, CARPATHIAN_HEIGHT_OFFSET, 3, STAGE2_SAFE_TERRAIN_TOP)
 
 
 func carpathian_provisional_height_at(x: int, z: int) -> int:
@@ -77,11 +49,7 @@ func _carpathian_stage4_height(fields: Vector4, provisional_height: int) -> int:
 	var continentalness: float = clampf(fields.x, -1.0, 1.0)
 	if continentalness <= STAGE4_OCEAN_WATER_START:
 		var ocean_strength: float = stage4_ocean_strength(continentalness)
-		var ocean_floor: int = roundi(lerpf(
-			float(STAGE4_OCEAN_EDGE_FLOOR),
-			float(STAGE4_OCEAN_CORE_FLOOR),
-			ocean_strength
-		))
+		var ocean_floor: int = roundi(lerpf(float(STAGE4_OCEAN_EDGE_FLOOR), float(STAGE4_OCEAN_CORE_FLOOR), ocean_strength))
 		return mini(provisional_height, ocean_floor)
 	if continentalness < STAGE4_COAST_INLAND_END:
 		var inland_weight: float = stage4_coast_inland_weight(continentalness)
@@ -89,19 +57,10 @@ func _carpathian_stage4_height(fields: Vector4, provisional_height: int) -> int:
 	return provisional_height
 
 
-func _carpathian_stage5_height(
-	fields: Vector4,
-	stage4_height: int,
-	x: int,
-	z: int
-) -> int:
+func _carpathian_stage5_height(fields: Vector4, stage4_height: int, x: int, z: int) -> int:
 	if fields.x <= STAGE4_OCEAN_WATER_START:
 		return stage4_height
-	return stage5_shape_height_from_signal(
-		fields.x,
-		stage4_height,
-		stage5_river_signal(x, z)
-	)
+	return stage5_shape_height_from_signal(fields.x, stage4_height, stage5_river_signal(x, z))
 
 
 func stage6_stage5_height_at(x: int, z: int) -> int:
@@ -140,9 +99,7 @@ func water_info_at(x: int, z: int) -> Vector2i:
 
 	var river_value: float = stage5_river_signal(x, z)
 	var strengths: Vector2 = stage5_river_strengths_from_signal(fields.x, river_value)
-	var stage5_height: int = finalize_height(
-		stage5_shape_height_from_signal(fields.x, stage4_height, river_value)
-	)
+	var stage5_height: int = finalize_height(stage5_shape_height_from_signal(fields.x, stage4_height, river_value))
 	if strengths.x >= STAGE5_CHANNEL_WATER_CUTOFF:
 		return Vector2i(WATER_RIVER, stage5_height + 1)
 
@@ -170,18 +127,9 @@ func water_surface_height_at(x: int, z: int) -> int:
 func _carpathian_jittered_tree_origin(x: int, z: int, spacing: int, salt: int) -> bool:
 	var cell_x: int = floori(float(x) / float(spacing))
 	var cell_z: int = floori(float(z) / float(spacing))
-	var jitter_x: int = posmod(
-		_stage8_hash(cell_x, cell_z, CARPATHIAN_TREE_JITTER_X_SALT ^ salt),
-		spacing
-	)
-	var jitter_z: int = posmod(
-		_stage8_hash(cell_x, cell_z, CARPATHIAN_TREE_JITTER_Z_SALT ^ salt),
-		spacing
-	)
-	return (
-		x == cell_x * spacing + jitter_x
-		and z == cell_z * spacing + jitter_z
-	)
+	var jitter_x: int = posmod(_stage8_hash(cell_x, cell_z, CARPATHIAN_TREE_JITTER_X_SALT ^ salt), spacing)
+	var jitter_z: int = posmod(_stage8_hash(cell_x, cell_z, CARPATHIAN_TREE_JITTER_Z_SALT ^ salt), spacing)
+	return x == cell_x * spacing + jitter_x and z == cell_z * spacing + jitter_z
 
 
 func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -> bool:
@@ -222,37 +170,21 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 			pass
 		_:
 			return false
-
 	if not _carpathian_jittered_tree_origin(x, z, spacing, biome_salt):
 		return false
-	var accept_hash: int = absi(_stage8_hash(
-		x,
-		z,
-		CARPATHIAN_TREE_ACCEPT_SALT ^ biome_salt
-	))
+	var accept_hash: int = absi(_stage8_hash(x, z, CARPATHIAN_TREE_ACCEPT_SALT ^ biome_salt))
 	return posmod(accept_hash, accept_mod) < accept_limit
 
 
-func stage9_surface_exposes_stone(
-	x: int,
-	z: int,
-	height: int,
-	modifier: int,
-	slope: float
-) -> bool:
+func stage9_surface_exposes_stone(x: int, z: int, height: int, modifier: int, slope: float) -> bool:
 	if not carpathian_enabled():
 		return super.stage9_surface_exposes_stone(x, z, height, modifier, slope)
-	# The legacy modifier field is independent of Carpathian terrain. Do not let
-	# it scatter rock across physically gentle Carpathian plains. Real slopes and
-	# cliffs still use the existing geological expression rules.
 	if slope < 2.0:
 		return false
 	return super.stage9_surface_exposes_stone(x, z, height, modifier, slope)
 
 
 func get_block(cell: Vector3i) -> int:
-	if not carpathian_enabled():
-		return super.get_block(cell)
 	if cell.y < 0:
 		return BLOCK_STONE
 	if cell.y >= OVERHAUL_WORLD_HEIGHT:
@@ -261,31 +193,27 @@ func get_block(cell: Vector3i) -> int:
 	if overrides.has(key):
 		return int(overrides[key])
 
-	var fields: Vector4 = sample_world_fields(cell.x, cell.z)
+	# Water is an explicit voxel state. It is derived once from the world's
+	# generated fluid source, then participates in normal block override/edit
+	# semantics. The renderer consumes this get_block() result and never asks
+	# water_info_at() directly.
 	var height: int = terrain_height(cell.x, cell.z)
 	var water_info: Vector2i = water_info_at(cell.x, cell.z)
-	var water_surface: int = water_info.y
-	if water_info.x != WATER_NONE and cell.y > height and cell.y <= water_surface:
+	if water_info.x != WATER_NONE and cell.y > height and cell.y <= water_info.y:
 		return BLOCK_WATER
 
+	if not carpathian_enabled():
+		return super.get_block(cell)
+
+	var fields: Vector4 = sample_world_fields(cell.x, cell.z)
 	var climate: Vector2 = sample_biome_climate(cell.x, cell.z)
 	var biome: int = stage8_classify_climate(climate, water_info.x)
 	if cell.y <= height:
 		if cell.y < height - 2:
 			return stage8_surface_block(cell, height, biome)
-		var terrain_modifier: int = stage9_terrain_modifier_from_fields(
-			fields.x, fields.y, water_info.x
-		)
+		var terrain_modifier: int = stage9_terrain_modifier_from_fields(fields.x, fields.y, water_info.x)
 		var slope: float = stage7_surface_slope_at(cell.x, cell.z, height)
 		var transition_code: int = stage10_transition_code_for_climate(climate, water_info.x)
 		var hydrology_modifier: int = stage11_hydrology_modifier_at(cell.x, cell.z)
-		return stage11_surface_block(
-			cell,
-			height,
-			biome,
-			transition_code,
-			terrain_modifier,
-			slope,
-			hydrology_modifier
-		)
+		return stage11_surface_block(cell, height, biome, transition_code, terrain_modifier, slope, hydrology_modifier)
 	return generated_tree_block(cell)
