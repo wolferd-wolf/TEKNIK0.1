@@ -33,7 +33,7 @@ jobs:
           grep -F TEXTURE_GENERATOR_GATE_PASS texture-generator-gate.log
           grep -F DETERMINISM_PASS texture-generator-gate.log
           grep -F SEED_VARIATION_PASS texture-generator-gate.log
-          grep -F ORE_SPECKLES= texture-generator-gate.log
+          grep -F ORE_VEIN_PIXELS= texture-generator-gate.log
           echo "Godot test process status: $godot_status; explicit gate markers are authoritative."
       - uses: actions/upload-artifact@v4
         if: always()
