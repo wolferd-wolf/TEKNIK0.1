@@ -9,6 +9,11 @@ const STAGE10_TRANSITION_LEVELS := 31
 const STAGE10_TRANSITION_HASH_RANGE := STAGE10_TRANSITION_LEVELS * 2
 const STAGE10_TREE_BLEND_SALT := 0x61c88647
 const STAGE10_GROUND_BLEND_SALT := 0x35a1d7c3
+# Ground cues may still reach the accepted 50/50 ecotone at a climate boundary,
+# but tree eligibility must not inherit half of a denser partner biome. Capping
+# the tree channel at 8 of the 62 hash slots limits partner-tree bleed to ~12.9%
+# without changing Stage 8's accepted biome-specific baseline densities.
+const STAGE10_TREE_PARTNER_LEVEL_CAP := 8
 const STAGE10_PLAINS_FOREST_MOISTURE_BOUNDARY := 0.18
 const STAGE10_PLAINS_FOREST_TRANSITION_LOW := 0.13
 const STAGE10_PLAINS_FOREST_TRANSITION_HIGH := 0.23
@@ -179,10 +184,13 @@ func stage10_transition_code_at(x: int, z: int) -> int:
 
 func stage10_uses_partner(x: int, z: int, code: int, salt: int) -> bool:
 	var level: int = stage10_transition_level(code)
+	if salt == STAGE10_TREE_BLEND_SALT:
+		level = mini(level, STAGE10_TREE_PARTNER_LEVEL_CAP)
 	if level <= 0:
 		return false
-	# At the exact climate boundary, each side converges on a 50/50 expression
-	# mix while the underlying biome identity remains unchanged.
+	# Ground cues still converge on a 50/50 expression mix at the exact climate
+	# boundary. Tree eligibility uses the capped level above so a dense transition
+	# partner cannot overwhelm the winning biome's accepted Stage 8 baseline.
 	return posmod(_stage8_hash(x, z, salt), STAGE10_TRANSITION_HASH_RANGE) < level
 
 
