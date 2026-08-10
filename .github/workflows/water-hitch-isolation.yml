@@ -1,4 +1,4 @@
-name: TEKNIK Localized Water Hitch Isolation
+name: TEKNIK Water Streaming Fix
 
 on:
   workflow_dispatch:
@@ -6,12 +6,22 @@ on:
     branches: [main]
     paths:
       - .github/workflows/water-hitch-isolation.yml
+      - scripts/world/localized_water_bodies.gd
+      - scripts/world/localized_water_mesh_builder.gd
+      - scripts/world/playable_world_worker_carpathian_data.gd
+      - scripts/world/playable_world_carpathian_data.gd
+      - native/carpathian/**
+      - export_presets.cfg
+      - project.godot
+      - scenes/**
+      - scripts/**
+      - tests/**
 
 permissions:
   contents: read
 
 jobs:
-  export-water-isolation-pair:
+  water-fix:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
@@ -24,14 +34,6 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove this commit changes CI only
-        run: |
-          mkdir -p artifacts
-          git rev-parse HEAD | tee artifacts/source-commit.txt
-          git diff --name-only HEAD^ HEAD | tee artifacts/commit-files.txt
-          test "$(cat artifacts/commit-files.txt)" = ".github/workflows/water-hitch-isolation.yml"
-          git diff --exit-code HEAD^ HEAD -- scripts project.godot export_presets.cfg
-
       - name: Install host dependencies
         run: |
           sudo apt-get update
@@ -43,11 +45,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Generate shared debug keystore
+      - name: Generate debug keystore
         run: |
-          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-water-isolation.keystore"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="${RUNNER_TEMP}/teknik-water-fix.keystore"
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=${GODOT_ANDROID_KEYSTORE_DEBUG_PATH}" >> "$GITHUB_ENV"
-          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" > artifacts/debug-keystore.log 2>&1
+          bash scripts/android/setup_debug_keystore.sh "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
           test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
 
       - name: Install Android toolchain
@@ -64,7 +66,7 @@ jobs:
             "cmake;3.10.2.4988404" \
             "ndk;23.2.8568313"
 
-      - name: Build arm64 native extension once
+      - name: Build arm64 native extension
         run: |
           git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
           printf '%s\n' '{"enabled_classes":["RefCounted","OS"]}' > native/carpathian/build_profile.json
@@ -112,116 +114,40 @@ jobs:
           mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
           unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
           cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
-          /tmp/godot/godot --version | tee artifacts/godot-version.txt
+          /tmp/godot/godot --version
 
-      - name: Save pristine files
+      - name: Validate project and water scripts
         run: |
-          cp scripts/debug/diagnostic_log_capture.gd /tmp/diagnostic.base.gd
-          cp scripts/world/localized_water_bodies.gd /tmp/water.base.gd
-          cp export_presets.cfg /tmp/export.base.cfg
-          grep -Fq 'renderer/rendering_method="gl_compatibility"' project.godot
-          grep -Fq 'renderer/rendering_method.mobile="gl_compatibility"' project.godot
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --editor --quit 2>&1 | tee project-parse.log
+          ! grep -E "SCRIPT ERROR|Parse Error" project-parse.log
+          test -s scripts/world/localized_water_bodies.gd
+          test -s scripts/world/localized_water_mesh_builder.gd
 
-      - name: Export D - water enabled and timed
+      - name: Export one optimized Android APK
         run: |
-          cp /tmp/diagnostic.base.gd scripts/debug/diagnostic_log_capture.gd
-          cp /tmp/water.base.gd scripts/world/localized_water_bodies.gd
-          cp /tmp/export.base.cfg export_presets.cfg
-          python3 - <<'PY'
-          from pathlib import Path
+          /tmp/godot/godot \
+            --headless \
+            --path "$GITHUB_WORKSPACE" \
+            --install-android-build-template \
+            --export-debug "Android Debug" \
+            "$GITHUB_WORKSPACE/TEKNIK-water-optimized.apk" \
+            2>&1 | tee export.log
+          test -s TEKNIK-water-optimized.apk
 
-          # Disable only DiagnosticLogCapture snapshot writes; retain in-memory events/COPY LOG.
-          diag = Path('scripts/debug/diagnostic_log_capture.gd')
-          text = diag.read_text()
-          old_flush = '''func _flush_snapshot() -> void:\n\t_buffer_mutex.lock()\n\tif not _dirty:\n\t\t_buffer_mutex.unlock()\n\t\treturn\n\tvar snapshot := _buffer\n\t_dirty = false\n\t_buffer_mutex.unlock()\n\t_write_text(LATEST_LOG_PATH, snapshot)\n'''
-          old_write = '''func _write_text(path: String, text: String) -> void:\n\tvar file := FileAccess.open(path, FileAccess.WRITE)\n\tif file == null:\n\t\treturn\n\tfile.store_string(text)\n\tfile.flush()\n'''
-          if old_flush not in text or old_write not in text:
-              raise SystemExit('diagnostic patch anchors not found')
-          text = text.replace(old_flush, 'func _flush_snapshot() -> void:\n\treturn\n', 1)
-          text = text.replace(old_write, 'func _write_text(_path: String, _text: String) -> void:\n\treturn\n', 1)
-          text = text.replace('class_name DiagnosticLogCaptureService\n', 'class_name DiagnosticLogCaptureService\n\nconst HITCH_ISOLATION_MODE := "D_WATER_ENABLED_TIMED"\n', 1)
-          text = text.replace('func _ready() -> void:\n\tprocess_mode = Node.PROCESS_MODE_ALWAYS\n', 'func _ready() -> void:\n\tprocess_mode = Node.PROCESS_MODE_ALWAYS\n\t_append_raw("=== HITCH ISOLATION MODE: %s ===\\n" % HITCH_ISOLATION_MODE)\n', 1)
-          diag.write_text(text)
-
-          water = Path('scripts/world/localized_water_bodies.gd')
-          w = water.read_text()
-          anchor = 'func _set_center(next_center: Vector2i) -> void:\n\t_center = next_center\n'
-          replacement = 'func _set_center(next_center: Vector2i) -> void:\n\tvar _water_started_usec := Time.get_ticks_usec()\n\tvar _water_created := 0\n\t_center = next_center\n'
-          if anchor not in w:
-              raise SystemExit('water set-center anchor not found')
-          w = w.replace(anchor, replacement, 1)
-          create_anchor = '\t\t\tif not _chunks.has(coord):\n\t\t\t\t_create_chunk(coord)\n'
-          create_replacement = '\t\t\tif not _chunks.has(coord):\n\t\t\t\t_create_chunk(coord)\n\t\t\t\t_water_created += 1\n'
-          if create_anchor not in w:
-              raise SystemExit('water create anchor not found')
-          w = w.replace(create_anchor, create_replacement, 1)
-          end_anchor = '\t\t_chunks.erase(coord)\n\n\nfunc _create_chunk(coord: Vector2i) -> void:\n'
-          end_replacement = '''\t\t_chunks.erase(coord)\n\tvar _water_elapsed_usec := Time.get_ticks_usec() - _water_started_usec\n\tvar _capture := get_node_or_null("/root/DiagnosticLogCapture")\n\tif _capture != null and _capture.has_method("record_event"):\n\t\t_capture.record_event(\n\t\t\t"WATER_CENTER_BUILD",\n\t\t\t"center=%s created=%d water_ms=%.3f" % [_center, _water_created, _water_elapsed_usec / 1000.0]\n\t\t)\n\n\nfunc _create_chunk(coord: Vector2i) -> void:\n'''
-          if end_anchor not in w:
-              raise SystemExit('water end anchor not found')
-          w = w.replace(end_anchor, end_replacement, 1)
-          water.write_text(w)
-
-          preset = Path('export_presets.cfg')
-          p = preset.read_text().replace('package/unique_name="com.wolferdwolf.teknik"', 'package/unique_name="com.wolferdwolf.teknik.waterisolation"').replace('package/name="TEKNIK 0.1"', 'package/name="TEKNIK Water D"')
-          preset.write_text(p)
-          PY
-          grep -Fq 'D_WATER_ENABLED_TIMED' scripts/debug/diagnostic_log_capture.gd
-          grep -Fq 'WATER_CENTER_BUILD' scripts/world/localized_water_bodies.gd
-          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --install-android-build-template --export-debug "Android Debug" "$GITHUB_WORKSPACE/artifacts/TEKNIK-Water-D-Enabled-Timed.apk" 2>&1 | tee artifacts/export-d.log
-          test -s artifacts/TEKNIK-Water-D-Enabled-Timed.apk
-
-      - name: Export E - localized water completely disabled
+      - name: Verify APK
         run: |
-          cp /tmp/diagnostic.base.gd scripts/debug/diagnostic_log_capture.gd
-          cp /tmp/water.base.gd scripts/world/localized_water_bodies.gd
-          cp /tmp/export.base.cfg export_presets.cfg
-          python3 - <<'PY'
-          from pathlib import Path
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs TEKNIK-water-optimized.apk
+          unzip -Z1 TEKNIK-water-optimized.apk | grep -F 'libteknik_carpathian' >/dev/null
+          sha256sum TEKNIK-water-optimized.apk | tee apk-sha256.txt
 
-          diag = Path('scripts/debug/diagnostic_log_capture.gd')
-          text = diag.read_text()
-          old_flush = '''func _flush_snapshot() -> void:\n\t_buffer_mutex.lock()\n\tif not _dirty:\n\t\t_buffer_mutex.unlock()\n\t\treturn\n\tvar snapshot := _buffer\n\t_dirty = false\n\t_buffer_mutex.unlock()\n\t_write_text(LATEST_LOG_PATH, snapshot)\n'''
-          old_write = '''func _write_text(path: String, text: String) -> void:\n\tvar file := FileAccess.open(path, FileAccess.WRITE)\n\tif file == null:\n\t\treturn\n\tfile.store_string(text)\n\tfile.flush()\n'''
-          if old_flush not in text or old_write not in text:
-              raise SystemExit('diagnostic patch anchors not found')
-          text = text.replace(old_flush, 'func _flush_snapshot() -> void:\n\treturn\n', 1)
-          text = text.replace(old_write, 'func _write_text(_path: String, _text: String) -> void:\n\treturn\n', 1)
-          text = text.replace('class_name DiagnosticLogCaptureService\n', 'class_name DiagnosticLogCaptureService\n\nconst HITCH_ISOLATION_MODE := "E_LOCALIZED_WATER_DISABLED"\n', 1)
-          text = text.replace('func _ready() -> void:\n\tprocess_mode = Node.PROCESS_MODE_ALWAYS\n', 'func _ready() -> void:\n\tprocess_mode = Node.PROCESS_MODE_ALWAYS\n\t_append_raw("=== HITCH ISOLATION MODE: %s ===\\n" % HITCH_ISOLATION_MODE)\n', 1)
-          diag.write_text(text)
-
-          water = Path('scripts/world/localized_water_bodies.gd')
-          w = water.read_text()
-          old_ready = 'func _ready() -> void:\n\tcall_deferred("_activate_for_mobile_world")\n'
-          new_ready = 'func _ready() -> void:\n\t_active = false\n\tset_process(false)\n'
-          if old_ready not in w:
-              raise SystemExit('water disable anchor not found')
-          w = w.replace(old_ready, new_ready, 1)
-          water.write_text(w)
-
-          preset = Path('export_presets.cfg')
-          p = preset.read_text().replace('package/unique_name="com.wolferdwolf.teknik"', 'package/unique_name="com.wolferdwolf.teknik.waterisolation"').replace('package/name="TEKNIK 0.1"', 'package/name="TEKNIK Water E"')
-          preset.write_text(p)
-          PY
-          grep -Fq 'E_LOCALIZED_WATER_DISABLED' scripts/debug/diagnostic_log_capture.gd
-          grep -Fq 'set_process(false)' scripts/world/localized_water_bodies.gd
-          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --export-debug "Android Debug" "$GITHUB_WORKSPACE/artifacts/TEKNIK-Water-E-Disabled.apk" 2>&1 | tee artifacts/export-e.log
-          test -s artifacts/TEKNIK-Water-E-Disabled.apk
-
-      - name: Verify isolation APKs
-        run: |
-          for apk in artifacts/TEKNIK-Water-D-Enabled-Timed.apk artifacts/TEKNIK-Water-E-Disabled.apk; do
-            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk"
-            "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.wolferdwolf.teknik.waterisolation'"
-            unzip -Z1 "$apk" | grep -F 'libteknik_carpathian' >/dev/null
-            sha256sum "$apk"
-          done | tee artifacts/apk-verification.txt
-
-      - name: Upload water hitch isolation pair
+      - name: Upload single optimized APK
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-water-hitch-isolation
-          path: artifacts/
+          name: teknik-water-optimized-apk
+          path: |
+            TEKNIK-water-optimized.apk
+            project-parse.log
+            export.log
+            apk-sha256.txt
           if-no-files-found: error
           compression-level: 0
