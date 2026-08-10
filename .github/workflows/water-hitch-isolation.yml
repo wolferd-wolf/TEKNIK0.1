@@ -8,14 +8,10 @@ on:
       - .github/workflows/water-hitch-isolation.yml
       - scripts/world/localized_water_bodies.gd
       - scripts/world/localized_water_mesh_builder.gd
-      - scripts/world/playable_world_worker_carpathian_data.gd
       - scripts/world/playable_world_carpathian_data.gd
-      - native/carpathian/**
+      - tests/water_mesher_gate.gd
       - export_presets.cfg
       - project.godot
-      - scenes/**
-      - scripts/**
-      - tests/**
 
 permissions:
   contents: read
@@ -58,13 +54,7 @@ jobs:
       - name: Install pinned Android SDK requirements
         run: |
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager \
-            "platform-tools" \
-            "build-tools;34.0.0" \
-            "platforms;android-34" \
-            "cmdline-tools;latest" \
-            "cmake;3.10.2.4988404" \
-            "ndk;23.2.8568313"
+          sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;23.2.8568313"
 
       - name: Build arm64 native extension
         run: |
@@ -75,22 +65,11 @@ jobs:
           env = SConscript("godot-cpp/SConstruct")
           env.Append(CPPPATH=["src/"])
           sources = Glob("src/*.cpp")
-          library = env.SharedLibrary(
-              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
-              source=sources,
-          )
+          library = env.SharedLibrary("bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=sources)
           env.NoCache(library)
           Default(library)
           PY
-          scons -C native/carpathian \
-            platform=android \
-            target=template_debug \
-            arch=arm64 \
-            android_api_level=24 \
-            ndk_version=23.2.8568313 \
-            build_profile=build_profile.json \
-            ANDROID_HOME="$ANDROID_HOME" \
-            -j2
+          scons -C native/carpathian platform=android target=template_debug arch=arm64 android_api_level=24 ndk_version=23.2.8568313 build_profile=build_profile.json ANDROID_HOME="$ANDROID_HOME" -j2
           LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
           test -n "$LIB_PATH"
           LIB_NAME="$(basename "$LIB_PATH")"
@@ -130,13 +109,7 @@ jobs:
 
       - name: Export one optimized Android APK
         run: |
-          /tmp/godot/godot \
-            --headless \
-            --path "$GITHUB_WORKSPACE" \
-            --install-android-build-template \
-            --export-debug "Android Debug" \
-            "$GITHUB_WORKSPACE/TEKNIK-water-optimized.apk" \
-            2>&1 | tee export.log
+          /tmp/godot/godot --headless --path "$GITHUB_WORKSPACE" --install-android-build-template --export-debug "Android Debug" "$GITHUB_WORKSPACE/TEKNIK-water-optimized.apk" 2>&1 | tee export.log
           test -s TEKNIK-water-optimized.apk
 
       - name: Verify APK
