@@ -54,10 +54,13 @@ static func build(data, coord: Vector2i, chunk_size: int) -> Dictionary:
 					continue
 
 				var width := 1
+				var candidate_local := -1
+				var candidate_cache := -1
+				var candidate_above := -1
 				while local_x + width < chunk_size:
-					var candidate_local := _local_voxel_index(local_x + width, world_y, local_z, chunk_size)
-					var candidate_cache := _cache_index(local_x + width + 1, world_y, local_z + 1, cache_width)
-					var candidate_above := _cache_index(local_x + width + 1, world_y + 1, local_z + 1, cache_width)
+					candidate_local = _local_voxel_index(local_x + width, world_y, local_z, chunk_size)
+					candidate_cache = _cache_index(local_x + width + 1, world_y, local_z + 1, cache_width)
+					candidate_above = _cache_index(local_x + width + 1, world_y + 1, local_z + 1, cache_width)
 					if top_visited[candidate_local] != 0 or not _is_water(blocks, candidate_cache):
 						break
 					if world_y + 1 < world_height and _is_water(blocks, candidate_above):
