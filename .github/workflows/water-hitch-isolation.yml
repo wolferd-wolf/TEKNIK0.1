@@ -123,6 +123,11 @@ jobs:
           test -s scripts/world/localized_water_bodies.gd
           test -s scripts/world/localized_water_mesh_builder.gd
 
+      - name: Run dedicated water mesher gate
+        run: |
+          /tmp/godot/godot --headless --audio-driver Dummy --path "$GITHUB_WORKSPACE" --script res://tests/water_mesher_gate.gd 2>&1 | tee water-mesher-gate.log
+          grep -Fq "WATER_MESHER_GATE_PASS" water-mesher-gate.log
+
       - name: Export one optimized Android APK
         run: |
           /tmp/godot/godot \
@@ -147,6 +152,7 @@ jobs:
           path: |
             TEKNIK-water-optimized.apk
             project-parse.log
+            water-mesher-gate.log
             export.log
             apk-sha256.txt
           if-no-files-found: error
