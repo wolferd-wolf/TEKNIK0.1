@@ -174,7 +174,8 @@ func mine_block(cell: Vector3i) -> bool:
 
 
 func place_block(cell: Vector3i, block_id: int) -> bool:
-	if block_id < WORLD_DATA.BLOCK_GRASS or block_id > WORLD_DATA.BLOCK_SAND:
+	# Allow placing mechanical blocks (7-9) in addition to natural blocks (1-4)
+	if block_id < WORLD_DATA.BLOCK_GRASS or (block_id > WORLD_DATA.BLOCK_SAND and block_id < WORLD_DATA.BLOCK_WATER_WHEEL) or block_id > WORLD_DATA.BLOCK_MECHANICAL_DRILL:
 		return false
 	if data.get_block(cell) != WORLD_DATA.BLOCK_AIR:
 		return false
