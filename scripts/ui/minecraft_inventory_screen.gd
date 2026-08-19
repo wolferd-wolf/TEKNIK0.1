@@ -8,12 +8,49 @@ const HOTBAR_SLOT_COUNT := 9
 const STORAGE_SLOT_COUNT := 27
 const STORAGE_START_INDEX := HOTBAR_SLOT_COUNT
 const LONG_PRESS_SECONDS := 0.45
+
+# Crafting grid constants
+const CRAFT_INPUT_SIZE := 4  # 2x2 = 4 slots
+const CRAFT_OUTPUT_SIZE := 1
+const CRAFT_TOTAL_SLOTS := CRAFT_INPUT_SIZE + CRAFT_OUTPUT_SIZE  # 5 total
+const CRAFT_INPUT_START := 0
+const CRAFT_OUTPUT_START := CRAFT_INPUT_SIZE
+
+# Recipe format: {inputs: Array[{"block_id": int, "count": int}], output: {"block_id": int, "count": int}}
+const RECIPES: Array[Dictionary] = [
+	# 4 DIRT -> 1 STONE (existing test recipe)
+	{
+		"inputs": [{"block_id": 2, "count": 4}],
+		"output": {"block_id": 3, "count": 1}
+	},
+	# 3 STONE + 1 DIRT -> 1 WATER_WHEEL (block 7)
+	{
+		"inputs": [{"block_id": 3, "count": 3}, {"block_id": 2, "count": 1}],
+		"output": {"block_id": 7, "count": 1}
+	},
+	# 2 STONE + 2 DIRT -> 1 SHAFT (block 8)
+	{
+		"inputs": [{"block_id": 3, "count": 2}, {"block_id": 2, "count": 2}],
+		"output": {"block_id": 8, "count": 1}
+	},
+	# 2 WATER_WHEEL + 1 STONE + 1 DIRT -> 1 MECHANICAL_DRILL (block 9)
+	{
+		"inputs": [{"block_id": 7, "count": 2}, {"block_id": 3, "count": 1}, {"block_id": 2, "count": 1}],
+		"output": {"block_id": 9, "count": 1}
+	},
+]
+
 const BLOCK_NAMES := {
 	0: "EMPTY",
 	1: "GRASS",
 	2: "DIRT",
 	3: "STONE",
 	4: "SAND",
+	5: "LOG",
+	6: "LEAVES",
+	7: "WATER WHEEL",
+	8: "SHAFT",
+	9: "MECHANICAL DRILL",
 }
 
 var _inventory: BlockInventory
@@ -33,6 +70,13 @@ var _active_touch_index := -1
 var _active_touch_slot := -1
 var _long_press_consumed := false
 var _is_open := false
+
+# Crafting state
+var _craft_input_labels: Array[Label] = []
+var _craft_output_label: Label
+var _craft_input_buttons: Dictionary = {}
+var _craft_output_button: Button
+var _craft_preview_stack: Dictionary = {"block_id": 0, "count": 0}
 
 
 func _ready() -> void:
@@ -190,6 +234,220 @@ func interact_slot_secondary(slot_index: int) -> void:
 	_refresh()
 
 
+# ===== CRAFTING SLOT INTERACTIONS =====
+
+func _craft_interact_input(craft_index: int) -> void:
+	if not _is_open or _inventory == null:
+		return
+	# Craft input slots are NOT connected to main inventory directly
+	# They're a separate crafting grid that uses items from cursor/inventory
+	if _is_stack_empty(_cursor_stack):
+		# Take from craft input slot
+		_cursor_stack = _take_from_craft_input(craft_index)
+	else:
+		# Put into craft input slot
+		_cursor_stack = _put_into_craft_input(craft_index, _cursor_stack)
+	_update_craft_output()
+	_refresh_craft_slots()
+
+
+func _craft_interact_output() -> void:
+	if not _is_open or _inventory == null:
+		return
+	if _is_stack_empty(_cursor_stack):
+		# Take crafted item
+		_cursor_stack = _take_crafted_output()
+	else:
+		# Try to put cursor stack into output (shouldn't happen normally)
+		# But allow clearing output by putting something there
+		_cursor_stack = _put_into_craft_input(0, _cursor_stack)  # fallback to first input
+	_update_craft_output()
+	_refresh_craft_slots()
+
+
+func _craft_slot_gui_input(event: InputEvent, craft_index: int) -> void:
+	if not _is_open:
+		return
+	if (
+		event is InputEventMouseButton
+		and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT
+		and (event as InputEventMouseButton).pressed
+	):
+		# Right-click on craft input: split stack
+		_craft_split_input(craft_index)
+		get_viewport().set_input_as_handled()
+
+
+func _take_from_craft_input(craft_index: int) -> Dictionary:
+	if _inventory == null:
+		return {"block_id": 0, "count": 0}
+	# Craft inputs are temporary - we store them in a separate array
+	# For now, we'll use a dictionary on the inventory to track craft inputs
+	if not _inventory.has_meta("__craft_inputs"):
+		_inventory.set_meta("__craft_inputs", [{"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}])
+	var craft_inputs: Array[Dictionary] = _inventory.get_meta("__craft_inputs") as Array[Dictionary]
+	if craft_index >= 0 and craft_index < craft_inputs.size():
+		var taken: Dictionary = craft_inputs[craft_index].duplicate(true)
+		craft_inputs[craft_index] = {"block_id": 0, "count": 0}
+		_inventory.set_meta("__craft_inputs", craft_inputs)
+		return taken
+	return {"block_id": 0, "count": 0}
+
+
+func _put_into_craft_input(craft_index: int, stack: Dictionary) -> Dictionary:
+	if _inventory == null:
+		return stack
+	if not _inventory.has_meta("__craft_inputs"):
+		_inventory.set_meta("__craft_inputs", [{"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}])
+	var craft_inputs: Array[Dictionary] = _inventory.get_meta("__craft_inputs") as Array[Dictionary]
+	if craft_index >= 0 and craft_index < craft_inputs.size():
+		var target: Dictionary = craft_inputs[craft_index]
+		var block_id: int = int(stack.get("block_id", 0))
+		var count: int = int(stack.get("count", 0))
+		if block_id <= 0 or count <= 0:
+			return stack
+		var target_id: int = int(target.get("block_id", 0))
+		var target_count: int = int(target.get("count", 0))
+		if target_id <= 0:
+			# Empty slot
+			craft_inputs[craft_index] = {"block_id": block_id, "count": min(count, 64)}
+			return {"block_id": 0, "count": max(0, count - 64)}
+		elif target_id == block_id:
+			# Same item, merge
+			var space: int = 64 - target_count
+			if space > 0:
+				var added: int = min(space, count)
+				craft_inputs[craft_index]["count"] = target_count + added
+				return {"block_id": block_id, "count": count - added}
+		# Different item, swap
+		craft_inputs[craft_index] = {"block_id": block_id, "count": min(count, 64)}
+		return {"block_id": target_id, "count": target_count}
+	return stack
+
+
+func _craft_split_input(craft_index: int) -> void:
+	if _inventory == null:
+		return
+	if not _inventory.has_meta("__craft_inputs"):
+		return
+	var craft_inputs: Array[Dictionary] = _inventory.get_meta("__craft_inputs") as Array[Dictionary]
+	if craft_index >= 0 and craft_index < craft_inputs.size():
+		var stack: Dictionary = craft_inputs[craft_index]
+		var count: int = int(stack.get("count", 0))
+		if count <= 1:
+			return
+		var half: int = count / 2
+		stack["count"] = count - half
+		_cursor_stack = {"block_id": int(stack.get("block_id", 0)), "count": half}
+		_inventory.set_meta("__craft_inputs", craft_inputs)
+		_update_craft_output()
+		_refresh_craft_slots()
+
+
+func _get_craft_inputs() -> Array:
+	if _inventory == null:
+		return [{"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}]
+	if not _inventory.has_meta("__craft_inputs"):
+		_inventory.set_meta("__craft_inputs", [{"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}, {"block_id": 0, "count": 0}])
+	return _inventory.get_meta("__craft_inputs")
+
+
+func _update_craft_output() -> void:
+	if _inventory == null:
+		_craft_preview_stack = {"block_id": 0, "count": 0}
+		return
+	var inputs: Array[Dictionary] = _get_craft_inputs()
+	var matched_recipe
+	for recipe in RECIPES:
+		if _recipe_matches(inputs, recipe):
+			matched_recipe = recipe
+			break
+	if matched_recipe:
+		_craft_preview_stack = matched_recipe.output.duplicate(true)
+	else:
+		_craft_preview_stack = {"block_id": 0, "count": 0}
+
+
+func _recipe_matches(inputs: Array[Dictionary], recipe: Dictionary) -> bool:
+	var recipe_inputs: Array[Dictionary] = recipe.inputs
+	# For shapeless recipes: just check if we have all required items in any slots
+	var available: Dictionary = {}
+	for input_stack in inputs:
+		var block_id: int = int(input_stack.get("block_id", 0))
+		var count: int = int(input_stack.get("count", 0))
+		if block_id > 0 and count > 0:
+			if not available.has(block_id):
+				available[block_id] = 0
+			available[block_id] += count
+	for req in recipe_inputs:
+		var req_id: int = int(req.get("block_id", 0))
+		var req_count: int = int(req.get("count", 0))
+		if not available.has(req_id) or available[req_id] < req_count:
+			return false
+	return true
+
+
+func _take_crafted_output() -> Dictionary:
+	if _inventory == null:
+		return {"block_id": 0, "count": 0}
+	var inputs: Array[Dictionary] = _get_craft_inputs()
+	var matched_recipe
+	for recipe in RECIPES:
+		if _recipe_matches(inputs, recipe):
+			matched_recipe = recipe
+			break
+	if not matched_recipe:
+		return {"block_id": 0, "count": 0}
+	# Consume inputs
+	var remaining_inputs: Array[Dictionary] = []
+	for input_stack in inputs:
+		remaining_inputs.append(input_stack.duplicate(true))
+	for req in matched_recipe.inputs:
+		var req_id: int = int(req.get("block_id", 0))
+		var req_count: int = int(req.get("count", 0))
+		for i in range(remaining_inputs.size()):
+			var avail_id: int = int(remaining_inputs[i].get("block_id", 0))
+			var avail_count: int = int(remaining_inputs[i].get("count", 0))
+			if avail_id == req_id:
+				var take: int = min(avail_count, req_count)
+				remaining_inputs[i]["count"] = avail_count - take
+				req_count -= take
+				if req_count <= 0:
+					break
+	# Update craft inputs with remaining
+	if _inventory.has_meta("__craft_inputs"):
+		_inventory.set_meta("__craft_inputs", remaining_inputs)
+	# Return output
+	var output: Dictionary = matched_recipe.output.duplicate(true)
+	_update_craft_output()
+	_refresh_craft_slots()
+	return output
+
+
+func _refresh_craft_slots() -> void:
+	if _inventory == null:
+		return
+	var inputs: Array = _get_craft_inputs()
+	for i in range(CRAFT_INPUT_SIZE):
+		if i < _craft_input_labels.size():
+			var stack: Dictionary = inputs[i]
+			var block_id: int = int(stack.get("block_id", 0))
+			var count: int = int(stack.get("count", 0))
+			if block_id > 0 and count > 0:
+				var block_name: String = String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
+				_craft_input_labels[i].text = "%s x%d" % [block_name, count]
+			else:
+				_craft_input_labels[i].text = "EMPTY x0"
+	# Update output preview
+	if _craft_preview_stack.get("block_id", 0) > 0 and _craft_preview_stack.get("count", 0) > 0:
+		var block_id: int = int(_craft_preview_stack.get("block_id", 0))
+		var count: int = int(_craft_preview_stack.get("count", 0))
+		var block_name: String = String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
+		_craft_output_label.text = "%s x%d" % [block_name, count]
+	else:
+		_craft_output_label.text = "EMPTY x0"
+
+
 func _set_open(value: bool) -> void:
 	_is_open = value
 	if is_instance_valid(_overlay):
@@ -211,6 +469,7 @@ func _refresh() -> void:
 				_storage_labels[storage_index].text = _slot_text(STORAGE_START_INDEX + storage_index, false)
 	if is_instance_valid(_cursor_label):
 		_cursor_label.text = _cursor_text()
+	_refresh_craft_slots()
 
 
 func _slot_text(slot_index: int, include_number: bool) -> String:
@@ -361,6 +620,40 @@ func _build_screen() -> void:
 	_cursor_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.18, 1.0))
 	column.add_child(_cursor_label)
 
+	# Crafting section (2x2 input + 1 output)
+	var craft_title := Label.new()
+	craft_title.text = "CRAFTING — 2×2"
+	craft_title.add_theme_font_size_override("font_size", 15)
+	column.add_child(craft_title)
+
+	var craft_grid := GridContainer.new()
+	craft_grid.name = "CraftGrid"
+	craft_grid.columns = 2
+	craft_grid.add_theme_constant_override("h_separation", 6)
+	craft_grid.add_theme_constant_override("v_separation", 6)
+	column.add_child(craft_grid)
+
+	# 4 input slots (2x2)
+	for i in range(CRAFT_INPUT_SIZE):
+		var slot_nodes := _create_craft_input_slot(craft_grid, "CraftInputSlot%d" % (i + 1), i)
+		_craft_input_labels.append(slot_nodes["label"] as Label)
+		_craft_input_buttons[i] = slot_nodes["button"]
+
+	# Arrow separator (visual only)
+	var arrow_label := Label.new()
+	arrow_label.name = "ArrowLabel"
+	arrow_label.text = "→"
+	arrow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	arrow_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	arrow_label.add_theme_font_size_override("font_size", 28)
+	arrow_label.custom_minimum_size = Vector2(60.0, 62.0)
+	craft_grid.add_child(arrow_label)
+
+	# Output slot
+	var output_slot := _create_craft_output_slot(craft_grid, "CraftOutputSlot")
+	_craft_output_label = output_slot["label"] as Label
+	_craft_output_button = output_slot["button"]
+
 	var storage_title := Label.new()
 	storage_title.text = "STORAGE — 27 SLOTS"
 	storage_title.add_theme_font_size_override("font_size", 15)
@@ -433,5 +726,76 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.pressed.connect(interact_slot_primary.bind(slot_index))
 	button.gui_input.connect(_slot_gui_input.bind(slot_index))
+	panel.add_child(button)
+	return {"label": label, "button": button}
+
+
+func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: int) -> Dictionary:
+	var panel := PanelContainer.new()
+	panel.name = slot_name
+	panel.custom_minimum_size = Vector2(98.0, 62.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	parent.add_child(panel)
+
+	var label := Label.new()
+	label.name = "Content"
+	label.text = "EMPTY x0"
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color.WHITE)
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(label)
+
+	var button := Button.new()
+	button.name = "Interact"
+	button.anchor_right = 1.0
+	button.anchor_bottom = 1.0
+	button.flat = true
+	button.text = ""
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.pressed.connect(_craft_interact_input.bind(craft_index))
+	button.gui_input.connect(_craft_slot_gui_input.bind(craft_index))
+	panel.add_child(button)
+	return {"label": label, "button": button}
+
+
+func _create_craft_output_slot(parent: Control, slot_name: String) -> Dictionary:
+	var panel := PanelContainer.new()
+	panel.name = slot_name
+	panel.custom_minimum_size = Vector2(98.0, 62.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	# Output slot has a different background color to indicate it's output
+	var style := panel.get_theme_stylebox("panel")
+	if style != null:
+		panel.add_theme_stylebox_override("panel", style.duplicate(true))
+	parent.add_child(panel)
+
+	var label := Label.new()
+	label.name = "Content"
+	label.text = "EMPTY x0"
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.3))
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(label)
+
+	var button := Button.new()
+	button.name = "Interact"
+	button.anchor_right = 1.0
+	button.anchor_bottom = 1.0
+	button.flat = true
+	button.text = ""
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.pressed.connect(_craft_interact_output)
 	panel.add_child(button)
 	return {"label": label, "button": button}
