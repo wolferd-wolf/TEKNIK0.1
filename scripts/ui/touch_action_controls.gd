@@ -134,7 +134,6 @@ func _create_action_button(button_name: String, label_text: String) -> Button:
 	button.focus_mode = Control.FOCUS_NONE
 	button.custom_minimum_size = action_button_size
 	button.add_theme_font_size_override("font_size", 18)
-	button.add_theme_color_override("font_color", Color.WHITE)
 	button.add_theme_color_override("font_pressed_color", Color(1.0, 0.84, 0.18, 1.0))
 	return button
 

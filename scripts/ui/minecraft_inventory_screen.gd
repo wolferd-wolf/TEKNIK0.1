@@ -62,6 +62,7 @@ var _inventory_panel: PanelContainer
 var _crafting_panel: PanelContainer
 var _toggle_button: Button
 var _close_button: Button
+var _craft_close_button: Button
 var _craft_back_button: Button
 var _cursor_label: Label
 var _long_press_timer: Timer
@@ -93,17 +94,9 @@ const SLOT_FONT_SIZE := 13
 const CURSOR_FONT_SIZE := 15
 const BTN_FONT_SIZE := 14
 
-const COLOR_BG := Color(0.08, 0.09, 0.11, 0.96)
-const COLOR_PANEL := Color(0.12, 0.13, 0.16, 0.98)
-const COLOR_SLOT_BG := Color(0.16, 0.17, 0.21, 1.0)
-const COLOR_SLOT_BORDER := Color(0.3, 0.32, 0.38, 1.0)
-const COLOR_SLOT_HOVER := Color(0.22, 0.24, 0.3, 1.0)
+# Accent color for craftable highlight (from shadcn amber)
 const COLOR_ACCENT := Color(0.95, 0.75, 0.15, 1.0)
-const COLOR_ACCENT_DIM := Color(0.7, 0.55, 0.1, 1.0)
-const COLOR_TEXT := Color(0.92, 0.93, 0.95, 1.0)
-const COLOR_TEXT_DIM := Color(0.6, 0.62, 0.68, 1.0)
 const COLOR_CRAFTABLE := Color(0.35, 0.85, 0.35, 1.0)
-const COLOR_DIM := Color(0.7, 0.7, 0.7, 1.0)
 const COLOR_CARRIED := Color(1.0, 0.84, 0.18, 1.0)
 
 
@@ -144,6 +137,10 @@ func _input(event: InputEvent) -> void:
 			if not _is_open:
 				return
 			if _control_contains(_close_button, touch.position):
+				get_viewport().set_input_as_handled()
+				close_inventory()
+				return
+			if _control_contains(_craft_close_button, touch.position):
 				get_viewport().set_input_as_handled()
 				close_inventory()
 				return
@@ -557,23 +554,8 @@ func _create_recipe_button(parent: Control, recipe: Dictionary) -> Button:
 			recipe_text += " + %s x%d" % [req_name, req_count]
 	btn.text = recipe_text
 
-	# Style
-	var style := StyleBoxFlat.new()
-	style.bg_color = COLOR_SLOT_BG
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	style.border_color = COLOR_SLOT_BORDER
-	style.border_width_top = 1
-	style.border_width_bottom = 1
-	style.border_width_left = 1
-	style.border_width_right = 1
-	btn.add_theme_stylebox_override("normal", style)
-	var hover_style := style.duplicate()
-	hover_style.bg_color = COLOR_SLOT_HOVER
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	# Style - use theme Button style, just override colors
+	btn.add_theme_color_override("font_color", Color(0.6, 0.62, 0.68, 1.0))
 	btn.add_theme_color_override("font_hover_color", COLOR_CRAFTABLE)
 
 	# Highlight craftable recipes
@@ -850,7 +832,6 @@ func _build_screen() -> void:
 	inv_title.text = "Inventory"
 	inv_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	inv_title.add_theme_font_size_override("font_size", TITLE_SIZE)
-	inv_title.add_theme_color_override("font_color", COLOR_TEXT)
 	title_row.add_child(inv_title)
 
 	# Spacer
@@ -878,7 +859,6 @@ func _build_screen() -> void:
 	var craft_title := Label.new()
 	craft_title.text = "Crafting 2×2"
 	craft_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
-	craft_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	craft_section.add_child(craft_title)
 
 	var craft_grid := GridContainer.new()
@@ -907,7 +887,6 @@ func _build_screen() -> void:
 	var storage_title := Label.new()
 	storage_title.text = "Storage"
 	storage_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
-	storage_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	storage_section.add_child(storage_title)
 
 	var storage_grid := GridContainer.new()
@@ -930,7 +909,6 @@ func _build_screen() -> void:
 	var hotbar_title := Label.new()
 	hotbar_title.text = "Hotbar"
 	hotbar_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
-	hotbar_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	hotbar_section.add_child(hotbar_title)
 
 	var hotbar_grid := GridContainer.new()
@@ -982,7 +960,6 @@ func _build_screen() -> void:
 	craft_panel_title.text = "Crafting"
 	craft_panel_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	craft_panel_title.add_theme_font_size_override("font_size", TITLE_SIZE)
-	craft_panel_title.add_theme_color_override("font_color", COLOR_TEXT)
 	craft_title_row.add_child(craft_panel_title)
 
 	# Spacer
@@ -994,8 +971,8 @@ func _build_screen() -> void:
 	_craft_back_button.visible = false
 	craft_title_row.add_child(_craft_back_button)
 
-	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
-	craft_title_row.add_child(_close_button)
+	_craft_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
+	craft_title_row.add_child(_craft_close_button)
 
 	# Crafting grid (2x2 input + output)
 	var craft_grid_section := VBoxContainer.new()
@@ -1005,7 +982,6 @@ func _build_screen() -> void:
 	var craft_grid_title := Label.new()
 	craft_grid_title.text = "Crafting 2×2"
 	craft_grid_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
-	craft_grid_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	craft_grid_section.add_child(craft_grid_title)
 
 	var craft_grid2 := GridContainer.new()
@@ -1029,7 +1005,6 @@ func _build_screen() -> void:
 	arrow_label2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	arrow_label2.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	arrow_label2.add_theme_font_size_override("font_size", 24)
-	arrow_label2.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	arrow_label2.custom_minimum_size = Vector2(50.0, 50.0)
 	craft_grid2.add_child(arrow_label2)
 
@@ -1049,7 +1024,6 @@ func _build_screen() -> void:
 	var recipe_book_title := Label.new()
 	recipe_book_title.text = "Recipe Book"
 	recipe_book_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
-	recipe_book_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	recipe_book_section.add_child(recipe_book_title)
 
 	var recipe_scroll := ScrollContainer.new()
@@ -1082,17 +1056,13 @@ func _build_screen() -> void:
 
 
 func _style_panel(panel: PanelContainer) -> void:
+	# Use theme's default PanelContainer style (shadcn dark theme provides one)
+	# If we want to ensure rounded corners, apply a small override
 	var style := StyleBoxFlat.new()
-	style.bg_color = COLOR_PANEL
 	style.corner_radius_top_left = PANEL_RADIUS
 	style.corner_radius_top_right = PANEL_RADIUS
 	style.corner_radius_bottom_left = PANEL_RADIUS
 	style.corner_radius_bottom_right = PANEL_RADIUS
-	style.border_color = COLOR_SLOT_BORDER
-	style.border_width_top = 1
-	style.border_width_bottom = 1
-	style.border_width_left = 1
-	style.border_width_right = 1
 	panel.add_theme_stylebox_override("panel", style)
 
 
@@ -1102,24 +1072,9 @@ func _create_button(text: String, callback: Callable, size: Vector2) -> Button:
 	btn.custom_minimum_size = size
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.add_theme_font_size_override("font_size", BTN_FONT_SIZE)
-	btn.add_theme_color_override("font_color", COLOR_TEXT)
+	# Use theme button styles, just override accent colors
 	btn.add_theme_color_override("font_hover_color", COLOR_ACCENT)
-	btn.add_theme_color_override("font_pressed_color", COLOR_ACCENT_DIM)
-	var style := StyleBoxFlat.new()
-	style.bg_color = COLOR_SLOT_BG
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	style.border_color = COLOR_SLOT_BORDER
-	style.border_width_top = 1
-	style.border_width_bottom = 1
-	style.border_width_left = 1
-	style.border_width_right = 1
-	btn.add_theme_stylebox_override("normal", style)
-	var hover_style := style.duplicate()
-	hover_style.bg_color = COLOR_SLOT_HOVER
-	btn.add_theme_stylebox_override("hover", hover_style)
+	btn.add_theme_color_override("font_pressed_color", Color(0.7, 0.55, 0.1, 1.0))
 	btn.pressed.connect(callback)
 	return btn
 
@@ -1138,7 +1093,6 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
-	label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
@@ -1160,17 +1114,13 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 
 
 func _style_slot(panel: PanelContainer) -> void:
+	# Use theme's default slot style (shadcn provides Panel style)
+	# We just ensure consistent corner radius for our grid layout
 	var style := StyleBoxFlat.new()
-	style.bg_color = COLOR_SLOT_BG
 	style.corner_radius_top_left = 8
 	style.corner_radius_top_right = 8
 	style.corner_radius_bottom_left = 8
 	style.corner_radius_bottom_right = 8
-	style.border_color = COLOR_SLOT_BORDER
-	style.border_width_top = 1
-	style.border_width_bottom = 1
-	style.border_width_left = 1
-	style.border_width_right = 1
 	panel.add_theme_stylebox_override("panel", style)
 
 
@@ -1188,7 +1138,6 @@ func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: i
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
-	label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
