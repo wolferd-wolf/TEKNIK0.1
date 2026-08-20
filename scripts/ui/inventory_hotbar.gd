@@ -43,23 +43,21 @@ func refresh(slots: Array[Dictionary], selected_slot: int) -> void:
 
 
 func _build_styles() -> void:
+	# Use theme's default PanelContainer style (shadcn dark theme provides one)
+	# Just add corner radius and selection highlight
 	_normal_style = StyleBoxFlat.new()
-	_normal_style.bg_color = Color(0.06, 0.07, 0.09, 0.9)
-	_normal_style.border_color = Color(0.48, 0.52, 0.58, 1.0)
-	_set_border_width(_normal_style, 1)
 	_normal_style.corner_radius_top_left = 4
 	_normal_style.corner_radius_top_right = 4
 	_normal_style.corner_radius_bottom_left = 4
 	_normal_style.corner_radius_bottom_right = 4
 
 	_selected_style = StyleBoxFlat.new()
-	_selected_style.bg_color = Color(0.16, 0.18, 0.22, 0.96)
-	_selected_style.border_color = Color(1.0, 0.82, 0.12, 1.0)
-	_set_border_width(_selected_style, 4)
 	_selected_style.corner_radius_top_left = 4
 	_selected_style.corner_radius_top_right = 4
 	_selected_style.corner_radius_bottom_left = 4
 	_selected_style.corner_radius_bottom_right = 4
+	_selected_style.border_color = Color(1.0, 0.82, 0.12, 1.0)
+	_set_border_width(_selected_style, 4)
 
 
 func _set_border_width(style: StyleBoxFlat, width: int) -> void:
