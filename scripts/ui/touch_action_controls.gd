@@ -3,11 +3,13 @@ class_name TouchActionControls
 
 const WORLD_MAP_OVERLAY_SCRIPT := preload("res://scripts/ui/world_map_overlay.gd")
 const INVENTORY_ACTION := StringName("toggle_inventory")
+const CRAFT_ACTION := StringName("toggle_crafting")
 const ACTION_BUTTONS := {
 	"JumpButton": StringName("jump"),
 	"MineButton": StringName("mine_block"),
 	"PlaceButton": StringName("place_block"),
 	"InventoryButton": INVENTORY_ACTION,
+	"CraftButton": CRAFT_ACTION,
 }
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_ACTION_PREFIX := "select_hotbar_"
@@ -46,6 +48,10 @@ func _input(event: InputEvent) -> void:
 			return
 		if action == INVENTORY_ACTION:
 			_toggle_inventory_screen()
+			get_viewport().set_input_as_handled()
+			return
+		if action == CRAFT_ACTION:
+			_toggle_crafting_screen()
 			get_viewport().set_input_as_handled()
 			return
 		_touch_actions[touch.index] = action
@@ -99,6 +105,8 @@ func _build_controls() -> void:
 		var button := _create_action_button(String(button_name), _label_for_action(action))
 		if action == INVENTORY_ACTION:
 			button.pressed.connect(_toggle_inventory_screen)
+		elif action == CRAFT_ACTION:
+			button.pressed.connect(_toggle_crafting_screen)
 		else:
 			button.button_down.connect(_press_action.bind(action))
 			button.button_up.connect(_release_action.bind(action))
@@ -141,6 +149,8 @@ func _label_for_action(action: StringName) -> String:
 			return "PLACE"
 		INVENTORY_ACTION:
 			return "INVENTORY"
+		CRAFT_ACTION:
+			return "CRAFT"
 		_:
 			return String(action).to_upper()
 
@@ -166,6 +176,15 @@ func _toggle_inventory_screen() -> void:
 		inventory_screen.toggle_inventory()
 
 
+func _toggle_crafting_screen() -> void:
+	var player := get_node_or_null("../Player")
+	if player == null or not player.has_method("get_inventory_screen"):
+		return
+	var inventory_screen = player.get_inventory_screen()
+	if inventory_screen != null and inventory_screen.has_method("toggle_crafting"):
+		inventory_screen.toggle_crafting()
+
+
 func _press_action(action: StringName) -> void:
 	if _pressed_actions.has(action):
 		return
@@ -182,7 +201,7 @@ func _update_layout() -> void:
 	if not is_instance_valid(_root):
 		return
 	var viewport_size := get_viewport().get_visible_rect().size
-	var names := ["JumpButton", "MineButton", "PlaceButton", "InventoryButton"]
+	var names := ["JumpButton", "MineButton", "PlaceButton", "InventoryButton", "CraftButton"]
 	for index in range(names.size()):
 		var button := _action_buttons.get(names[index]) as Button
 		if button == null:
@@ -192,11 +211,12 @@ func _update_layout() -> void:
 		button.size = action_button_size
 		button.position = Vector2(
 			viewport_size.x - action_right_margin - action_button_size.x * float(2 - column) - action_button_gap * float(1 - column),
-			viewport_size.y - action_bottom_margin - action_button_size.y * float(2 - row) - action_button_gap * float(1 - row)
+			viewport_size.y - action_bottom_margin - action_button_size.y * float(3 - row) - action_button_gap * float(2 - row)
 		)
 
+	# Position hotbar above the action buttons (which now extend lower due to 3 rows)
 	var hotbar_left := viewport_size.x * 0.5 - 498.0
-	var hotbar_top := viewport_size.y - 106.0
+	var hotbar_top := viewport_size.y - action_bottom_margin - action_button_size.y * 3 - action_button_gap * 2 - 10.0
 	for slot_index in range(_hotbar_buttons.size()):
 		var hotbar_button := _hotbar_buttons[slot_index]
 		hotbar_button.position = Vector2(hotbar_left + float(slot_index) * 110.0, hotbar_top)

@@ -125,6 +125,10 @@ craft_test_recipe={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":67)]
 }
+toggle_crafting={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":84)]
+}
 
 [input_devices]
 
