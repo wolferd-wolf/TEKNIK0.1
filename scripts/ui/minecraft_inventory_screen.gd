@@ -82,6 +82,30 @@ var _craft_input_buttons: Dictionary = {}
 var _craft_output_button: Button
 var _craft_preview_stack: Dictionary = {"block_id": 0, "count": 0}
 
+# UI style constants for polished look
+const SLOT_SIZE := Vector2(68.0, 68.0)
+const SLOT_GAP := 8.0
+const PANEL_PADDING := 20.0
+const PANEL_RADIUS := 12.0
+const TITLE_SIZE := 20
+const SUBTITLE_SIZE := 14
+const SLOT_FONT_SIZE := 13
+const CURSOR_FONT_SIZE := 15
+const BTN_FONT_SIZE := 14
+
+const COLOR_BG := Color(0.08, 0.09, 0.11, 0.96)
+const COLOR_PANEL := Color(0.12, 0.13, 0.16, 0.98)
+const COLOR_SLOT_BG := Color(0.16, 0.17, 0.21, 1.0)
+const COLOR_SLOT_BORDER := Color(0.3, 0.32, 0.38, 1.0)
+const COLOR_SLOT_HOVER := Color(0.22, 0.24, 0.3, 1.0)
+const COLOR_ACCENT := Color(0.95, 0.75, 0.15, 1.0)
+const COLOR_ACCENT_DIM := Color(0.7, 0.55, 0.1, 1.0)
+const COLOR_TEXT := Color(0.92, 0.93, 0.95, 1.0)
+const COLOR_TEXT_DIM := Color(0.6, 0.62, 0.68, 1.0)
+const COLOR_CRAFTABLE := Color(0.35, 0.85, 0.35, 1.0)
+const COLOR_DIM := Color(0.7, 0.7, 0.7, 1.0)
+const COLOR_CARRIED := Color(1.0, 0.84, 0.18, 1.0)
+
 
 func _ready() -> void:
 	layer = 60
@@ -510,25 +534,45 @@ func _create_recipe_button(parent: Control, recipe: Dictionary) -> Button:
 	btn.name = "RecipeButton"
 	btn.flat = false
 	btn.focus_mode = Control.FOCUS_NONE
-	btn.custom_minimum_size = Vector2(0.0, 50.0)
-	btn.add_theme_font_size_override("font_size", 14)
+	btn.custom_minimum_size = Vector2(0.0, 54.0)
+	btn.add_theme_font_size_override("font_size", 13)
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	var inputs: Array = recipe.inputs
 	var output: Dictionary = recipe.output
 	var output_name: String = BLOCK_NAMES.get(output.get("block_id", 0), "UNKNOWN")
 	var output_count: int = output.get("count", 1)
 
-	var recipe_text := "  →  %s x%d\n" % [output_name, output_count]
+	var recipe_text := "%s x%d\n" % [output_name, output_count]
 	for j in range(inputs.size()):
 		var req: Dictionary = inputs[j]
 		var req_id: int = req.get("block_id", 0)
 		var req_count: int = req.get("count", 0)
 		var req_name: String = BLOCK_NAMES.get(req_id, "UNKNOWN")
 		if j == 0:
-			recipe_text += "%s x%d" % [req_name, req_count]
+			recipe_text += "  %s x%d" % [req_name, req_count]
 		else:
 			recipe_text += " + %s x%d" % [req_name, req_count]
 	btn.text = recipe_text
+
+	# Style
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_SLOT_BG
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	style.border_color = COLOR_SLOT_BORDER
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.border_width_left = 1
+	style.border_width_right = 1
+	btn.add_theme_stylebox_override("normal", style)
+	var hover_style := style.duplicate()
+	hover_style.bg_color = COLOR_SLOT_HOVER
+	btn.add_theme_stylebox_override("hover", hover_style)
+	btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	btn.add_theme_color_override("font_hover_color", COLOR_CRAFTABLE)
 
 	# Highlight craftable recipes
 	btn.pressed.connect(_on_recipe_button_pressed.bind(recipe))
@@ -761,63 +805,86 @@ func _build_screen() -> void:
 	dim.name = "Dim"
 	dim.anchor_right = 1.0
 	dim.anchor_bottom = 1.0
-	dim.color = Color(0.0, 0.0, 0.0, 0.78)
+	dim.color = Color(0.0, 0.0, 0.0, 0.6)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(dim)
 
-	# ===== INVENTORY PANEL =====
+	# ===== INVENTORY PANEL (polished) =====
 	_inventory_panel = PanelContainer.new()
 	_inventory_panel.name = "InventoryPanel"
 	_inventory_panel.anchor_left = 0.5
 	_inventory_panel.anchor_top = 0.5
 	_inventory_panel.anchor_right = 0.5
 	_inventory_panel.anchor_bottom = 0.5
-	_inventory_panel.offset_left = -500.0
-	_inventory_panel.offset_top = -280.0
-	_inventory_panel.offset_right = 500.0
-	_inventory_panel.offset_bottom = 280.0
+	_inventory_panel.offset_left = -480.0
+	_inventory_panel.offset_top = -260.0
+	_inventory_panel.offset_right = 480.0
+	_inventory_panel.offset_bottom = 260.0
 	_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(_inventory_panel)
 
+	# Style the panel
+	_style_panel(_inventory_panel)
+
 	var inv_margin := MarginContainer.new()
-	inv_margin.add_theme_constant_override("margin_left", 24)
-	inv_margin.add_theme_constant_override("margin_top", 18)
-	inv_margin.add_theme_constant_override("margin_right", 24)
-	inv_margin.add_theme_constant_override("margin_bottom", 18)
+	inv_margin.add_theme_constant_override("margin_left", PANEL_PADDING)
+	inv_margin.add_theme_constant_override("margin_top", PANEL_PADDING)
+	inv_margin.add_theme_constant_override("margin_right", PANEL_PADDING)
+	inv_margin.add_theme_constant_override("margin_bottom", PANEL_PADDING)
 	_inventory_panel.add_child(inv_margin)
 
 	var inv_column := VBoxContainer.new()
 	inv_column.name = "Content"
-	inv_column.add_theme_constant_override("separation", 9)
+	inv_column.add_theme_constant_override("separation", 12)
 	inv_margin.add_child(inv_column)
+
+	# Title row with close button
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	inv_column.add_child(title_row)
 
 	var inv_title := Label.new()
 	inv_title.name = "Title"
-	inv_title.text = "INVENTORY"
-	inv_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	inv_title.add_theme_font_size_override("font_size", 24)
-	inv_column.add_child(inv_title)
+	inv_title.text = "Inventory"
+	inv_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	inv_title.add_theme_font_size_override("font_size", TITLE_SIZE)
+	inv_title.add_theme_color_override("font_color", COLOR_TEXT)
+	title_row.add_child(inv_title)
 
+	# Spacer
+	var spacer := Control.new()
+	spacer.h_size_flags = Control.SIZE_EXPAND_FILL
+	title_row.add_child(spacer)
+
+	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
+	title_row.add_child(_close_button)
+
+	# Carried item display
 	_cursor_label = Label.new()
 	_cursor_label.name = "CursorStack"
-	_cursor_label.text = "CARRIED: EMPTY x0"
+	_cursor_label.text = "Carried: Empty"
 	_cursor_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_cursor_label.add_theme_font_size_override("font_size", 17)
-	_cursor_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.18, 1.0))
+	_cursor_label.add_theme_font_size_override("font_size", CURSOR_FONT_SIZE)
+	_cursor_label.add_theme_color_override("font_color", COLOR_CARRIED)
 	inv_column.add_child(_cursor_label)
 
-	# Crafting section (2x2 input + 1 output)
+	# Crafting grid (2x2 input + output)
+	var craft_section := VBoxContainer.new()
+	craft_section.add_theme_constant_override("separation", 8)
+	inv_column.add_child(craft_section)
+
 	var craft_title := Label.new()
-	craft_title.text = "CRAFTING — 2×2"
-	craft_title.add_theme_font_size_override("font_size", 15)
-	inv_column.add_child(craft_title)
+	craft_title.text = "Crafting 2×2"
+	craft_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	craft_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	craft_section.add_child(craft_title)
 
 	var craft_grid := GridContainer.new()
 	craft_grid.name = "CraftGrid"
 	craft_grid.columns = 2
-	craft_grid.add_theme_constant_override("h_separation", 6)
-	craft_grid.add_theme_constant_override("v_separation", 6)
-	inv_column.add_child(craft_grid)
+	craft_grid.add_theme_constant_override("h_separation", SLOT_GAP)
+	craft_grid.add_theme_constant_override("v_separation", SLOT_GAP)
+	craft_section.add_child(craft_grid)
 
 	# 4 input slots (2x2)
 	for i in range(CRAFT_INPUT_SIZE):
@@ -825,61 +892,55 @@ func _build_screen() -> void:
 		_craft_input_labels.append(slot_nodes["label"] as Label)
 		_craft_input_buttons[i] = slot_nodes["button"]
 
-	# Arrow separator (visual only)
-	var arrow_label := Label.new()
-	arrow_label.name = "ArrowLabel"
-	arrow_label.text = "→"
-	arrow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	arrow_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	arrow_label.add_theme_font_size_override("font_size", 28)
-	arrow_label.custom_minimum_size = Vector2(60.0, 62.0)
-	craft_grid.add_child(arrow_label)
-
-	# Output slot
+	# Output slot (placeholder - will be updated by craft logic)
 	var output_slot := _create_craft_output_slot(craft_grid, "CraftOutputSlot")
 	_craft_output_label = output_slot["label"] as Label
 	_craft_output_button = output_slot["button"]
 
+	# Storage section
+	var storage_section := VBoxContainer.new()
+	storage_section.add_theme_constant_override("separation", 8)
+	inv_column.add_child(storage_section)
+
 	var storage_title := Label.new()
-	storage_title.text = "STORAGE — 27 SLOTS"
-	storage_title.add_theme_font_size_override("font_size", 15)
-	inv_column.add_child(storage_title)
+	storage_title.text = "Storage"
+	storage_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	storage_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	storage_section.add_child(storage_title)
 
 	var storage_grid := GridContainer.new()
 	storage_grid.name = "StorageGrid"
 	storage_grid.columns = 9
-	storage_grid.add_theme_constant_override("h_separation", 6)
-	storage_grid.add_theme_constant_override("v_separation", 6)
-	inv_column.add_child(storage_grid)
+	storage_grid.add_theme_constant_override("h_separation", SLOT_GAP)
+	storage_grid.add_theme_constant_override("v_separation", SLOT_GAP)
+	storage_section.add_child(storage_grid)
 	for storage_index in range(STORAGE_SLOT_COUNT):
 		var inventory_index := STORAGE_START_INDEX + storage_index
 		var slot_nodes := _create_slot(storage_grid, "StorageSlot%d" % (storage_index + 1), inventory_index)
 		_storage_labels.append(slot_nodes["label"] as Label)
 		_slot_buttons[inventory_index] = slot_nodes["button"]
 
+	# Hotbar section
+	var hotbar_section := VBoxContainer.new()
+	hotbar_section.add_theme_constant_override("separation", 8)
+	inv_column.add_child(hotbar_section)
+
 	var hotbar_title := Label.new()
-	hotbar_title.text = "HOTBAR — 9 SLOTS"
-	hotbar_title.add_theme_font_size_override("font_size", 15)
-	inv_column.add_child(hotbar_title)
+	hotbar_title.text = "Hotbar"
+	hotbar_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	hotbar_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	hotbar_section.add_child(hotbar_title)
 
 	var hotbar_grid := GridContainer.new()
 	hotbar_grid.name = "HotbarGrid"
 	hotbar_grid.columns = 9
-	hotbar_grid.add_theme_constant_override("h_separation", 6)
-	inv_column.add_child(hotbar_grid)
+	hotbar_grid.add_theme_constant_override("h_separation", SLOT_GAP)
+	hotbar_grid.add_theme_constant_override("v_separation", SLOT_GAP)
+	hotbar_section.add_child(hotbar_grid)
 	for slot_index in range(HOTBAR_SLOT_COUNT):
 		var slot_nodes := _create_slot(hotbar_grid, "HotbarSlot%d" % (slot_index + 1), slot_index)
 		_hotbar_labels.append(slot_nodes["label"] as Label)
 		_slot_buttons[slot_index] = slot_nodes["button"]
-
-	_close_button = Button.new()
-	_close_button.name = "CloseButton"
-	_close_button.text = "CLOSE INVENTORY"
-	_close_button.custom_minimum_size = Vector2(0.0, 44.0)
-	_close_button.focus_mode = Control.FOCUS_NONE
-	_close_button.add_theme_font_size_override("font_size", 18)
-	_close_button.pressed.connect(close_inventory)
-	inv_column.add_child(_close_button)
 
 	# ===== CRAFTING PANEL (with Recipe Book) =====
 	_crafting_panel = PanelContainer.new()
@@ -888,39 +949,69 @@ func _build_screen() -> void:
 	_crafting_panel.anchor_top = 0.5
 	_crafting_panel.anchor_right = 0.5
 	_crafting_panel.anchor_bottom = 0.5
-	_crafting_panel.offset_left = -500.0
-	_crafting_panel.offset_top = -280.0
-	_crafting_panel.offset_right = 500.0
-	_crafting_panel.offset_bottom = 280.0
+	_crafting_panel.offset_left = -480.0
+	_crafting_panel.offset_top = -260.0
+	_crafting_panel.offset_right = 480.0
+	_crafting_panel.offset_bottom = 260.0
 	_crafting_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(_crafting_panel)
 
+	_style_panel(_crafting_panel)
+
 	var craft_margin := MarginContainer.new()
-	craft_margin.add_theme_constant_override("margin_left", 24)
-	craft_margin.add_theme_constant_override("margin_top", 18)
-	craft_margin.add_theme_constant_override("margin_right", 24)
-	craft_margin.add_theme_constant_override("margin_bottom", 18)
+	craft_margin.add_theme_constant_override("margin_left", PANEL_PADDING)
+	craft_margin.add_theme_constant_override("margin_top", PANEL_PADDING)
+	craft_margin.add_theme_constant_override("margin_right", PANEL_PADDING)
+	craft_margin.add_theme_constant_override("margin_bottom", PANEL_PADDING)
 	_crafting_panel.add_child(craft_margin)
 
 	var craft_column := VBoxContainer.new()
 	craft_column.name = "Content"
-	craft_column.add_theme_constant_override("separation", 9)
+	craft_column.add_theme_constant_override("separation", 12)
 	craft_margin.add_child(craft_column)
+
+	# Title row with back button
+	var craft_title_row := HBoxContainer.new()
+	craft_title_row.add_theme_constant_override("separation", 8)
+	craft_column.add_child(craft_title_row)
 
 	var craft_panel_title := Label.new()
 	craft_panel_title.name = "Title"
-	craft_panel_title.text = "CRAFTING — RECIPE BOOK"
-	craft_panel_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	craft_panel_title.add_theme_font_size_override("font_size", 24)
-	craft_column.add_child(craft_panel_title)
+	craft_panel_title.text = "Crafting"
+	craft_panel_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	craft_panel_title.add_theme_font_size_override("font_size", TITLE_SIZE)
+	craft_panel_title.add_theme_color_override("font_color", COLOR_TEXT)
+	craft_title_row.add_child(craft_panel_title)
 
-	# Crafting grid (2x2 input + 1 output)
+	# Spacer
+	var craft_spacer := Control.new()
+	craft_spacer.h_size_flags = Control.SIZE_EXPAND_FILL
+	craft_title_row.add_child(craft_spacer)
+
+	_craft_back_button = _create_button("← Inventory", close_crafting, Vector2(110.0, 36.0))
+	_craft_back_button.visible = false
+	craft_title_row.add_child(_craft_back_button)
+
+	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
+	craft_title_row.add_child(_close_button)
+
+	# Crafting grid (2x2 input + output)
+	var craft_grid_section := VBoxContainer.new()
+	craft_grid_section.add_theme_constant_override("separation", 8)
+	craft_column.add_child(craft_grid_section)
+
+	var craft_grid_title := Label.new()
+	craft_grid_title.text = "Crafting 2×2"
+	craft_grid_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	craft_grid_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	craft_grid_section.add_child(craft_grid_title)
+
 	var craft_grid2 := GridContainer.new()
 	craft_grid2.name = "CraftGrid"
 	craft_grid2.columns = 2
-	craft_grid2.add_theme_constant_override("h_separation", 6)
-	craft_grid2.add_theme_constant_override("v_separation", 6)
-	craft_column.add_child(craft_grid2)
+	craft_grid2.add_theme_constant_override("h_separation", SLOT_GAP)
+	craft_grid2.add_theme_constant_override("v_separation", SLOT_GAP)
+	craft_grid_section.add_child(craft_grid2)
 
 	# 4 input slots (2x2) - these share the same logic but need their own visual elements
 	var crafting_input_labels: Array[Label] = []
@@ -929,14 +1020,15 @@ func _build_screen() -> void:
 		crafting_input_labels.append(slot_nodes["label"] as Label)
 		# Note: these share the same underlying craft inputs, just different visual slots
 
-	# Arrow separator
+	# Arrow separator (visual)
 	var arrow_label2 := Label.new()
 	arrow_label2.name = "ArrowLabel"
 	arrow_label2.text = "→"
 	arrow_label2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	arrow_label2.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	arrow_label2.add_theme_font_size_override("font_size", 28)
-	arrow_label2.custom_minimum_size = Vector2(60.0, 62.0)
+	arrow_label2.add_theme_font_size_override("font_size", 24)
+	arrow_label2.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	arrow_label2.custom_minimum_size = Vector2(50.0, 50.0)
 	craft_grid2.add_child(arrow_label2)
 
 	# Output slot for crafting panel
@@ -948,10 +1040,15 @@ func _build_screen() -> void:
 	set_meta("__crafting_output_label", crafting_output_label)
 
 	# Recipe book section
+	var recipe_book_section := VBoxContainer.new()
+	recipe_book_section.add_theme_constant_override("separation", 8)
+	craft_column.add_child(recipe_book_section)
+
 	var recipe_book_title := Label.new()
-	recipe_book_title.text = "RECIPE BOOK"
-	recipe_book_title.add_theme_font_size_override("font_size", 15)
-	craft_column.add_child(recipe_book_title)
+	recipe_book_title.text = "Recipe Book"
+	recipe_book_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	recipe_book_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	recipe_book_section.add_child(recipe_book_title)
 
 	var recipe_scroll := ScrollContainer.new()
 	recipe_scroll.name = "RecipeScroll"
@@ -973,51 +1070,73 @@ func _build_screen() -> void:
 
 	set_meta("__recipe_buttons", recipe_buttons)
 
-	_craft_back_button = Button.new()
-	_craft_back_button.name = "CraftBackButton"
-	_craft_back_button.text = "BACK TO INVENTORY"
-	_craft_back_button.custom_minimum_size = Vector2(0.0, 44.0)
-	_craft_back_button.focus_mode = Control.FOCUS_NONE
-	_craft_back_button.add_theme_font_size_override("font_size", 18)
-	_craft_back_button.pressed.connect(close_crafting)
-	_craft_back_button.visible = false
-	craft_column.add_child(_craft_back_button)
-
-	_close_button = Button.new()
-	_close_button.name = "CloseButton"
-	_close_button.text = "CLOSE CRAFTING"
-	_close_button.custom_minimum_size = Vector2(0.0, 44.0)
-	_close_button.focus_mode = Control.FOCUS_NONE
-	_close_button.add_theme_font_size_override("font_size", 18)
-	_close_button.pressed.connect(close_inventory)
-	craft_column.add_child(_close_button)
-
 	# Create the toggle button (always visible when open, not in overlay)
-	_toggle_button = Button.new()
+	_toggle_button = _create_button("Craft", toggle_crafting, Vector2(100.0, 36.0))
 	_toggle_button.name = "ModeToggleButton"
-	_toggle_button.text = "INVENTORY"
-	_toggle_button.custom_minimum_size = Vector2(140.0, 44.0)
-	_toggle_button.focus_mode = Control.FOCUS_NONE
-	_toggle_button.add_theme_font_size_override("font_size", 16)
-	_toggle_button.position = Vector2(-500.0, -310.0)  # Above the panel, left side
+	_toggle_button.position = Vector2(-480.0, -290.0)  # Above the panel, left side
 	_overlay.add_child(_toggle_button)
-	_toggle_button.pressed.connect(toggle_crafting)
+
+
+
+
+func _style_panel(panel: PanelContainer) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_PANEL
+	style.corner_radius_top_left = PANEL_RADIUS
+	style.corner_radius_top_right = PANEL_RADIUS
+	style.corner_radius_bottom_left = PANEL_RADIUS
+	style.corner_radius_bottom_right = PANEL_RADIUS
+	style.border_color = COLOR_SLOT_BORDER
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.border_width_left = 1
+	style.border_width_right = 1
+	panel.add_theme_stylebox_override("panel", style)
+
+
+func _create_button(text: String, callback: Callable, size: Vector2) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.custom_minimum_size = size
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", BTN_FONT_SIZE)
+	btn.add_theme_color_override("font_color", COLOR_TEXT)
+	btn.add_theme_color_override("font_hover_color", COLOR_ACCENT)
+	btn.add_theme_color_override("font_pressed_color", COLOR_ACCENT_DIM)
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_SLOT_BG
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	style.border_color = COLOR_SLOT_BORDER
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.border_width_left = 1
+	style.border_width_right = 1
+	btn.add_theme_stylebox_override("normal", style)
+	var hover_style := style.duplicate()
+	hover_style.bg_color = COLOR_SLOT_HOVER
+	btn.add_theme_stylebox_override("hover", hover_style)
+	btn.pressed.connect(callback)
+	return btn
 
 
 func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = Vector2(98.0, 62.0)
+	panel.custom_minimum_size = SLOT_SIZE
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(panel)
+	_style_slot(panel)
 
 	var label := Label.new()
 	label.name = "Content"
-	label.text = "EMPTY x0"
+	label.text = "Empty"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color.WHITE)
+	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
+	label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
@@ -1038,20 +1157,36 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 	return {"label": label, "button": button}
 
 
+func _style_slot(panel: PanelContainer) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = COLOR_SLOT_BG
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	style.border_color = COLOR_SLOT_BORDER
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.border_width_left = 1
+	style.border_width_right = 1
+	panel.add_theme_stylebox_override("panel", style)
+
+
 func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: int) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = Vector2(98.0, 62.0)
+	panel.custom_minimum_size = SLOT_SIZE
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(panel)
+	_style_slot(panel)
 
 	var label := Label.new()
 	label.name = "Content"
-	label.text = "EMPTY x0"
+	label.text = "Empty"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color.WHITE)
+	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
+	label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
@@ -1075,21 +1210,18 @@ func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: i
 func _create_craft_output_slot(parent: Control, slot_name: String) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = Vector2(98.0, 62.0)
+	panel.custom_minimum_size = SLOT_SIZE
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	# Output slot has a different background color to indicate it's output
-	var style := panel.get_theme_stylebox("panel")
-	if style != null:
-		panel.add_theme_stylebox_override("panel", style.duplicate(true))
 	parent.add_child(panel)
+	_style_slot(panel)
 
 	var label := Label.new()
 	label.name = "Content"
-	label.text = "EMPTY x0"
+	label.text = "Empty"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.3))
+	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
+	label.add_theme_color_override("font_color", COLOR_ACCENT)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
