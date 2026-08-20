@@ -516,13 +516,15 @@ func _refresh_craft_slots() -> void:
 		var block_id: int = int(_craft_preview_stack.get("block_id", 0))
 		var count: int = int(_craft_preview_stack.get("count", 0))
 		var block_name: String = String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
-		_craft_output_label.text = "%s x%d" % [block_name, count]
+		if is_instance_valid(_craft_output_label):
+			_craft_output_label.text = "%s x%d" % [block_name, count]
 		if has_meta("__crafting_output_label"):
 			var crafting_out_label := get_meta("__crafting_output_label") as Label
 			if is_instance_valid(crafting_out_label):
 				crafting_out_label.text = "%s x%d" % [block_name, count]
 	else:
-		_craft_output_label.text = "EMPTY x0"
+		if is_instance_valid(_craft_output_label):
+			_craft_output_label.text = "EMPTY x0"
 		if has_meta("__crafting_output_label"):
 			var crafting_out_label := get_meta("__crafting_output_label") as Label
 			if is_instance_valid(crafting_out_label):
@@ -853,7 +855,7 @@ func _build_screen() -> void:
 
 	# Spacer
 	var spacer := Control.new()
-	spacer.h_size_flags = Control.SIZE_EXPAND_FILL
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
 	title_row.add_child(spacer)
 
 	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
@@ -985,7 +987,7 @@ func _build_screen() -> void:
 
 	# Spacer
 	var craft_spacer := Control.new()
-	craft_spacer.h_size_flags = Control.SIZE_EXPAND_FILL
+	craft_spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
 	craft_title_row.add_child(craft_spacer)
 
 	_craft_back_button = _create_button("← Inventory", close_crafting, Vector2(110.0, 36.0))
