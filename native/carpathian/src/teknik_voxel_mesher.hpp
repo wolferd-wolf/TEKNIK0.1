@@ -36,6 +36,10 @@ class TeknikVoxelMesher : public RefCounted {
 	static constexpr int BLOCK_COAL_ORE = 10;
 	static constexpr int BLOCK_IRON_ORE = 11;
 	static constexpr int BLOCK_COPPER_ORE = 12;
+	static constexpr int BLOCK_FURNACE = 13;
+	static constexpr int BLOCK_IRON_INGOT = 14;
+	static constexpr int BLOCK_COPPER_INGOT = 15;
+	static constexpr int BLOCK_COAL = 16;
 	static constexpr int WORLD_SEED = 734921;
 	static constexpr int TREE_SPACING = 7;
 	static constexpr int TREE_OFFSET = 3;
@@ -215,6 +219,10 @@ class TeknikVoxelMesher : public RefCounted {
 			case BLOCK_COAL_ORE: base = Color(0.30, 0.30, 0.32); break;
 			case BLOCK_IRON_ORE: base = Color(0.72, 0.58, 0.45); break;
 			case BLOCK_COPPER_ORE: base = Color(0.44, 0.72, 0.60); break;
+			case BLOCK_FURNACE: base = Color(0.38, 0.34, 0.31); break;
+			case BLOCK_IRON_INGOT: base = Color(0.78, 0.78, 0.80); break;
+			case BLOCK_COPPER_INGOT: base = Color(0.80, 0.48, 0.26); break;
+			case BLOCK_COAL: base = Color(0.12, 0.12, 0.13); break;
 			default: base = Color(1.0, 1.0, 1.0); break;
 		}
 		const int64_t mixed = (static_cast<int64_t>(world_x) * 73856093LL)

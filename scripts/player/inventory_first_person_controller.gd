@@ -4,6 +4,7 @@ class_name InventoryFirstPersonController
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
 const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/ui/minecraft_inventory_screen.gd")
+const FurnaceRecipes := preload("res://scripts/smelting/furnace_recipes.gd")
 const MECHANICAL_MANAGER_SCRIPT := preload("res://scripts/mechanical/mechanical_manager.gd")
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_SLOT_ACTIONS := [
@@ -156,12 +157,13 @@ func mine_targeted_block() -> bool:
 		_clear_block_target()
 		return true
 
-	if not _inventory.can_add_item(mined_block_id, 1):
+	var drop_block_id := FurnaceRecipes.mining_drop_for(mined_block_id)
+	if not _inventory.can_add_item(drop_block_id, 1):
 		return false
 	if not _chunk_manager.mine_block_world(mined_coord):
 		return false
 
-	if not _inventory.add_item(mined_block_id, 1):
+	if not _inventory.add_item(drop_block_id, 1):
 		var restored: bool = bool(_chunk_manager.set_block_world(mined_coord, mined_block_id))
 		if not restored:
 			push_error("Inventory mining rollback failed at %s" % mined_coord)

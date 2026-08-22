@@ -39,21 +39,6 @@ const RECIPES: Array[Dictionary] = [
 		"inputs": [{"block_id": 7, "count": 2}, {"block_id": 3, "count": 1}, {"block_id": 2, "count": 1}],
 		"output": {"block_id": 9, "count": 1}
 	},
-	# 8 STONE -> 1 FURNACE (block 13)
-	{
-		"inputs": [{"block_id": 3, "count": 8}],
-		"output": {"block_id": 13, "count": 1}
-	},
-	# Metal machine path (step 16): 2 IRON_INGOT + 1 COPPER_INGOT -> 1 MECHANICAL_DRILL
-	{
-		"inputs": [{"block_id": 14, "count": 2}, {"block_id": 15, "count": 1}],
-		"output": {"block_id": 9, "count": 1}
-	},
-	# 1 IRON_INGOT + 2 STONE -> 2 SHAFT
-	{
-		"inputs": [{"block_id": 14, "count": 1}, {"block_id": 3, "count": 2}],
-		"output": {"block_id": 8, "count": 2}
-	},
 ]
 
 const BLOCK_NAMES := {
@@ -67,13 +52,6 @@ const BLOCK_NAMES := {
 	7: "WATER WHEEL",
 	8: "SHAFT",
 	9: "MECHANICAL DRILL",
-	10: "COAL ORE",
-	11: "IRON ORE",
-	12: "COPPER ORE",
-	13: "FURNACE",
-	14: "IRON INGOT",
-	15: "COPPER INGOT",
-	16: "COAL",
 }
 
 var _inventory: BlockInventory
@@ -84,12 +62,6 @@ var _inventory_panel: PanelContainer
 var _crafting_panel: PanelContainer
 var _toggle_button: Button
 var _close_button: Button
-const FURNACE_RECIPES := preload("res://scripts/smelting/furnace_recipes.gd")
-
-var _furnace_panel: PanelContainer
-var _furnace_status_label: Label
-var _furnace_buttons: Array[Button] = []
-var _craft_close_button: Button
 var _craft_back_button: Button
 var _cursor_label: Label
 var _long_press_timer: Timer
@@ -121,9 +93,17 @@ const SLOT_FONT_SIZE := 13
 const CURSOR_FONT_SIZE := 15
 const BTN_FONT_SIZE := 14
 
-# Accent color for craftable highlight (from shadcn amber)
+const COLOR_BG := Color(0.08, 0.09, 0.11, 0.96)
+const COLOR_PANEL := Color(0.12, 0.13, 0.16, 0.98)
+const COLOR_SLOT_BG := Color(0.16, 0.17, 0.21, 1.0)
+const COLOR_SLOT_BORDER := Color(0.3, 0.32, 0.38, 1.0)
+const COLOR_SLOT_HOVER := Color(0.22, 0.24, 0.3, 1.0)
 const COLOR_ACCENT := Color(0.95, 0.75, 0.15, 1.0)
+const COLOR_ACCENT_DIM := Color(0.7, 0.55, 0.1, 1.0)
+const COLOR_TEXT := Color(0.92, 0.93, 0.95, 1.0)
+const COLOR_TEXT_DIM := Color(0.6, 0.62, 0.68, 1.0)
 const COLOR_CRAFTABLE := Color(0.35, 0.85, 0.35, 1.0)
+const COLOR_DIM := Color(0.7, 0.7, 0.7, 1.0)
 const COLOR_CARRIED := Color(1.0, 0.84, 0.18, 1.0)
 
 
@@ -164,10 +144,6 @@ func _input(event: InputEvent) -> void:
 			if not _is_open:
 				return
 			if _control_contains(_close_button, touch.position):
-				get_viewport().set_input_as_handled()
-				close_inventory()
-				return
-			if _control_contains(_craft_close_button, touch.position):
 				get_viewport().set_input_as_handled()
 				close_inventory()
 				return
@@ -257,14 +233,6 @@ func get_crafting_panel() -> PanelContainer:
 
 func get_toggle_button() -> Button:
 	return _toggle_button
-
-
-func get_furnace_panel() -> PanelContainer:
-	return _furnace_panel
-
-
-func get_furnace_status_label() -> Label:
-	return _furnace_status_label
 
 
 func get_close_button() -> Button:
@@ -548,15 +516,13 @@ func _refresh_craft_slots() -> void:
 		var block_id: int = int(_craft_preview_stack.get("block_id", 0))
 		var count: int = int(_craft_preview_stack.get("count", 0))
 		var block_name: String = String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
-		if is_instance_valid(_craft_output_label):
-			_craft_output_label.text = "%s x%d" % [block_name, count]
+		_craft_output_label.text = "%s x%d" % [block_name, count]
 		if has_meta("__crafting_output_label"):
 			var crafting_out_label := get_meta("__crafting_output_label") as Label
 			if is_instance_valid(crafting_out_label):
 				crafting_out_label.text = "%s x%d" % [block_name, count]
 	else:
-		if is_instance_valid(_craft_output_label):
-			_craft_output_label.text = "EMPTY x0"
+		_craft_output_label.text = "EMPTY x0"
 		if has_meta("__crafting_output_label"):
 			var crafting_out_label := get_meta("__crafting_output_label") as Label
 			if is_instance_valid(crafting_out_label):
@@ -568,30 +534,25 @@ func _create_recipe_button(parent: Control, recipe: Dictionary) -> Button:
 	btn.name = "RecipeButton"
 	btn.flat = false
 	btn.focus_mode = Control.FOCUS_NONE
-	btn.custom_minimum_size = Vector2(0.0, 54.0)
-	btn.add_theme_font_size_override("font_size", 13)
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.custom_minimum_size = Vector2(0.0, 50.0)
+	btn.add_theme_font_size_override("font_size", 14)
 
 	var inputs: Array = recipe.inputs
 	var output: Dictionary = recipe.output
 	var output_name: String = BLOCK_NAMES.get(output.get("block_id", 0), "UNKNOWN")
 	var output_count: int = output.get("count", 1)
 
-	var recipe_text := "%s x%d\n" % [output_name, output_count]
+	var recipe_text := "  →  %s x%d\n" % [output_name, output_count]
 	for j in range(inputs.size()):
 		var req: Dictionary = inputs[j]
 		var req_id: int = req.get("block_id", 0)
 		var req_count: int = req.get("count", 0)
 		var req_name: String = BLOCK_NAMES.get(req_id, "UNKNOWN")
 		if j == 0:
-			recipe_text += "  %s x%d" % [req_name, req_count]
+			recipe_text += "%s x%d" % [req_name, req_count]
 		else:
 			recipe_text += " + %s x%d" % [req_name, req_count]
 	btn.text = recipe_text
-
-	# Style - use theme Button style, just override colors
-	btn.add_theme_color_override("font_color", Color(0.6, 0.62, 0.68, 1.0))
-	btn.add_theme_color_override("font_hover_color", COLOR_CRAFTABLE)
 
 	# Highlight craftable recipes
 	btn.pressed.connect(_on_recipe_button_pressed.bind(recipe))
@@ -718,7 +679,6 @@ func _refresh() -> void:
 		_cursor_label.text = _cursor_text()
 	_refresh_craft_slots()
 	_refresh_recipe_book()
-	_refresh_furnace()
 
 
 func _slot_text(slot_index: int, include_number: bool) -> String:
@@ -868,11 +828,12 @@ func _build_screen() -> void:
 	inv_title.text = "Inventory"
 	inv_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	inv_title.add_theme_font_size_override("font_size", TITLE_SIZE)
+	inv_title.add_theme_color_override("font_color", COLOR_TEXT)
 	title_row.add_child(inv_title)
 
 	# Spacer
 	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
+	spacer.h_size_flags = Control.SIZE_EXPAND_FILL
 	title_row.add_child(spacer)
 
 	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
@@ -895,6 +856,7 @@ func _build_screen() -> void:
 	var craft_title := Label.new()
 	craft_title.text = "Crafting 2×2"
 	craft_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	craft_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	craft_section.add_child(craft_title)
 
 	var craft_grid := GridContainer.new()
@@ -923,6 +885,7 @@ func _build_screen() -> void:
 	var storage_title := Label.new()
 	storage_title.text = "Storage"
 	storage_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	storage_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	storage_section.add_child(storage_title)
 
 	var storage_grid := GridContainer.new()
@@ -945,6 +908,7 @@ func _build_screen() -> void:
 	var hotbar_title := Label.new()
 	hotbar_title.text = "Hotbar"
 	hotbar_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	hotbar_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	hotbar_section.add_child(hotbar_title)
 
 	var hotbar_grid := GridContainer.new()
@@ -973,7 +937,6 @@ func _build_screen() -> void:
 	_overlay.add_child(_crafting_panel)
 
 	_style_panel(_crafting_panel)
-	_build_furnace_panel()
 
 	var craft_margin := MarginContainer.new()
 	craft_margin.add_theme_constant_override("margin_left", PANEL_PADDING)
@@ -997,19 +960,20 @@ func _build_screen() -> void:
 	craft_panel_title.text = "Crafting"
 	craft_panel_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	craft_panel_title.add_theme_font_size_override("font_size", TITLE_SIZE)
+	craft_panel_title.add_theme_color_override("font_color", COLOR_TEXT)
 	craft_title_row.add_child(craft_panel_title)
 
 	# Spacer
 	var craft_spacer := Control.new()
-	craft_spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
+	craft_spacer.h_size_flags = Control.SIZE_EXPAND_FILL
 	craft_title_row.add_child(craft_spacer)
 
 	_craft_back_button = _create_button("← Inventory", close_crafting, Vector2(110.0, 36.0))
 	_craft_back_button.visible = false
 	craft_title_row.add_child(_craft_back_button)
 
-	_craft_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
-	craft_title_row.add_child(_craft_close_button)
+	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
+	craft_title_row.add_child(_close_button)
 
 	# Crafting grid (2x2 input + output)
 	var craft_grid_section := VBoxContainer.new()
@@ -1019,6 +983,7 @@ func _build_screen() -> void:
 	var craft_grid_title := Label.new()
 	craft_grid_title.text = "Crafting 2×2"
 	craft_grid_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	craft_grid_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	craft_grid_section.add_child(craft_grid_title)
 
 	var craft_grid2 := GridContainer.new()
@@ -1042,6 +1007,7 @@ func _build_screen() -> void:
 	arrow_label2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	arrow_label2.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	arrow_label2.add_theme_font_size_override("font_size", 24)
+	arrow_label2.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	arrow_label2.custom_minimum_size = Vector2(50.0, 50.0)
 	craft_grid2.add_child(arrow_label2)
 
@@ -1061,6 +1027,7 @@ func _build_screen() -> void:
 	var recipe_book_title := Label.new()
 	recipe_book_title.text = "Recipe Book"
 	recipe_book_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
+	recipe_book_title.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	recipe_book_section.add_child(recipe_book_title)
 
 	var recipe_scroll := ScrollContainer.new()
@@ -1089,222 +1056,21 @@ func _build_screen() -> void:
 	_toggle_button.position = Vector2(-480.0, -290.0)  # Above the panel, left side
 	_overlay.add_child(_toggle_button)
 
-	var _furnace_toggle := _create_button("Furnace", open_furnace, Vector2(100.0, 36.0))
-	_furnace_toggle.name = "FurnaceToggleButton"
-	_furnace_toggle.position = Vector2(-370.0, -290.0)  # Next to the craft toggle
-	_overlay.add_child(_furnace_toggle)
-	set_meta("__furnace_toggle_button", _furnace_toggle)
-
-
-
-
-
-func _build_furnace_panel() -> void:
-	_furnace_panel = PanelContainer.new()
-	_furnace_panel.name = "FurnacePanel"
-	_furnace_panel.anchor_left = 0.5
-	_furnace_panel.anchor_top = 0.5
-	_furnace_panel.anchor_right = 0.5
-	_furnace_panel.anchor_bottom = 0.5
-	_furnace_panel.offset_left = -480.0
-	_furnace_panel.offset_top = -260.0
-	_furnace_panel.offset_right = 480.0
-	_furnace_panel.offset_bottom = 260.0
-	_furnace_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_furnace_panel.visible = false
-	_overlay.add_child(_furnace_panel)
-
-	_style_panel(_furnace_panel)
-
-	var margin := MarginContainer.new()
-	margin.name = "Content"
-	margin.add_theme_constant_override("margin_left", PANEL_PADDING)
-	margin.add_theme_constant_override("margin_top", PANEL_PADDING)
-	margin.add_theme_constant_override("margin_right", PANEL_PADDING)
-	margin.add_theme_constant_override("margin_bottom", PANEL_PADDING)
-	_furnace_panel.add_child(margin)
-
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
-	margin.add_child(column)
-
-	var title_row := HBoxContainer.new()
-	title_row.add_theme_constant_override("separation", 8)
-	column.add_child(title_row)
-
-	var title := Label.new()
-	title.name = "Title"
-	title.text = "Furnace"
-	title.add_theme_font_size_override("font_size", TITLE_SIZE)
-	title_row.add_child(title)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
-	title_row.add_child(spacer)
-
-	var back_button := _create_button("← Inventory", close_furnace, Vector2(110.0, 36.0))
-	back_button.visible = false
-	back_button.name = "BackButton"
-	title_row.add_child(back_button)
-
-	var close_button := _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
-	title_row.add_child(close_button)
-
-	_furnace_status_label = Label.new()
-	_furnace_status_label.name = "FurnaceStatus"
-	_furnace_status_label.text = "No smeltable ores."
-	_furnace_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(_furnace_status_label)
-
-	var recipe_hint := Label.new()
-	recipe_hint.name = "FurnaceHint"
-	recipe_hint.text = "1 ore + 1 fuel (coal or log) -> 1 ingot"
-	recipe_hint.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
-	column.add_child(recipe_hint)
-
-	_furnace_buttons.clear()
-	for input_id in FURNACE_RECIPES.SMELT_MAP.keys():
-		var ore_id := int(input_id)
-		var out_id := FURNACE_RECIPES.smelt_output_for(ore_id)
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		column.add_child(row)
-
-		var smelt_one := _create_button(
-			"SMELT 1 %s" % _ore_label(ore_id),
-			func() -> void: _smelt_from_inventory(ore_id, 1),
-			Vector2(220.0, 36.0)
-		)
-		row.add_child(smelt_one)
-
-		var smelt_all := _create_button(
-			"SMELT ALL",
-			func() -> void: _smelt_from_inventory(ore_id, 64),
-			Vector2(120.0, 36.0)
-		)
-		row.add_child(smelt_all)
-
-		row.add_child(_make_furnace_count_label(ore_id, out_id))
-		_furnace_buttons.append(smelt_one)
-		_furnace_buttons.append(smelt_all)
-
-
-func _ore_label(ore_id: int) -> String:
-	match ore_id:
-		FURNACE_RECIPES.INPUT_ORE_IRON:
-			return "IRON ORE"
-		FURNACE_RECIPES.INPUT_ORE_COPPER:
-			return "COPPER ORE"
-	return "ORE"
-
-
-func _make_furnace_count_label(ore_id: int, out_id: int) -> Label:
-	var label := Label.new()
-	label.name = "FurnaceCount_%d" % ore_id
-	label.text = "%s -> %s" % [_ore_label(ore_id), _block_label(out_id)]
-	return label
-
-
-func _block_label(block_id: int) -> String:
-	return String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
-
-
-func _smelt_from_inventory(input_ore_id: int, max_operations: int) -> void:
-	if _inventory == null:
-		return
-	var smelted := 0
-	for _op in range(maxi(1, max_operations)):
-		if not _inventory.has_item(input_ore_id, 1):
-			break
-		var report: Dictionary = FURNACE_RECIPES.smelt_once(_inventory)
-		if not bool(report.get("ok", false)):
-			break
-		smelted += 1
-	if smelted > 0:
-		_refresh()
-	elif _furnace_status_label != null:
-		_furnace_status_label.text = "Need %s and fuel (coal or log)." % _ore_label(input_ore_id)
-
-
-func _refresh_furnace() -> void:
-	if not is_instance_valid(_furnace_panel) or _inventory == null:
-		return
-	if _furnace_status_label != null:
-		var parts: Array[String] = []
-		var fuel_coal := _inventory.get_item_count(FURNACE_RECIPES.FUEL_COAL)
-		var fuel_log := _inventory.get_item_count(FURNACE_RECIPES.FUEL_LOG)
-		for input_id in FURNACE_RECIPES.SMELT_MAP.keys():
-			parts.append("%s x%d" % [_ore_label(int(input_id)), _inventory.get_item_count(int(input_id))])
-		parts.append("COAL x%d" % fuel_coal)
-		parts.append("LOG x%d" % fuel_log)
-		_furnace_status_label.text = " | ".join(parts)
-
-
-func open_furnace() -> void:
-	_set_open(true)
-	_set_furnace(true)
-
-
-func close_furnace() -> void:
-	_set_furnace(false)
-
-
-func _set_furnace(value: bool) -> void:
-	_is_crafting = value # furnace reuses the crafting view slot
-	if is_instance_valid(_overlay) and not _is_open:
-		return
-	if is_instance_valid(_inventory_panel):
-		_inventory_panel.visible = _is_open and not _is_crafting
-	if is_instance_valid(_crafting_panel):
-		_crafting_panel.visible = false
-	if is_instance_valid(_furnace_panel):
-		_furnace_panel.visible = _is_open and _is_crafting
-	if is_instance_valid(_craft_back_button):
-		_craft_back_button.visible = false
-	if is_instance_valid(_toggle_button):
-		_toggle_button.text = "INVENTORY" if _is_crafting else ("CLOSE" if _is_open else "INVENTORY")
-	if _is_open:
-		_refresh()
-
-
-func _style_panel(panel: PanelContainer) -> void:
-	# Use theme's default PanelContainer style (shadcn dark theme provides one)
-	# If we want to ensure rounded corners, apply a small override
-	var style := StyleBoxFlat.new()
-	style.corner_radius_top_left = PANEL_RADIUS
-	style.corner_radius_top_right = PANEL_RADIUS
-	style.corner_radius_bottom_left = PANEL_RADIUS
-	style.corner_radius_bottom_right = PANEL_RADIUS
-	panel.add_theme_stylebox_override("panel", style)
-
-
-func _create_button(text: String, callback: Callable, size: Vector2) -> Button:
-	var btn := Button.new()
-	btn.text = text
-	btn.custom_minimum_size = size
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.add_theme_font_size_override("font_size", BTN_FONT_SIZE)
-	# Use theme button styles, just override accent colors
-	btn.add_theme_color_override("font_hover_color", COLOR_ACCENT)
-	btn.add_theme_color_override("font_pressed_color", Color(0.7, 0.55, 0.1, 1.0))
-	btn.pressed.connect(callback)
-	return btn
-
 
 func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = SLOT_SIZE
+	panel.custom_minimum_size = Vector2(98.0, 62.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(panel)
-	_style_slot(panel)
 
 	var label := Label.new()
 	label.name = "Content"
-	label.text = "Empty"
+	label.text = "EMPTY x0"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color.WHITE)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
@@ -1325,31 +1091,20 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 	return {"label": label, "button": button}
 
 
-func _style_slot(panel: PanelContainer) -> void:
-	# Use theme's default slot style (shadcn provides Panel style)
-	# We just ensure consistent corner radius for our grid layout
-	var style := StyleBoxFlat.new()
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	panel.add_theme_stylebox_override("panel", style)
-
-
 func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: int) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = SLOT_SIZE
+	panel.custom_minimum_size = Vector2(98.0, 62.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(panel)
-	_style_slot(panel)
 
 	var label := Label.new()
 	label.name = "Content"
-	label.text = "Empty"
+	label.text = "EMPTY x0"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color.WHITE)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
@@ -1373,18 +1128,21 @@ func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: i
 func _create_craft_output_slot(parent: Control, slot_name: String) -> Dictionary:
 	var panel := PanelContainer.new()
 	panel.name = slot_name
-	panel.custom_minimum_size = SLOT_SIZE
+	panel.custom_minimum_size = Vector2(98.0, 62.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	# Output slot has a different background color to indicate it's output
+	var style := panel.get_theme_stylebox("panel")
+	if style != null:
+		panel.add_theme_stylebox_override("panel", style.duplicate(true))
 	parent.add_child(panel)
-	_style_slot(panel)
 
 	var label := Label.new()
 	label.name = "Content"
-	label.text = "Empty"
+	label.text = "EMPTY x0"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", SLOT_FONT_SIZE)
-	label.add_theme_color_override("font_color", COLOR_ACCENT)
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.3))
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)

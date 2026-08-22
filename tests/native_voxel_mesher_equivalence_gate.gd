@@ -63,6 +63,14 @@ func _synthetic_overrides(coord: Vector2i, heights: PackedInt32Array, variant: i
 		# Explicit decoration overrides exercise log/leaves and dictionary parsing.
 		result[_key(origin_x + 8, h_b + 2, origin_z + 6)] = BASE_MESHER.BLOCK_LOG
 		result[_key(origin_x + 9, h_b + 2, origin_z + 6)] = BASE_MESHER.BLOCK_LEAVES
+		# Ore + smelting blocks (steps 14-16): force color parity for every new id.
+		result[_key(origin_x + 3, h_a - 4, origin_z + 3)] = BASE_MESHER.BLOCK_COAL_ORE
+		result[_key(origin_x + 5, h_a - 5, origin_z + 3)] = BASE_MESHER.BLOCK_IRON_ORE
+		result[_key(origin_x + 6, h_a - 6, origin_z + 4)] = BASE_MESHER.BLOCK_COPPER_ORE
+		result[_key(origin_x + 7, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_FURNACE
+		result[_key(origin_x + 8, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_IRON_INGOT
+		result[_key(origin_x + 9, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_COPPER_INGOT
+		result[_key(origin_x + 10, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_COAL
 	return result
 
 

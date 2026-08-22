@@ -1,0 +1,351 @@
+{
+  "communities": {
+    "0": [
+      "path",
+      "tools_reference_luanti_carpathian_reference",
+      "tools_reference_luanti_carpathian_reference_audit_seed",
+      "tools_reference_luanti_carpathian_reference_columnresult",
+      "tools_reference_luanti_carpathian_reference_columnresult_height",
+      "tools_reference_luanti_carpathian_reference_columnresult_hills",
+      "tools_reference_luanti_carpathian_reference_columnresult_mountains",
+      "tools_reference_luanti_carpathian_reference_columnresult_ridges",
+      "tools_reference_luanti_carpathian_reference_columnresult_steps",
+      "tools_reference_luanti_carpathian_reference_ease_curve",
+      "tools_reference_luanti_carpathian_reference_fractal2d",
+      "tools_reference_luanti_carpathian_reference_fractal3d",
+      "tools_reference_luanti_carpathian_reference_lerp",
+      "tools_reference_luanti_carpathian_reference_main",
+      "tools_reference_luanti_carpathian_reference_myfloor",
+      "tools_reference_luanti_carpathian_reference_noise2d",
+      "tools_reference_luanti_carpathian_reference_noise2d_value",
+      "tools_reference_luanti_carpathian_reference_noise3d",
+      "tools_reference_luanti_carpathian_reference_noise3d_value",
+      "tools_reference_luanti_carpathian_reference_sample_column",
+      "tools_reference_luanti_carpathian_reference_steps",
+      "tools_reference_luanti_carpathian_reference_write_pgm",
+      "tools_reference_luanti_carpathian_reference_write_relief_ppm",
+      "tools_reference_luanti_carpathian_surface_adapter_study",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compare_seed",
+      "tools_reference_luanti_carpathian_surface_adapter_study_fastcolumn",
+      "tools_reference_luanti_carpathian_surface_adapter_study_fastcolumn_height",
+      "tools_reference_luanti_carpathian_surface_adapter_study_fastcolumn_mountains",
+      "tools_reference_luanti_carpathian_surface_adapter_study_main",
+      "tools_reference_luanti_carpathian_surface_adapter_study_sample_column_single_probe",
+      "vector"
+    ],
+    "1": [
+      "moduleinitializationlevel",
+      "native_carpathian_src_teknik_carpathian",
+      "native_carpathian_src_teknik_carpathian_cpp_packedint32array",
+      "native_carpathian_src_teknik_carpathian_cpp_refcounted",
+      "native_carpathian_src_teknik_carpathian_ease_curve",
+      "native_carpathian_src_teknik_carpathian_fractal2d",
+      "native_carpathian_src_teknik_carpathian_fractal3d",
+      "native_carpathian_src_teknik_carpathian_initialize_teknik_carpathian",
+      "native_carpathian_src_teknik_carpathian_lerp_value",
+      "native_carpathian_src_teknik_carpathian_myfloor",
+      "native_carpathian_src_teknik_carpathian_noise2d",
+      "native_carpathian_src_teknik_carpathian_noise3d",
+      "native_carpathian_src_teknik_carpathian_steps_value",
+      "native_carpathian_src_teknik_carpathian_surface_height_carpathian",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_bind_methods",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_generate_grid",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_generate_grid_shifted",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_get_seed",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_sample_height",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_set_seed",
+      "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler_world_seed",
+      "native_carpathian_src_teknik_carpathian_uninitialize_teknik_carpathian",
+      "native_carpathian_src_teknik_carpathian_value_noise_2d",
+      "native_carpathian_src_teknik_carpathian_value_noise_3d",
+      "native_carpathian_src_teknik_voxel_mesher_register_teknik_voxel_mesher"
+    ],
+    "2": [
+      "native_carpathian_src_teknik_voxel_mesher_hpp_refcounted",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_bind_methods",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_biome_desert",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_biome_forest",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_biome_plains",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_biome_rocky",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_air",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_dirt",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_grass",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_leaves",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_log",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_sand",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_stone",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_forest_tree_offset",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_forest_tree_spacing",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_max_sky_light",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_min_sky_brightness",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_tree_offset",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_tree_spacing",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_tree_trunk_height",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_world_seed"
+    ],
+    "3": [
+      "tools_reference_luanti_carpathian_reference_auditresult",
+      "tools_reference_luanti_carpathian_reference_auditresult_elapsed_ms",
+      "tools_reference_luanti_carpathian_reference_auditresult_grid",
+      "tools_reference_luanti_carpathian_reference_auditresult_largest_low_relief_area_blocks2",
+      "tools_reference_luanti_carpathian_reference_auditresult_largest_low_relief_cells",
+      "tools_reference_luanti_carpathian_reference_auditresult_largest_low_relief_equiv_width_blocks",
+      "tools_reference_luanti_carpathian_reference_auditresult_max_h",
+      "tools_reference_luanti_carpathian_reference_auditresult_mean_h",
+      "tools_reference_luanti_carpathian_reference_auditresult_min_h",
+      "tools_reference_luanti_carpathian_reference_auditresult_mountain_contrib_lt_1_pct",
+      "tools_reference_luanti_carpathian_reference_auditresult_p05",
+      "tools_reference_luanti_carpathian_reference_auditresult_p50",
+      "tools_reference_luanti_carpathian_reference_auditresult_p95",
+      "tools_reference_luanti_carpathian_reference_auditresult_seed",
+      "tools_reference_luanti_carpathian_reference_auditresult_slope_le_1_pct",
+      "tools_reference_luanti_carpathian_reference_auditresult_slope_le_2_pct",
+      "tools_reference_luanti_carpathian_reference_auditresult_step"
+    ],
+    "4": [
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_exact_pct",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_fast_max",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_fast_min",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_fast_p95",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_fast_slope_le1_pct",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_largest_low_relief_cells",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_largest_low_relief_equiv_width",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_mae",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_p95_abs_error",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_probe_y",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_seed",
+      "tools_reference_luanti_carpathian_surface_adapter_study_compareresult_within1_pct"
+    ],
+    "5": [
+      "native_carpathian_src_teknik_voxel_mesher_hpp_packedint32array",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_ao_brightness",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_axis_direction",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_biome_at_cache",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_at",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_build",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_face_shade",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_generated_tree_block",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_sky_at",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_terrain_block",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_volume_index",
+      "packedbytearray"
+    ],
+    "6": [
+      "native_carpathian_src_teknik_carpathian_noiseparams",
+      "native_carpathian_src_teknik_carpathian_noiseparams_eased_2d",
+      "native_carpathian_src_teknik_carpathian_noiseparams_lacunarity",
+      "native_carpathian_src_teknik_carpathian_noiseparams_octaves",
+      "native_carpathian_src_teknik_carpathian_noiseparams_offset",
+      "native_carpathian_src_teknik_carpathian_noiseparams_persist",
+      "native_carpathian_src_teknik_carpathian_noiseparams_scale",
+      "native_carpathian_src_teknik_carpathian_noiseparams_seed",
+      "native_carpathian_src_teknik_carpathian_noiseparams_spread"
+    ],
+    "7": [
+      "tools_reference_luanti_carpathian_reference_noiseparams",
+      "tools_reference_luanti_carpathian_reference_noiseparams_eased_2d",
+      "tools_reference_luanti_carpathian_reference_noiseparams_lacunarity",
+      "tools_reference_luanti_carpathian_reference_noiseparams_octaves",
+      "tools_reference_luanti_carpathian_reference_noiseparams_offset",
+      "tools_reference_luanti_carpathian_reference_noiseparams_persist",
+      "tools_reference_luanti_carpathian_reference_noiseparams_scale",
+      "tools_reference_luanti_carpathian_reference_noiseparams_seed",
+      "tools_reference_luanti_carpathian_reference_noiseparams_spread"
+    ],
+    "8": [
+      "color",
+      "dictionary",
+      "native_carpathian_src_teknik_voxel_mesher",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_block_color",
+      "vector2i"
+    ],
+    "9": [
+      "gdextensionbool",
+      "gdextensionclasslibraryptr",
+      "gdextensioninitialization",
+      "gdextensioninterfacegetprocaddress",
+      "native_carpathian_src_teknik_carpathian_teknik_carpathian_library_init"
+    ],
+    "10": [
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_is_tree_origin",
+      "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher_posmod_i"
+    ],
+    "11": [
+      "scripts_android_install_gradle_build_template",
+      "scripts_android_install_gradle_build_template_sh__entry"
+    ],
+    "12": [
+      "scripts_android_setup_debug_keystore",
+      "scripts_android_setup_debug_keystore_sh__entry"
+    ],
+    "13": [
+      "scripts_android_setup_release_keystore",
+      "scripts_android_setup_release_keystore_sh__entry"
+    ]
+  },
+  "cohesion": {
+    "0": 0.13548387096774195,
+    "1": 0.13538461538461538,
+    "2": 0.09090909090909091,
+    "3": 0.11764705882352941,
+    "4": 0.15384615384615385,
+    "5": 0.19696969696969696,
+    "6": 0.2222222222222222,
+    "7": 0.2222222222222222,
+    "8": 0.4,
+    "9": 0.4,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0
+  },
+  "gods": [
+    {
+      "id": "native_carpathian_src_teknik_voxel_mesher_teknikvoxelmesher",
+      "label": "TeknikVoxelMesher",
+      "degree": 35
+    },
+    {
+      "id": "tools_reference_luanti_carpathian_reference_auditresult",
+      "label": "AuditResult",
+      "degree": 18
+    },
+    {
+      "id": "tools_reference_luanti_carpathian_surface_adapter_study_compareresult",
+      "label": "CompareResult",
+      "degree": 14
+    },
+    {
+      "id": "native_carpathian_src_teknik_carpathian_noiseparams",
+      "label": "NoiseParams",
+      "degree": 11
+    },
+    {
+      "id": "tools_reference_luanti_carpathian_reference_noiseparams",
+      "label": "NoiseParams",
+      "degree": 11
+    },
+    {
+      "id": "tools_reference_luanti_carpathian_reference_columnresult",
+      "label": "ColumnResult",
+      "degree": 9
+    },
+    {
+      "id": "native_carpathian_src_teknik_carpathian_teknikcarpathiansampler",
+      "label": "TeknikCarpathianSampler",
+      "degree": 9
+    },
+    {
+      "id": "tools_reference_luanti_carpathian_reference_sample_column",
+      "label": "sample_column()",
+      "degree": 8
+    },
+    {
+      "id": "native_carpathian_src_teknik_carpathian_surface_height_carpathian",
+      "label": "surface_height_carpathian()",
+      "degree": 8
+    },
+    {
+      "id": "tools_reference_luanti_carpathian_reference_audit_seed",
+      "label": "audit_seed()",
+      "degree": 7
+    }
+  ],
+  "surprises": [
+    {
+      "source": "sample_column_single_probe()",
+      "target": "fractal2d()",
+      "source_files": [
+        "tools/reference/luanti_carpathian_surface_adapter_study.cpp",
+        "tools/reference/luanti_carpathian_reference.cpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "sample_column_single_probe()",
+      "target": "fractal3d()",
+      "source_files": [
+        "tools/reference/luanti_carpathian_surface_adapter_study.cpp",
+        "tools/reference/luanti_carpathian_reference.cpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "sample_column_single_probe()",
+      "target": "lerp()",
+      "source_files": [
+        "tools/reference/luanti_carpathian_surface_adapter_study.cpp",
+        "tools/reference/luanti_carpathian_reference.cpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "compare_seed()",
+      "target": "sample_column()",
+      "source_files": [
+        "tools/reference/luanti_carpathian_surface_adapter_study.cpp",
+        "tools/reference/luanti_carpathian_reference.cpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "initialize_teknik_carpathian()",
+      "target": "register_teknik_voxel_mesher()",
+      "source_files": [
+        "native/carpathian/src/teknik_carpathian.cpp",
+        "native/carpathian/src/teknik_voxel_mesher.hpp"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `TeknikVoxelMesher` connect `TeknikVoxelMesher` to `teknik_voxel_mesher.hpp`, `.is_tree_origin`, `.build`?",
+      "why": "High betweenness centrality (0.360) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `AuditResult` connect `AuditResult` to `luanti_carpathian_reference.cpp`?",
+      "why": "High betweenness centrality (0.187) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `CompareResult` connect `CompareResult` to `luanti_carpathian_reference.cpp`?",
+      "why": "High betweenness centrality (0.142) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `height`, `hills`, `mountains` to the rest of the system?",
+      "why": "73 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `luanti_carpathian_reference.cpp` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.13548387096774195 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `teknik_carpathian.cpp` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.13538461538461538 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `TeknikVoxelMesher` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected."
+    }
+  ]
+}
