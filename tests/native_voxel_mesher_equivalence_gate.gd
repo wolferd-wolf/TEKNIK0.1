@@ -71,6 +71,8 @@ func _synthetic_overrides(coord: Vector2i, heights: PackedInt32Array, variant: i
 		result[_key(origin_x + 8, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_IRON_INGOT
 		result[_key(origin_x + 9, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_COPPER_INGOT
 		result[_key(origin_x + 10, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_COAL
+		result[_key(origin_x + 10, h_b + 2, origin_z + 7)] = BASE_MESHER.BLOCK_GLASS
+		result[_key(origin_x + 11, h_b + 1, origin_z + 7)] = BASE_MESHER.BLOCK_CHARCOAL
 	return result
 
 

@@ -13,15 +13,19 @@ const OUTPUT_INGOT_IRON := 14
 const OUTPUT_INGOT_COPPER := 15
 const FUEL_COAL := 16
 const FUEL_LOG := 5
+const OUTPUT_GLASS := 17
+const OUTPUT_CHARCOAL := 18
 
 ## Ore -> ingot. Unknown inputs return 0 (no-op).
 const SMELT_MAP := {
 	INPUT_ORE_IRON: OUTPUT_INGOT_IRON,
 	INPUT_ORE_COPPER: OUTPUT_INGOT_COPPER,
+	4: OUTPUT_GLASS,     # sand -> glass
+	FUEL_LOG: OUTPUT_CHARCOAL, # log -> charcoal (also a fuel itself)
 }
 
 ## Items accepted as fuel. One fuel item powers one smelt operation.
-const FUEL_SET := [FUEL_COAL, FUEL_LOG]
+const FUEL_SET := [FUEL_COAL, OUTPUT_CHARCOAL, FUEL_LOG]
 
 
 static func smelt_output_for(input_block_id: int) -> int:
@@ -58,6 +62,10 @@ static func smelt_once(inventory) -> Dictionary:
 		if inventory.has_item(int(candidate), 1):
 			fuel_id = int(candidate)
 			break
+	# A smeltable that is itself fuel (log -> charcoal) must not consume the
+	# same single item twice: one unit burns, one unit converts.
+	if fuel_id == input_id and inventory.get_item_count(fuel_id) < 2:
+		return {"ok": false, "reason": "no_fuel"}
 	if fuel_id == 0:
 		return {"ok": false, "reason": "no_fuel"}
 	var output_id := smelt_output_for(input_id)

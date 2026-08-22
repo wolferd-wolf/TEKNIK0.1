@@ -74,6 +74,8 @@ const BLOCK_NAMES := {
 	14: "IRON INGOT",
 	15: "COPPER INGOT",
 	16: "COAL",
+	17: "GLASS",
+	18: "CHARCOAL",
 }
 
 var _inventory: BlockInventory
@@ -86,6 +88,9 @@ var _toggle_button: Button
 var _close_button: Button
 const FURNACE_RECIPES := preload("res://scripts/smelting/furnace_recipes.gd")
 
+const SMELT_SECONDS_PER_OPERATION := 1.2
+
+var _smelt_running := false
 var _furnace_panel: PanelContainer
 var _furnace_status_label: Label
 var _furnace_buttons: Array[Button] = []
@@ -1210,20 +1215,47 @@ func _block_label(block_id: int) -> String:
 
 
 func _smelt_from_inventory(input_ore_id: int, max_operations: int) -> void:
-	if _inventory == null:
+	if _inventory == null or _smelt_running:
 		return
-	var smelted := 0
-	for _op in range(maxi(1, max_operations)):
+	if not _inventory.has_item(input_ore_id, 1):
+		if _furnace_status_label != null:
+			_furnace_status_label.text = "No %s to smelt." % _ore_label(input_ore_id)
+		return
+	_smelt_running = true
+	_set_furnace_buttons_enabled(false)
+	var planned := mini(maxi(1, max_operations), _inventory.get_item_count(input_ore_id))
+	var completed := 0
+	for _op in range(planned):
 		if not _inventory.has_item(input_ore_id, 1):
 			break
 		var report: Dictionary = FURNACE_RECIPES.smelt_once(_inventory)
 		if not bool(report.get("ok", false)):
 			break
-		smelted += 1
-	if smelted > 0:
+		completed += 1
+		if _furnace_status_label != null:
+			_furnace_status_label.text = "SMELTING %s ... %d/%d" % [
+				_ore_label(input_ore_id), completed, planned,
+			]
 		_refresh()
-	elif _furnace_status_label != null:
-		_furnace_status_label.text = "Need %s and fuel (coal or log)." % _ore_label(input_ore_id)
+		var tree := get_tree()
+		if tree == null:
+			break
+		await tree.create_timer(SMELT_SECONDS_PER_OPERATION).timeout
+	_smelt_running = false
+	_set_furnace_buttons_enabled(true)
+	if _furnace_status_label != null:
+		_furnace_status_label.text = (
+			"SMELTED %d x %s" % [completed, _ore_label(input_ore_id)]
+			if completed > 0
+			else "Need %s and fuel (coal or charcoal or log)." % _ore_label(input_ore_id)
+		)
+	_refresh()
+
+
+func _set_furnace_buttons_enabled(enabled: bool) -> void:
+	for button in _furnace_buttons:
+		if is_instance_valid(button):
+			button.disabled = not enabled
 
 
 func _refresh_furnace() -> void:

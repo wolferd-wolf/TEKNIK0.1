@@ -14,6 +14,8 @@ const BLOCK_FURNACE := 13
 const BLOCK_IRON_INGOT := 14
 const BLOCK_COPPER_INGOT := 15
 const BLOCK_COAL := 16
+const BLOCK_GLASS := 17
+const BLOCK_CHARCOAL := 18
 const WORLD_SEED := 734921
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
@@ -787,6 +789,10 @@ static func _block_color(block: int, cell: Vector3i, face_index: int, light_fact
 			base_color = Color(0.80, 0.48, 0.26)
 		BLOCK_COAL:
 			base_color = Color(0.12, 0.12, 0.13)
+		BLOCK_GLASS:
+			base_color = Color(0.78, 0.88, 0.92)
+		BLOCK_CHARCOAL:
+			base_color = Color(0.20, 0.19, 0.18)
 		_:
 			base_color = Color.WHITE
 	var hash_value := absi((cell.x * 73856093) ^ (cell.y * 83492791) ^ (cell.z * 19349663))

@@ -30,7 +30,10 @@ func _init() -> void:
 	_expect(FURNACE.smelt_output_for(12) == 15, "copper ore must smelt to copper ingot")
 	_expect(FURNACE.smelt_output_for(3) == 0, "stone must not smelt")
 	_expect(FURNACE.smelt_output_for(0) == 0, "air must not smelt")
+	_expect(FURNACE.smelt_output_for(4) == 17, "sand must smelt to glass")
+	_expect(FURNACE.smelt_output_for(5) == 18, "log must smelt to charcoal")
 	_expect(FURNACE.is_fuel(16), "coal must be fuel")
+	_expect(FURNACE.is_fuel(18), "charcoal must be fuel")
 	_expect(FURNACE.is_fuel(5), "log must be fuel")
 	_expect(not FURNACE.is_fuel(3), "stone must not be fuel")
 
@@ -85,6 +88,30 @@ func _init() -> void:
 	_expect(tiny.get_item_count(11) == 1 and tiny.get_item_count(16) == 1,
 		"input+fuel preserved when output cannot fit")
 
+	# --- sand -> glass and log -> charcoal (charcoal then fuels itself)
+	var campfire = INVENTORY.new()
+	campfire.add_item(4, 1)
+	campfire.add_item(5, 3)
+	var g1: Dictionary = FURNACE.smelt_once(campfire)
+	_expect(bool(g1.get("ok", false)) and int(g1.get("output", -1)) == 17,
+		"sand + log fuel should yield glass")
+	var g2: Dictionary = FURNACE.smelt_once(campfire)
+	_expect(bool(g2.get("ok", false)) and int(g2.get("input", -1)) == 5
+		and int(g2.get("output", -1)) == 18, "second smelt turns a log into charcoal")
+	# charcoal produced by g2 is itself fuel: one more sand smelts off it
+	campfire.add_item(4, 1)
+	var g_char: Dictionary = FURNACE.smelt_once(campfire)
+	_expect(bool(g_char.get("ok", false)) and int(g_char.get("fuel", -1)) == 18,
+		"produced charcoal fuels the next smelt")
+
+	# a single log alone can't be both burned and converted
+	var solo = INVENTORY.new()
+	solo.add_item(5, 1)
+	var g_lone: Dictionary = FURNACE.smelt_once(solo)
+	_expect(not bool(g_lone.get("ok", false)) and g_lone.get("reason", "") == "no_fuel",
+		"single log can't be fuel and input at once")
+	_expect(solo.get_item_count(5) == 1, "lone log preserved on failed self-smelt")
+
 	# --- crafting screen contract
 	var recipes: Array = SCREEN.RECIPES
 	var found_furnace := false
@@ -100,7 +127,7 @@ func _init() -> void:
 					found_metal_drill = true
 	_expect(found_furnace, "crafting must expose 8 stone -> furnace")
 	_expect(found_metal_drill, "crafting must expose iron-ingot mechanical drill recipe")
-	for new_name_id in [10, 11, 12, 13, 14, 15, 16]:
+	for new_name_id in [10, 11, 12, 13, 14, 15, 16, 17, 18]:
 		_expect(SCREEN.BLOCK_NAMES.has(new_name_id), "BLOCK_NAMES missing id %d" % new_name_id)
 
 	print("SMELTING_GATE_JSON=", JSON.stringify({
