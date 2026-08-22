@@ -40,7 +40,7 @@ Both native languages compile to arm64-v8a via the pinned NDK and load through G
 6. ✅ **DONE** — baselines recorded in docs/native-mesher-step4-6-evidence.md (native mean 0.194 ms vs GDScript 56.18 ms per chunk; 261x p95). Regression policy stated there; CI equivalence workflow publishes timing JSON artifacts on every run.
 
 ### Session R0 — Rust bootstrap (gdext)
-7. Add `native/rust_fields` crate using godot-rust (gdext) compatible with Godot 4.3; build as cdylib into the same `bin/` layout; register its classes in the committed `.gdextension`. CI adds cargo fmt --check, clippy `-D warnings`, cargo test, desktop + arm64 builds. *Gate: a Rust class is callable from a headless Godot gate.*
+7. ✅ **DONE** — `native/rust_fields` on godot 0.1.3 (gdext), own `teknik_rust_fields.gdextension` (entry `gdext_rust_init`), loads alongside the C++ extension. Local gates: fmt OK, clippy -D warnings clean, RUST_FIELDS_GATE_PASS (probe class answers 42 through ClassDB). CI job `rust-fields-build` added: lint + desktop + NDK r23c android arm64 builds + headless gate.
 8. Define the **cave field contract**: pure functions `field(seed, x, y, z) -> float` + tunnel/carve decision helpers. Write the GDScript reference implementation and freeze fixed parity vectors. Port to Rust. *Gate: Rust matches the frozen vectors exactly; GDScript reference matches the same vectors.*
 
 ### Session W1 — Caves, stage 14 (GDScript reference first)
