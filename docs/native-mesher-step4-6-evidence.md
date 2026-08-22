@@ -29,3 +29,30 @@ parse; extension then loaded and both classes registered.
 
 Baseline threshold policy: any future native mesher regression beyond 10x of these
 native numbers fails review; GDScript fallback keeps the old absolute budget.
+
+
+## W1 Caves — Steps 9–13 Evidence
+
+### Step 9 — Carve integration
+- Single predicate `cave_carves_cell()` shared by gameplay truth (`get_block`) and mesh carve maps.
+- Carve map injected under player overrides (edits win); surface-carved columns suppress tree origins.
+- Field hash fixed: any trailing `h ^= h >> k` clears the sign bit; final op is now a multiply → uniform [0,1).
+- Calibrated density: tunnels 3.77%, cheese 0.63% of deep cells (~5% combined).
+
+### Step 10 — Boundary seams
+- Bidirectional seam check across chunk pairs: 91 shared carved cells, zero mismatches (pure world-coordinate field).
+
+### Step 11 — Sky light / AO
+- Mesher equivalence re-run WITH cave overrides in the path: 18/18 byte-exact, max color error 0.
+- Native evaluator (TeknikRustFieldEvaluator) selected automatically when registered.
+
+### Step 12 — Performance decision
+- Threaded shipping path with caves: 17 chunks wall 150.6 ms (was 91.1 ms pre-caves).
+- Delta is dict/string override plumbing, not field math (Rust evaluator active).
+- Decision: keep Rust field evaluation; no further flip needed.
+
+### Step 13 — Hitch + screenshots (both paths)
+- CHUNK_APPLY_HITCH_GATE_PASS: split-frame peak p95 0.552 ms vs legacy 1.319 ms.
+- artifacts/cave-interior.png (native, pocket at -34,5,-48): mean luma 0.174, 65.5% dark pixels.
+- artifacts/cave-interior-fallback.png (GDScript-only ships legacy world by charter): mean luma 0.430.
+- Cave interior is structurally darker → sky light does not leak underground.

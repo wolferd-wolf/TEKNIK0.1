@@ -44,11 +44,11 @@ Both native languages compile to arm64-v8a via the pinned NDK and load through G
 8. Define the **cave field contract**: pure functions `field(seed, x, y, z) -> float` + tunnel/carve decision helpers. Write the GDScript reference implementation and freeze fixed parity vectors. Port to Rust. *Gate: Rust matches the frozen vectors exactly; GDScript reference matches the same vectors.*
 
 ### Session W1 — Caves, stage 14 (GDScript reference first)
-9. Stage 14 data: 3D cave fields — spaghetti tunnels (product of two 3D fields near zero) plus cheese caverns (single low-frequency threshold, deep bands only). Depth guards: no carving within 4 blocks of the surface except a sparse deterministic entrance field; no carving under ocean/river columns above a safety margin; clamp to `y >= min_y + 2`.
-10. Carve during column fill: after height assignment, before water/tree fill. River/ocean columns follow the guard rules. Fully deterministic per world coordinate.
-11. Extend boundary testing: cave seams across chunk borders + the existing 26-topology diagnostic re-run with caves enabled. Same-seed neighbor agreement must be exact.
-12. Verify lighting: sky light does not leak underground; AO darkens interiors correctly. *Gate: screenshot evidence standing inside a cave.*
-13. Measure chunk generation time against the mobile budget. **Decision point:** if over budget, flip cave field evaluation to the Rust module from R0 (parity already proven). Record numbers either way.
+9. ✅ **DONE** — Stage 14 data: 3D cave fields — spaghetti tunnels (product of two 3D fields near zero) plus cheese caverns (single low-frequency threshold, deep bands only). Depth guards: no carving within 4 blocks of the surface except a sparse deterministic entrance field; no carving under ocean/river columns above a safety margin; clamp to `y >= min_y + 2`.
+10. ✅ **DONE** — Carve during column fill: after height assignment, before water/tree fill. River/ocean columns follow the guard rules. Fully deterministic per world coordinate.
+11. ✅ **DONE** — Extend boundary testing: cave seams across chunk borders + the existing 26-topology diagnostic re-run with caves enabled. Same-seed neighbor agreement must be exact.
+12. ✅ **DONE** — Verify lighting: sky light does not leak underground; AO darkens interiors correctly. *Gate: screenshot evidence standing inside a cave.*
+13. ✅ **DONE** — Measure chunk generation time against the mobile budget. **Decision point:** if over budget, flip cave field evaluation to the Rust module from R0 (parity already proven). Record numbers either way.
 
 ### Session A — Metals & smelting (progression loop fix; ores are placed post-carve so veins show in cave walls)
 14. Ore generation: coal, iron, copper veins in stone, depth-weighted, seeded deterministically, respecting persistent edits. Ore blocks mineable, drop raw items.
