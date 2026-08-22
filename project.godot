@@ -14,6 +14,7 @@ run/flush_stdout_on_print.debug=false
 [autoload]
 
 DiagnosticLogCapture="*res://scripts/debug/diagnostic_log_capture.gd"
+NativeLoader="*res://scripts/core/native_loader.gd"
 
 [debug]
 
@@ -144,4 +145,4 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 
 [gui]
-theme/default_theme = ExtResource("res://assets/shadcn_dark_theme.tres")
+theme/custom="res://assets/shadcn_dark_theme.tres"
