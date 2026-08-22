@@ -51,7 +51,7 @@ Both native languages compile to arm64-v8a via the pinned NDK and load through G
 13. ✅ **DONE** — Measure chunk generation time against the mobile budget. **Decision point:** if over budget, flip cave field evaluation to the Rust module from R0 (parity already proven). Record numbers either way.
 
 ### Session A — Metals & smelting (progression loop fix; ores are placed post-carve so veins show in cave walls)
-14. Ore generation: coal, iron, copper veins in stone, depth-weighted, seeded deterministically, respecting persistent edits. Ore blocks mineable, drop raw items.
+14. ✅ **DONE** — Ore generation: coal, iron, copper veins in stone, depth-weighted, seeded deterministically, respecting persistent edits. Ore blocks mineable, drop raw items.
 15. Furnace block + smelting UI: fuel + input -> output over time. Recipes: raw iron -> ingot, sand -> glass, log -> charcoal.
 16. New items (ingots, coal, charcoal); machine recipes (water wheel, shaft, drill) now cost iron.
 
