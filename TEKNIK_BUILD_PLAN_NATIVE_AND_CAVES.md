@@ -53,7 +53,7 @@ Both native languages compile to arm64-v8a via the pinned NDK and load through G
 ### Session A — Metals & smelting (progression loop fix; ores are placed post-carve so veins show in cave walls)
 14. ✅ **DONE** — Ore generation: coal, iron, copper veins in stone, depth-weighted, seeded deterministically, respecting persistent edits. Ore blocks mineable, drop raw items.
 15. ✅ **DONE** — Furnace block + smelting UI: fuel + input -> output over time. Recipes: raw iron -> ingot, sand -> glass, log -> charcoal.
-16. New items (ingots, coal, charcoal); machine recipes (water wheel, shaft, drill) now cost iron.
+16. ✅ **DONE** — New items (ingots, coal, charcoal); machine recipes (water wheel, shaft, drill) now cost iron.
 
 ### Later sessions (accepted direction, each becomes its own build-plan session)
 - **B — Mechanical expansion:** hand crank, cogwheel, gearbox, windmill, SU/RPM HUD.
