@@ -147,14 +147,32 @@ func _run_gate() -> void:
 	_finish()
 
 
+func _find_solid_surface_column(manager, start: Vector2i) -> Vector3i:
+	var offsets := [
+		Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0),
+		Vector2i(0, -1), Vector2i(2, 0), Vector2i(0, 2), Vector2i(-2, 0),
+		Vector2i(0, -2), Vector2i(3, 0), Vector2i(0, 3), Vector2i(-3, 0),
+	]
+	for offset in offsets:
+		var candidate: Vector2i = start + (offset as Vector2i)
+		var surface_y: int = manager.get_playable_world_height(candidate.x, candidate.y)
+		var coord := Vector3i(candidate.x, surface_y, candidate.y)
+		if int(manager.get_block_world(coord)) != BLOCK_AIR:
+			var above := coord + Vector3i.UP
+			if int(manager.get_block_world(above)) == BLOCK_AIR:
+				return coord
+	_fail("No uncarved natural surface found near %s" % start)
+	return Vector3i(start.x, manager.get_playable_world_height(start.x, start.y), start.y)
+
+
 func _prepare_natural_base(manager, column: Vector2i) -> Vector3i:
-	var surface_y: int = manager.get_playable_world_height(column.x, column.y)
-	var base_coord := Vector3i(column.x, surface_y, column.y)
+	# Cave carving can open the surface at any given column (build plan
+	# step 9), so probe outward until a column keeps a solid surface block.
+	var base_coord := _find_solid_surface_column(manager, column)
+	if int(manager.get_block_world(base_coord)) == BLOCK_AIR:
+		return base_coord # already reported by the probe
 	var placement_coord := base_coord + Vector3i.UP
-	if manager.get_block_world(base_coord) == BLOCK_AIR:
-		_fail("Natural terrain base was air at %s" % base_coord)
-		return base_coord
-	if manager.get_block_world(placement_coord) != BLOCK_AIR:
+	if int(manager.get_block_world(placement_coord)) != BLOCK_AIR:
 		var swaps_before := int(manager.get_remesh_diagnostics().get("atomic_swaps", 0))
 		if not manager.mine_block_world(placement_coord):
 			_fail("Could not clear natural placement cell at %s" % placement_coord)

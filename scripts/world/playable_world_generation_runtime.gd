@@ -154,13 +154,28 @@ static func _build_chunk_result_with_sampler(
 	var expression_codes: Dictionary = SHIPPING_STAGE12_CACHE.build_expression_codes(caches, sampler)
 	var transition_codes: PackedByteArray = expression_codes.get("transition_codes", PackedByteArray())
 	var hydrology_codes: PackedByteArray = expression_codes.get("hydrology_codes", PackedByteArray())
+	# Cave carving (steps 8-9): pure world-coordinate field, evaluated once per
+	# chunk build. Player edits win: the snapshot overlays the carve map.
+	var combined_overrides := overrides_snapshot
+	var cave_blocked := PackedInt32Array()
+	if sampler.has_method("cave_data_for_chunk"):
+		var cave_info: Dictionary = sampler.cave_data_for_chunk(coord, caches, mesh_height)
+		cave_blocked = cave_info.get("blocked_columns", PackedInt32Array())
+		var cave_overrides: Dictionary = cave_info.get("overrides", {})
+		if not cave_overrides.is_empty():
+			combined_overrides = {}
+			for cave_key in cave_overrides:
+				combined_overrides[cave_key] = cave_overrides[cave_key]
+			for edit_key in overrides_snapshot:
+				combined_overrides[edit_key] = overrides_snapshot[edit_key]
 	var blocked_tree_columns: PackedInt32Array = FROZEN_STAGE11_RUNTIME._stage6_blocked_tree_columns(
 		coord, caches, sampler
 	)
+	blocked_tree_columns.append_array(cave_blocked)
 	var mesh_data: Dictionary = SHIPPING_STAGE12_MESHER.build(
 		coord,
 		heights,
-		overrides_snapshot,
+		combined_overrides,
 		12,
 		mesh_height,
 		SHIPPING_DATA.SEA_LEVEL,

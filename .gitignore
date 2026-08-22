@@ -2,3 +2,7 @@
 android/build/
 *.keystore
 *.jks
+native/carpathian/godot-cpp/
+native/carpathian/bin/
+native/rust_fields/target/
+native/rust_fields/bin/

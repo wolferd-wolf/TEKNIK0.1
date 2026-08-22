@@ -1,0 +1,254 @@
+[gd_resource type="Theme" format=3]
+
+[sub_resource type="StyleBoxFlat" id="sb_panel"]
+bg_color = Color(0.039215688, 0.039215688, 0.039215688, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxFlat" id="sb_button_normal"]
+bg_color = Color(0.10980392, 0.10980392, 0.10980392, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+
+[sub_resource type="StyleBoxFlat" id="sb_button_hover"]
+bg_color = Color(0.13333334, 0.13333334, 0.13333334, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+
+[sub_resource type="StyleBoxFlat" id="sb_button_pressed"]
+bg_color = Color(0.09019608, 0.09019608, 0.09019608, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+
+[sub_resource type="StyleBoxFlat" id="sb_button_focus"]
+bg_color = Color(0.10980392, 0.10980392, 0.10980392, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.23137255, 0.50980395, 0.9647059, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 10.0
+content_margin_top = 5.2
+content_margin_right = 10.0
+content_margin_bottom = 5.2
+
+[sub_resource type="StyleBoxFlat" id="sb_button_disabled"]
+bg_color = Color(0.07, 0.07, 0.07, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+
+[sub_resource type="StyleBoxFlat" id="sb_slot"]
+bg_color = Color(0.07, 0.07, 0.07, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.25, 0.3, 1)
+
+[sub_resource type="StyleBoxFlat" id="sb_slot_hover"]
+bg_color = Color(0.1, 0.1, 0.12, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.3, 0.35, 1)
+
+[sub_resource type="StyleBoxFlat" id="sb_scroll_grabber"]
+bg_color = Color(0.2, 0.2, 0.25, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="sb_scroll_bg"]
+bg_color = Color(0.05, 0.05, 0.07, 0.5)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[resource]
+
+; ==================== THEME OVERRIDES ====================
+
+; PanelContainer (used for inventory panels, slots)
+PanelContainer/styles/panel = SubResource("sb_panel")
+
+; Button
+Button/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+Button/colors/font_hover_color = Color(0.98, 0.98, 0.98, 1)
+Button/colors/font_pressed_color = Color(0.98, 0.98, 0.98, 1)
+Button/colors/font_disabled_color = Color(0.98, 0.98, 0.98, 0.65)
+Button/colors/font_focus_color = Color(0.98, 0.98, 0.98, 1)
+Button/styles/normal = SubResource("sb_button_normal")
+Button/styles/hover = SubResource("sb_button_hover")
+Button/styles/pressed = SubResource("sb_button_pressed")
+Button/styles/focus = SubResource("sb_button_focus")
+Button/styles/disabled = SubResource("sb_button_disabled")
+
+; Label
+Label/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+
+; TextureRect (for slot backgrounds)
+TextureRect/styles/normal = SubResource("sb_slot")
+
+; LineEdit (if used)
+LineEdit/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+LineEdit/colors/font_placeholder_color = Color(0.6, 0.6, 0.65, 0.8)
+LineEdit/colors/caret_color = Color(0.23, 0.51, 0.96, 1)
+LineEdit/colors/selection_color = Color(0.23, 0.51, 0.96, 0.3)
+LineEdit/styles/normal = SubResource("sb_button_normal")
+LineEdit/styles/focus = SubResource("sb_button_focus")
+LineEdit/styles/read_only = SubResource("sb_button_disabled")
+
+; HBoxContainer / VBoxContainer
+HBoxContainer/constants/separation = 3
+VBoxContainer/constants/separation = 3
+
+; GridContainer
+GridContainer/constants/h_separation = 8
+GridContainer/constants/v_separation = 8
+
+; ScrollContainer
+ScrollContainer/styles/panel = SubResource("sb_scroll_bg")
+ScrollContainer/styles/focus = SubResource("sb_button_focus")
+ScrollContainer/styles/hover = SubResource("sb_button_hover")
+
+; OptionButton (dropdown)
+OptionButton/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+OptionButton/colors/font_hover_color = Color(0.98, 0.98, 0.98, 1)
+OptionButton/styles/normal = SubResource("sb_button_normal")
+OptionButton/styles/hover = SubResource("sb_button_hover")
+OptionButton/styles/focus = SubResource("sb_button_focus")
+
+; CheckBox
+CheckBox/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+CheckBox/colors/font_hover_color = Color(0.98, 0.98, 0.98, 1)
+CheckBox/colors/font_pressed_color = Color(0.98, 0.98, 0.98, 1)
+CheckBox/styles/normal = SubResource("sb_button_normal")
+
+; Slider
+Slider/styles/slider = SubResource("sb_scroll_bg")
+Slider/styles/grabber = SubResource("sb_scroll_grabber")
+Slider/styles/grabber_highlight = SubResource("sb_scroll_grabber")
+Slider/styles/grabber_pressed = SubResource("sb_scroll_grabber")
+
+; ProgressBar
+ProgressBar/styles/background = SubResource("sb_scroll_bg")
+ProgressBar/styles/fill = SubResource("sb_button_hover")
+
+; TabContainer
+TabContainer/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+TabContainer/colors/font_selected_color = Color(0.98, 0.98, 0.98, 1)
+TabContainer/styles/panel = SubResource("sb_panel")
+TabContainer/styles/tabbar_background = SubResource("sb_button_normal")
+TabContainer/styles/tab_unselected = SubResource("sb_button_normal")
+TabContainer/styles/tab_selected = SubResource("sb_button_hover")
+TabContainer/styles/tab_hovered = SubResource("sb_button_hover")
+TabContainer/styles/tab_focus = SubResource("sb_button_focus")
+TabContainer/styles/tab_disabled = SubResource("sb_button_disabled")
+
+; ItemList
+ItemList/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+ItemList/colors/font_selected_color = Color(0.98, 0.98, 0.98, 1)
+ItemList/colors/guide_color = Color(0.0, 0.0, 0.0, 0.0)
+ItemList/styles/panel = SubResource("sb_panel")
+ItemList/styles/focus = SubResource("sb_button_focus")
+ItemList/styles/hovered = SubResource("sb_button_hover")
+ItemList/styles/selected = SubResource("sb_button_hover")
+ItemList/styles/selected_focus = SubResource("sb_button_hover")
+
+; Tree
+Tree/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+Tree/colors/guide_color = Color(0.0, 0.0, 0.0, 0.0)
+Tree/styles/panel = SubResource("sb_panel")
+Tree/styles/focus = SubResource("sb_button_focus")
+Tree/styles/hover = SubResource("sb_button_hover")
+Tree/styles/selected = SubResource("sb_button_hover")
+Tree/styles/selected_focus = SubResource("sb_button_hover")
+Tree/constants/v_separation = 1
+Tree/constants/draw_guides = 0
+Tree/constants/draw_relationship_lines = 0
+
+; RichTextLabel
+RichTextLabel/styles/normal = SubResource("sb_panel")
+RichTextLabel/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+RichTextLabel/colors/link_color = Color(0.23, 0.51, 0.96, 1)
+
+; Window (for dialogs/popups)
+Window/styles/panel = SubResource("sb_panel")
+
+; TabBar
+TabBar/colors/font_unselected_color = Color(0.45, 0.45, 0.45, 1)
+TabBar/colors/font_selected_color = Color(0.98, 0.98, 0.98, 1)
+TabBar/styles/tab_unselected = SubResource("sb_button_normal")
+TabBar/styles/tab_selected = SubResource("sb_button_hover")
+TabBar/styles/tab_hovered = SubResource("sb_button_hover")
+TabBar/styles/tab_focus = SubResource("sb_button_focus")
+TabBar/styles/tab_disabled = SubResource("sb_button_disabled")
+
+; VScrollBar / HScrollBar
+VScrollBar/styles/grabber = SubResource("sb_scroll_grabber")
+VScrollBar/styles/grabber_highlight = SubResource("sb_scroll_grabber")
+VScrollBar/styles/grabber_pressed = SubResource("sb_scroll_grabber")
+VScrollBar/styles/scroll = SubResource("sb_scroll_bg")
+VScrollBar/styles/scroll_focus = SubResource("sb_scroll_bg")
+HScrollBar/styles/grabber = SubResource("sb_scroll_grabber")
+HScrollBar/styles/grabber_highlight = SubResource("sb_scroll_grabber")
+HScrollBar/styles/grabber_pressed = SubResource("sb_scroll_grabber")
+HScrollBar/styles/scroll = SubResource("sb_scroll_bg")
+HScrollBar/styles/scroll_focus = SubResource("sb_scroll_bg")
+
+; Separator
+HSeparator/constants/separation = 1
+HSeparator/styles/separator = SubResource("sb_button_disabled")
+VSeparator/constants/separation = 1
+VSeparator/styles/separator = SubResource("sb_button_disabled")
+
+; SplitContainer
+SplitContainer/constants/separation = 3
+SplitContainer/constants/minimum_grab_thickness = 12
+
+; ColorPicker
+ColorPicker/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
+
+; FileDialog
+FileDialog/styles/panel = SubResource("sb_panel")

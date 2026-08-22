@@ -68,7 +68,7 @@ func _run_gate() -> void:
 	if not inventory.add_item(BLOCK_DIRT, 3):
 		_fail("Failed to seed three dirt for the insufficient-ingredients case")
 	await _wait_frames(4)
-	_assert_rendered_slot(hotbar, 0, "1\nDIRT x3")
+	_assert_rendered_slot(hotbar, 0, 3, BLOCK_DIRT)
 
 	var insufficient_snapshot: Array[Dictionary] = inventory.get_slots()
 	await _press_craft_action()
@@ -78,16 +78,16 @@ func _run_gate() -> void:
 		_fail("Insufficient craft changed dirt count from 3")
 	if inventory.get_item_count(BLOCK_STONE) != 0:
 		_fail("Insufficient craft produced stone")
-	_assert_rendered_slot(hotbar, 0, "1\nDIRT x3")
-	_assert_rendered_slot(hotbar, 1, "2\nEMPTY x0")
+	_assert_rendered_slot(hotbar, 0, 3, BLOCK_DIRT)
+	_assert_rendered_slot(hotbar, 1, 0, BLOCK_AIR)
 
 	if not inventory.add_item(BLOCK_DIRT, 1):
 		_fail("Failed to add the fourth dirt for the successful recipe")
 	if not inventory.add_item(BLOCK_STONE, 63):
 		_fail("Failed to seed the matching 63-stone output stack")
 	await _wait_frames(4)
-	_assert_rendered_slot(hotbar, 0, "1\nDIRT x4")
-	_assert_rendered_slot(hotbar, 1, "2\nSTONE x63")
+	_assert_rendered_slot(hotbar, 0, 4, BLOCK_DIRT)
+	_assert_rendered_slot(hotbar, 1, 63, BLOCK_STONE)
 
 	var success_snapshot: Array[Dictionary] = inventory.get_slots()
 	var dirt_before: int = inventory.get_item_count(BLOCK_DIRT)
@@ -109,8 +109,8 @@ func _run_gate() -> void:
 	for slot_index in range(2, inventory.get_slot_count()):
 		if inventory.get_slot(slot_index) != success_snapshot[slot_index]:
 			_fail("Successful craft unexpectedly mutated slot %d" % slot_index)
-	_assert_rendered_slot(hotbar, 0, "1\nEMPTY x0")
-	_assert_rendered_slot(hotbar, 1, "2\nSTONE x64")
+	_assert_rendered_slot(hotbar, 0, 0, BLOCK_AIR)
+	_assert_rendered_slot(hotbar, 1, 64, BLOCK_STONE)
 
 	await _capture_screenshot()
 	if failures.is_empty():
@@ -160,19 +160,23 @@ func _assert_slot(
 		)
 
 
-func _assert_rendered_slot(hotbar, slot_index: int, expected_text: String) -> void:
-	var label_path := "HotbarRoot/Slots/Slot%d/Content" % (slot_index + 1)
-	var label := hotbar.get_node_or_null(label_path) as Label
-	if label == null:
-		_fail("Rendered label is missing for hotbar slot %d" % (slot_index + 1))
+func _assert_rendered_slot(hotbar, slot_index: int, expected_count: int, block_id: int) -> void:
+	var view: Node = hotbar.get_node_or_null("Root/Bar/Slot%d/View" % (slot_index + 1))
+	var count_label := hotbar.get_node_or_null(
+		"Root/Bar/Slot%d/View/Count" % (slot_index + 1)
+	) as Label
+	if view == null or count_label == null:
+		_fail("Rendered widgets are missing for hotbar slot %d" % (slot_index + 1))
 		return
-	if not label.is_visible_in_tree():
-		_fail("Rendered label is not visible for hotbar slot %d" % (slot_index + 1))
-	if label.text != expected_text:
-		_fail(
-			"Rendered slot %d expected %s, got %s"
-			% [slot_index + 1, expected_text, label.text]
-		)
+	var has_item := block_id > 0 and expected_count > 0
+	if count_label.text != ("x%d" % expected_count if has_item else ""):
+		_fail("Rendered slot %d count expected x%d got %s"
+			% [slot_index + 1, expected_count, count_label.text])
+	var icon := view.get_node_or_null("Icon") as TextureRect
+	var swatch := view.get_node_or_null("Swatch") as ColorRect
+	var visual_visible := (icon != null and icon.visible) or (swatch != null and swatch.visible)
+	if visual_visible != has_item:
+		_fail("Rendered slot %d item visual visibility expected %s" % [slot_index + 1, has_item])
 
 
 func _capture_screenshot() -> void:

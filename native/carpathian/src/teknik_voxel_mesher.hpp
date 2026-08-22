@@ -33,6 +33,17 @@ class TeknikVoxelMesher : public RefCounted {
 	static constexpr int BLOCK_SAND = 4;
 	static constexpr int BLOCK_LOG = 5;
 	static constexpr int BLOCK_LEAVES = 6;
+	static constexpr int BLOCK_COAL_ORE = 10;
+	static constexpr int BLOCK_IRON_ORE = 11;
+	static constexpr int BLOCK_COPPER_ORE = 12;
+	static constexpr int BLOCK_FURNACE = 13;
+	static constexpr int BLOCK_IRON_INGOT = 14;
+	static constexpr int BLOCK_COPPER_INGOT = 15;
+	static constexpr int BLOCK_COAL = 16;
+	static constexpr int BLOCK_GLASS = 17;
+	static constexpr int BLOCK_CHARCOAL = 18;
+	static constexpr int BLOCK_CRAFTING_TABLE = 19;
+	static constexpr int BLOCK_CHEST = 20;
 	static constexpr int WORLD_SEED = 734921;
 	static constexpr int TREE_SPACING = 7;
 	static constexpr int TREE_OFFSET = 3;
@@ -209,6 +220,17 @@ class TeknikVoxelMesher : public RefCounted {
 			case BLOCK_SAND: base = Color(0.82, 0.75, 0.54); break;
 			case BLOCK_LOG: base = Color(0.48, 0.30, 0.14); break;
 			case BLOCK_LEAVES: base = Color(0.22, 0.52, 0.18); break;
+			case BLOCK_COAL_ORE: base = Color(0.30, 0.30, 0.32); break;
+			case BLOCK_IRON_ORE: base = Color(0.72, 0.58, 0.45); break;
+			case BLOCK_COPPER_ORE: base = Color(0.44, 0.72, 0.60); break;
+			case BLOCK_FURNACE: base = Color(0.38, 0.34, 0.31); break;
+			case BLOCK_IRON_INGOT: base = Color(0.78, 0.78, 0.80); break;
+			case BLOCK_COPPER_INGOT: base = Color(0.80, 0.48, 0.26); break;
+			case BLOCK_COAL: base = Color(0.12, 0.12, 0.13); break;
+			case BLOCK_GLASS: base = Color(0.78, 0.88, 0.92); break;
+			case BLOCK_CHARCOAL: base = Color(0.20, 0.19, 0.18); break;
+			case BLOCK_CRAFTING_TABLE: base = Color(0.58, 0.42, 0.24); break;
+			case BLOCK_CHEST: base = Color(0.45, 0.31, 0.16); break;
 			default: base = Color(1.0, 1.0, 1.0); break;
 		}
 		const int64_t mixed = (static_cast<int64_t>(world_x) * 73856093LL)

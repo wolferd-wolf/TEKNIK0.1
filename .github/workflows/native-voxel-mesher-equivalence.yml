@@ -36,19 +36,6 @@ jobs:
       - name: Build native extension
         run: |
           git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
-          printf '%s\n' '{"enabled_classes":["RefCounted","OS"]}' > native/carpathian/build_profile.json
-          cat > native/carpathian/SConstruct <<'PY'
-          #!/usr/bin/env python
-          env = SConscript("godot-cpp/SConstruct")
-          env.Append(CPPPATH=["src/"])
-          sources = Glob("src/*.cpp")
-          library = env.SharedLibrary(
-              "bin/libteknik_carpathian{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
-              source=sources,
-          )
-          env.NoCache(library)
-          Default(library)
-          PY
           scons -C native/carpathian platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j2
           LIB_PATH="$(find native/carpathian/bin -maxdepth 1 -type f -name '*.so' | head -n 1)"
           test -n "$LIB_PATH"
@@ -109,3 +96,114 @@ jobs:
             /tmp/native-threaded-chunks.log
             /tmp/chunk-apply-hitch.log
           if-no-files-found: warn
+
+  android-arm64-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends scons file
+
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r23c
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "ndk;23.2.8568313"
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> "$GITHUB_ENV"
+
+      - name: Build arm64 shared libraries
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          scons -C native/carpathian platform=android target=template_debug arch=arm64 build_profile=build_profile.json -j2
+          scons -C native/carpathian platform=android target=template_release arch=arm64 build_profile=build_profile.json -j2
+
+      - name: Verify arm64 artifacts
+        run: |
+          test -f native/carpathian/bin/libteknik_carpathian.android.template_debug.arm64.so
+          test -f native/carpathian/bin/libteknik_carpathian.android.template_release.arm64.so
+          file native/carpathian/bin/*.so | tee /tmp/arm64-files.txt
+          grep -q 'aarch64' /tmp/arm64-files.txt
+
+      - name: Upload arm64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-carpathian-android-arm64
+          path: native/carpathian/bin/*.so
+          if-no-files-found: error
+
+  rust-fields-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+          components: clippy, rustfmt
+
+      - name: Lint
+        working-directory: native/rust_fields
+        run: |
+          cargo fmt --check
+          cargo clippy --release -j 2 -- -D warnings
+
+      - name: Desktop build
+        working-directory: native/rust_fields
+        run: cargo build --release -j 2
+
+      - name: Install Android NDK r23c
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends file
+          wget -q https://dl.google.com/android/repository/android-ndk-r23c-linux.zip -O /tmp/ndk.zip
+          unzip -q /tmp/ndk.zip -d /opt
+          echo "NDK_TOOLCHAIN=/opt/android-ndk-r23c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_ENV"
+
+      - name: Android arm64 build
+        working-directory: native/rust_fields
+        run: |
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_TOOLCHAIN/aarch64-linux-android24-clang"
+          cargo build --release --target aarch64-linux-android -j 2
+          mkdir -p bin
+          cp target/release/libteknik_rust_fields.so bin/libteknik_rust_fields.so
+          cp target/aarch64-linux-android/release/libteknik_rust_fields.so bin/libteknik_rust_fields.android.template_debug.arm64.so
+          cp target/aarch64-linux-android/release/libteknik_rust_fields.so bin/libteknik_rust_fields.android.template_release.arm64.so
+
+      - name: Verify artifacts
+        run: |
+          file native/rust_fields/bin/* | tee /tmp/rust-files.txt
+          grep -q 'aarch64' /tmp/rust-files.txt
+
+      - name: Upload rust artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-rust-fields-libs
+          path: native/rust_fields/bin/*.so
+          if-no-files-found: error
+
+      - name: Godot headless bootstrap gate
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          chmod +x /tmp/godot/godot
+          timeout 180 /tmp/godot/godot --headless --path . --editor --quit
+          set -o pipefail
+          timeout 300 /tmp/godot/godot --headless --audio-driver Dummy --path . --script res://tests/rust_fields_gate.gd 2>&1 | tee /tmp/rust-gate.log
+          grep -Fq 'RUST_FIELDS_GATE_PASS' /tmp/rust-gate.log

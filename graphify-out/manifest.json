@@ -1,0 +1,44 @@
+{
+  "native/carpathian/src/teknik_carpathian.cpp": {
+    "mtime": 1786548039.5137043,
+    "seen": 1787197636.5404596,
+    "ast_hash": "db54168d93306900cceee3283d318297",
+    "semantic_hash": "db54168d93306900cceee3283d318297"
+  },
+  "native/carpathian/src/teknik_voxel_mesher.hpp": {
+    "mtime": 1786548039.5137951,
+    "seen": 1787197636.5404654,
+    "ast_hash": "c2885ac4cd7475d63d21ca63b7699ed6",
+    "semantic_hash": "c2885ac4cd7475d63d21ca63b7699ed6"
+  },
+  "scripts/android/install_gradle_build_template.sh": {
+    "mtime": 1786548039.5140033,
+    "seen": 1787197636.5404682,
+    "ast_hash": "b53ba19d1ea2b30d765b98845d128ef2",
+    "semantic_hash": "b53ba19d1ea2b30d765b98845d128ef2"
+  },
+  "scripts/android/setup_debug_keystore.sh": {
+    "mtime": 1786548039.5140033,
+    "seen": 1787197636.5404696,
+    "ast_hash": "ef4cf6c86db4ad6ff6320337139ace57",
+    "semantic_hash": "ef4cf6c86db4ad6ff6320337139ace57"
+  },
+  "scripts/android/setup_release_keystore.sh": {
+    "mtime": 1786548039.5140033,
+    "seen": 1787197636.540471,
+    "ast_hash": "3b69ff2d84ee2275c94ed5b311dd12be",
+    "semantic_hash": "3b69ff2d84ee2275c94ed5b311dd12be"
+  },
+  "tools/reference/luanti_carpathian_reference.cpp": {
+    "mtime": 1786548039.523605,
+    "seen": 1787197636.5404723,
+    "ast_hash": "eb192eb3f15d8f610d6d0cdd58378fa0",
+    "semantic_hash": "eb192eb3f15d8f610d6d0cdd58378fa0"
+  },
+  "tools/reference/luanti_carpathian_surface_adapter_study.cpp": {
+    "mtime": 1786548039.5236962,
+    "seen": 1787197636.540474,
+    "ast_hash": "c678599534fa7668093723376ce92d01",
+    "semantic_hash": "c678599534fa7668093723376ce92d01"
+  }
+}
