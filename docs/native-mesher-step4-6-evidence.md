@@ -56,3 +56,11 @@ native numbers fails review; GDScript fallback keeps the old absolute budget.
 - artifacts/cave-interior.png (native, pocket at -34,5,-48): mean luma 0.174, 65.5% dark pixels.
 - artifacts/cave-interior-fallback.png (GDScript-only ships legacy world by charter): mean luma 0.430.
 - Cave interior is structurally darker → sky light does not leak underground.
+
+## Session A appendix (steps 14-16, audited)
+
+- **Ores (14)**: ids 10-12; depth-weighted veins via frozen `hash01_3d` primitive (policy: `scripts/world/ore_field_reference.gd`), stone-only, post-carve, map==get_block verified over 4 probe chunks (ORE_GENERATION_GATE_PASS, 291 checks). Iron deep-bias verified statistically (deep >= 2x shallow).
+- **Furnace (15)**: block 13; smelting contract `scripts/smelting/furnace_recipes.gd` (SMELT_MAP 11->14, 12->15, 4->17, 5->18; FUEL_SET {16,18,5}; same-stack guard: a fuel that is also the input requires 2 units). UI panel with sequential timed smelting (1.2 s/op). Coal ore drops coal (16). SMELTING_GATE_PASS (47 checks) over real BlockInventory incl. rollback paths.
+- **Metal recipes (16)**: 8 stone -> furnace; 2 iron ingot + 1 copper ingot -> drill; 1 iron + 2 stone -> 2 shafts. Original wood path kept as fallback progression (see Decisions).
+- **Color parity**: ids 10-18 present in BOTH `playable_world_mesher.gd` and `teknik_voxel_mesher.hpp` with identical literals; equivalence gate now force-places every new block via synthetic overrides: 18/18 exact geometry, max_color_error=0, 23620 samples.
+- **Full battery at closeout**: parity, loader, equivalence, ore, cave, smelting, threaded, hitch, screenshot gates all PASS in one session.
