@@ -240,6 +240,21 @@ func _test_screen_flow() -> void:
 	_expect(screen2.get_furnace_status_label() != null, "furnace status label exists")
 	_expect(String(screen2.get_furnace_status_label().text).contains("IRON ORE"),
 		"status lists ore counts")
+	# REGRESSION: E / ESC / X must close from ANY tab (was: toggled tabs)
+	screen2.open_crafting()
+	await process_frame
+	_expect(screen2.is_inventory_open() and screen2.get_active_tab() == screen2.Tab.CRAFTING,
+		"crafting tab open before toggle regression check")
+	screen2.toggle_inventory()
+	await process_frame
+	_expect(not screen2.is_inventory_open(), "toggle_inventory closes from the crafting tab")
+	screen2.toggle_crafting()
+	await process_frame
+	_expect(screen2.is_inventory_open(), "toggle_crafting opens from closed")
+	screen2.toggle_crafting()
+	await process_frame
+	_expect(not screen2.is_inventory_open(), "toggle_crafting closes an open screen")
+
 	screen2.close_inventory()
 	await process_frame
 

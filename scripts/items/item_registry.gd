@@ -72,5 +72,52 @@ static func glyph(block_id: int) -> String:
 	return String(GLYPH.get(block_id, ""))
 
 
+## Downloaded Minetest Game textures (CC BY-SA 3.0, see
+## assets/textures/CREDITS.md) used as inventory icons.
+const ICON_PATHS := {
+	1: "res://assets/textures/icons/default_grass.png",
+	2: "res://assets/textures/icons/default_dirt.png",
+	3: "res://assets/textures/icons/default_stone.png",
+	4: "res://assets/textures/icons/default_sand.png",
+	5: "res://assets/textures/icons/default_tree.png",
+	6: "res://assets/textures/icons/default_leaves.png",
+	7: "res://assets/textures/icons/default_ladder_wood.png",
+	8: "res://assets/textures/icons/default_stick.png",
+	9: "res://assets/textures/icons/default_tool_steelpick.png",
+	10: "res://assets/textures/icons/default_mineral_coal.png",
+	11: "res://assets/textures/icons/default_mineral_iron.png",
+	12: "res://assets/textures/icons/default_mineral_copper.png",
+	13: "res://assets/textures/icons/default_furnace_front.png",
+	14: "res://assets/textures/icons/default_steel_ingot.png",
+	15: "res://assets/textures/icons/default_copper_ingot.png",
+	16: "res://assets/textures/icons/default_coal_lump.png",
+	17: "res://assets/textures/icons/default_glass.png",
+	18: "res://assets/textures/icons/default_coal_lump.png", # tinted charcoal
+}
+
+## Per-icon modulate; charcoal is the coal lump with a woody dark tint.
+const ICON_TINTS := {
+	18: Color(0.55, 0.40, 0.28),
+}
+
+static var _icon_cache := {}
+
+
+## Texture for the item, or null when the id has no icon (air/unknown).
+static func icon(block_id: int) -> Texture2D:
+	var key := int(block_id)
+	if _icon_cache.has(key):
+		return _icon_cache[key]
+	if not ICON_PATHS.has(key):
+		return null
+	var tex := load(ICON_PATHS[key]) as Texture2D
+	_icon_cache[key] = tex
+	return tex
+
+
+static func icon_tint(block_id: int) -> Color:
+	return ICON_TINTS.get(int(block_id), Color.WHITE)
+
+
 static func is_known(block_id: int) -> bool:
 	return NAMES.has(block_id)

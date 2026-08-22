@@ -120,7 +120,7 @@ hotbar_next={
 }
 toggle_inventory={
 "deadzone": 0.2,
-"events": [Object(InputEventKey,"physical_keycode":69)]
+"events": [Object(InputEventKey,"physical_keycode":69), Object(InputEventKey,"physical_keycode":4194305)]
 }
 craft_test_recipe={
 "deadzone": 0.2,

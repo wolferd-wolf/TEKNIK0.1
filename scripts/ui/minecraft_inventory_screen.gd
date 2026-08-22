@@ -34,6 +34,10 @@ const PANEL_PADDING := 20.0
 const TITLE_SIZE := 20
 const SUBTITLE_SIZE := 13
 
+const UI_PANEL_TEX := "res://assets/textures/icons/default_stone.png"
+const UI_BUTTON_TEX := "res://assets/textures/icons/default_junglewood.png"
+const UI_SLOT_TEX := "res://assets/textures/icons/default_obsidian.png"
+
 const COLOR_ACCENT := Color(0.98, 0.80, 0.20)
 const COLOR_OK := Color(0.40, 0.90, 0.45)
 const COLOR_DIM := Color(1, 1, 1, 0.45)
@@ -118,8 +122,8 @@ func is_inventory_open() -> bool:
 
 
 func toggle_inventory() -> void:
-	if _is_open and _active_tab == Tab.INVENTORY:
-		close_inventory()
+	if _is_open:
+		close_inventory() # closes from ANY tab (E / ESC always dismiss)
 	else:
 		open_inventory()
 
@@ -138,7 +142,7 @@ func close_inventory() -> bool:
 
 
 func toggle_crafting() -> void:
-	if _is_open and _active_tab == Tab.CRAFTING:
+	if _is_open:
 		close_inventory()
 	else:
 		open_crafting()
@@ -449,9 +453,14 @@ func _update_cursor_visual_position() -> void:
 		return
 	var show := _is_open and not _is_stack_empty(_cursor_stack)
 	if show:
+		var carried_id := int(_cursor_stack.get("block_id", 0))
 		var inner := _cursor_visual.get_node("CursorSwatch") as PanelContainer
 		var style := inner.get_theme_stylebox("panel") as StyleBoxFlat
-		style.bg_color = ITEM_REGISTRY.swatch_color(int(_cursor_stack.get("block_id", 0)))
+		style.bg_color = ITEM_REGISTRY.swatch_color(carried_id)
+		var icon_rect := inner.get_node_or_null("CursorIcon") as TextureRect
+		if icon_rect != null:
+			icon_rect.texture = ITEM_REGISTRY.icon(carried_id)
+			icon_rect.modulate = ITEM_REGISTRY.icon_tint(carried_id)
 		_cursor_count_label.text = "x%d" % int(_cursor_stack.get("count", 0))
 	_cursor_visual.visible = show
 	if not show:
@@ -580,6 +589,9 @@ func _paint_slot(slot_index: int, stack: Dictionary) -> void:
 	if has_item:
 		style.bg_color = ITEM_REGISTRY.swatch_color(block_id)
 		swatch.tooltip_text = ITEM_REGISTRY.display_name(block_id)
+		var icon_rect := swatch.get_node("Icon") as TextureRect
+		icon_rect.texture = ITEM_REGISTRY.icon(block_id)
+		icon_rect.modulate = ITEM_REGISTRY.icon_tint(block_id)
 	count_label.text = "x%d" % count if has_item else ""
 
 
@@ -597,6 +609,9 @@ func _paint_craft_slot(craft_index: int, stack: Dictionary) -> void:
 	if has_item:
 		style.bg_color = ITEM_REGISTRY.swatch_color(block_id)
 		swatch.tooltip_text = ITEM_REGISTRY.display_name(block_id)
+		var icon_rect := swatch.get_node("Icon") as TextureRect
+		icon_rect.texture = ITEM_REGISTRY.icon(block_id)
+		icon_rect.modulate = ITEM_REGISTRY.icon_tint(block_id)
 	label.text = "x%d" % count if has_item else ""
 
 
@@ -615,6 +630,9 @@ func _update_output_preview() -> void:
 	swatch.visible = has_result
 	if has_result:
 		style.bg_color = ITEM_REGISTRY.swatch_color(out_id)
+		var icon_rect := swatch.get_node("Icon") as TextureRect
+		icon_rect.texture = ITEM_REGISTRY.icon(out_id)
+		icon_rect.modulate = ITEM_REGISTRY.icon_tint(out_id)
 		label.text = "x%d" % out_count
 	if _craft_result_label != null:
 		if has_result:
@@ -731,7 +749,12 @@ func _build_screen() -> void:
 	_dim.name = "Dim"
 	_dim.color = Color(0.02, 0.02, 0.04, 0.62)
 	_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dim.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed \
+				and event.button_index == MOUSE_BUTTON_LEFT:
+			close_inventory()
+	)
 	_root.add_child(_dim)
 
 	_long_press_timer = Timer.new()
@@ -768,17 +791,34 @@ func _build_tab_bar() -> void:
 	for tab in tabs.keys():
 		var button := Button.new()
 		button.text = tabs[tab]
-		button.custom_minimum_size = Vector2(150, 40)
+		button.custom_minimum_size = Vector2(150, 44)
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_size_override("font_size", 15)
+		button.add_theme_color_override("font_hover_color", COLOR_ACCENT)
+		button.add_theme_stylebox_override(
+			"normal", _texture_style(UI_BUTTON_TEX, Color(0.60, 0.60, 0.60), 3))
+		button.add_theme_stylebox_override(
+			"hover", _texture_style(UI_BUTTON_TEX, Color(0.95, 0.95, 0.95), 3))
+		button.add_theme_stylebox_override(
+			"pressed", _texture_style(UI_BUTTON_TEX, Color(0.42, 0.42, 0.42), 3))
 		button.pressed.connect(_on_tab_pressed.bind(tab))
 		bar.add_child(button)
 		_tab_buttons[tab] = button
 
 	var close_button := Button.new()
 	close_button.text = "X"
-	close_button.custom_minimum_size = Vector2(40, 40)
+	close_button.tooltip_text = "Close (E / ESC)"
+	close_button.custom_minimum_size = Vector2(52, 44)
 	close_button.focus_mode = Control.FOCUS_NONE
+	close_button.add_theme_font_size_override("font_size", 20)
+	close_button.add_theme_color_override("font_color", Color(1.0, 0.45, 0.40))
+	close_button.add_theme_color_override("font_hover_color", Color(1.0, 0.75, 0.70))
+	close_button.add_theme_stylebox_override(
+		"normal", _texture_style(UI_SLOT_TEX, Color(0.55, 0.30, 0.28), 3))
+	close_button.add_theme_stylebox_override(
+		"hover", _texture_style(UI_SLOT_TEX, Color(0.85, 0.40, 0.36), 3))
+	close_button.add_theme_stylebox_override(
+		"pressed", _texture_style(UI_SLOT_TEX, Color(0.40, 0.22, 0.20), 3))
 	close_button.pressed.connect(close_inventory)
 	bar.add_child(close_button)
 	_close_button = close_button
@@ -806,13 +846,9 @@ func _panel_shell(panel_name: String) -> PanelContainer:
 	panel.offset_bottom = 270.0
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.visible = false
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.07, 0.08, 0.10, 0.97)
-	style.border_color = Color(1, 1, 1, 0.08)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(12)
-	style.set_content_margin_all(PANEL_PADDING)
-	panel.add_theme_stylebox_override("panel", style)
+	panel.add_theme_stylebox_override(
+		"panel", _texture_style(UI_PANEL_TEX, Color(0.30, 0.30, 0.34))
+	)
 	_root.add_child(panel)
 	return panel
 
@@ -831,6 +867,19 @@ func _title_label(text: String) -> Label:
 	return label
 
 
+## Nine-patch style from a downloaded 16x16 texture.
+func _texture_style(tex_path: String, tint: Color, margin := 3) -> StyleBoxTexture:
+	var style := StyleBoxTexture.new()
+	style.texture = load(tex_path)
+	style.modulate_color = tint
+	style.texture_margin_left = margin
+	style.texture_margin_top = margin
+	style.texture_margin_right = margin
+	style.texture_margin_bottom = margin
+	style.set_content_margin_all(PANEL_PADDING)
+	return style
+
+
 func _slot_box(bg: Color, border: Color, width: int, radius := 6) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = bg
@@ -845,12 +894,15 @@ func _build_slot_button(interact_primary: Callable, interact_secondary: Callable
 	var button := Button.new()
 	button.custom_minimum_size = SLOT_SIZE
 	button.focus_mode = Control.FOCUS_NONE
-	var normal := _slot_box(Color(0.11, 0.12, 0.15), Color(1, 1, 1, 0.10), 2)
-	var hover := _slot_box(Color(0.16, 0.17, 0.21), Color(1, 1, 1, 0.22), 2)
-	var pressed := _slot_box(Color(0.09, 0.10, 0.12), COLOR_ACCENT, 2)
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", hover)
-	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override(
+		"normal", _texture_style(UI_SLOT_TEX, Color(0.55, 0.55, 0.62), 2)
+	)
+	button.add_theme_stylebox_override(
+		"hover", _texture_style(UI_SLOT_TEX, Color(0.85, 0.85, 0.92), 2)
+	)
+	button.add_theme_stylebox_override(
+		"pressed", _texture_style(UI_SLOT_TEX, Color(0.40, 0.40, 0.46), 2)
+	)
 
 	var swatch := PanelContainer.new()
 	swatch.name = "Swatch"
@@ -859,8 +911,22 @@ func _build_slot_button(interact_primary: Callable, interact_secondary: Callable
 	swatch.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	swatch.visible = false
-	var swatch_style := _slot_box(Color.WHITE, Color(0, 0, 0, 0.45), 2, 4)
+	var swatch_style := _slot_box(Color(0.13, 0.13, 0.16), Color(0, 0, 0, 0.45), 2, 4)
 	swatch.add_theme_stylebox_override("panel", swatch_style)
+
+	var icon_rect := TextureRect.new()
+	icon_rect.name = "Icon"
+	icon_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	icon_rect.offset_left = 4
+	icon_rect.offset_top = 4
+	icon_rect.offset_right = -4
+	icon_rect.offset_bottom = -4
+	icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	swatch.add_child(icon_rect)
+
 	button.add_child(swatch)
 
 	var count_label := Label.new()
@@ -1108,8 +1174,10 @@ func _build_recipe_row(recipe: Dictionary) -> Button:
 	row.focus_mode = Control.FOCUS_NONE
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.clip_text = false
-	var normal := _slot_box(Color(0.11, 0.12, 0.15), Color(1, 1, 1, 0.08), 1)
-	var hover := _slot_box(Color(0.16, 0.17, 0.21), Color(1, 1, 1, 0.20), 1)
+	var normal := _texture_style(UI_BUTTON_TEX, Color(0.62, 0.62, 0.62), 2)
+	var hover := _texture_style(UI_BUTTON_TEX, Color(0.90, 0.90, 0.90), 2)
+	normal.set_content_margin_all(8.0)
+	hover.set_content_margin_all(8.0)
 	row.add_theme_stylebox_override("normal", normal)
 	row.add_theme_stylebox_override("hover", hover)
 	row.add_theme_stylebox_override("pressed", hover)
@@ -1122,13 +1190,28 @@ func _build_recipe_row(recipe: Dictionary) -> Button:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(box)
 
+	var out_icon_id := int(recipe.get("output", {}).get("block_id", 0))
 	var swatch := PanelContainer.new()
 	swatch.custom_minimum_size = Vector2(30, 30)
 	swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := _slot_box(Color.WHITE, Color(0, 0, 0, 0.45), 2, 4)
-	style.bg_color = ITEM_REGISTRY.swatch_color(int(recipe.get("output", {}).get("block_id", 0)))
+	var style := _slot_box(Color(0.13, 0.13, 0.16), Color(0, 0, 0, 0.45), 2, 4)
+	style.bg_color = ITEM_REGISTRY.swatch_color(out_icon_id)
 	swatch.add_theme_stylebox_override("panel", style)
+	if ITEM_REGISTRY.icon(out_icon_id) != null:
+		var icon_rect := TextureRect.new()
+		icon_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		icon_rect.offset_left = 3
+		icon_rect.offset_top = 3
+		icon_rect.offset_right = -3
+		icon_rect.offset_bottom = -3
+		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icon_rect.texture = ITEM_REGISTRY.icon(out_icon_id)
+		icon_rect.modulate = ITEM_REGISTRY.icon_tint(out_icon_id)
+		icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		swatch.add_child(icon_rect)
 	box.add_child(swatch)
 
 	var text := Label.new()
@@ -1184,10 +1267,39 @@ func _build_furnace_panel() -> void:
 		swatch.add_theme_stylebox_override("panel", style)
 		row.add_child(swatch)
 
+		var ore_swatch := PanelContainer.new()
+		ore_swatch.name = "OreSwatch"
+		ore_swatch.custom_minimum_size = Vector2(30, 30)
+		ore_swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var ore_style := _slot_box(Color(0.13, 0.13, 0.16), Color(0, 0, 0, 0.45), 2, 4)
+		ore_style.bg_color = ITEM_REGISTRY.swatch_color(out_id)
+		ore_swatch.add_theme_stylebox_override("panel", ore_style)
+		if ITEM_REGISTRY.icon(ore_id) != null:
+			var ore_icon := TextureRect.new()
+			ore_icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+			ore_icon.offset_left = 3
+			ore_icon.offset_top = 3
+			ore_icon.offset_right = -3
+			ore_icon.offset_bottom = -3
+			ore_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			ore_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			ore_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			ore_icon.texture = ITEM_REGISTRY.icon(ore_id)
+			ore_icon.modulate = ITEM_REGISTRY.icon_tint(ore_id)
+			ore_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			ore_swatch.add_child(ore_icon)
+		row.add_child(ore_swatch)
+
 		var smelt_one := Button.new()
 		smelt_one.text = "SMELT 1 %s" % _ore_label(ore_id)
 		smelt_one.custom_minimum_size = Vector2(230, 40)
 		smelt_one.focus_mode = Control.FOCUS_NONE
+		smelt_one.add_theme_stylebox_override(
+			"normal", _texture_style(UI_BUTTON_TEX, Color(0.62, 0.62, 0.62), 2))
+		smelt_one.add_theme_stylebox_override(
+			"hover", _texture_style(UI_BUTTON_TEX, Color(0.95, 0.95, 0.95), 2))
+		smelt_one.add_theme_stylebox_override(
+			"pressed", _texture_style(UI_BUTTON_TEX, Color(0.45, 0.45, 0.45), 2))
 		smelt_one.pressed.connect(func() -> void: _smelt_from_inventory(ore_id, 1))
 		row.add_child(smelt_one)
 
@@ -1195,6 +1307,12 @@ func _build_furnace_panel() -> void:
 		smelt_all.text = "SMELT ALL"
 		smelt_all.custom_minimum_size = Vector2(130, 40)
 		smelt_all.focus_mode = Control.FOCUS_NONE
+		smelt_all.add_theme_stylebox_override(
+			"normal", _texture_style(UI_BUTTON_TEX, Color(0.62, 0.62, 0.62), 2))
+		smelt_all.add_theme_stylebox_override(
+			"hover", _texture_style(UI_BUTTON_TEX, Color(0.95, 0.95, 0.95), 2))
+		smelt_all.add_theme_stylebox_override(
+			"pressed", _texture_style(UI_BUTTON_TEX, Color(0.45, 0.45, 0.45), 2))
 		smelt_all.pressed.connect(func() -> void: _smelt_from_inventory(ore_id, 64))
 		row.add_child(smelt_all)
 
@@ -1215,7 +1333,19 @@ func _build_cursor_visual() -> void:
 	inner.name = "CursorSwatch"
 	inner.custom_minimum_size = Vector2(36, 36)
 	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	inner.add_theme_stylebox_override("panel", _slot_box(Color.WHITE, Color(0, 0, 0, 0.45), 2, 4))
+	inner.add_theme_stylebox_override("panel", _slot_box(Color(0.13, 0.13, 0.16), Color(0, 0, 0, 0.45), 2, 4))
+	var cursor_icon := TextureRect.new()
+	cursor_icon.name = "CursorIcon"
+	cursor_icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cursor_icon.offset_left = 3
+	cursor_icon.offset_top = 3
+	cursor_icon.offset_right = -3
+	cursor_icon.offset_bottom = -3
+	cursor_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	cursor_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	cursor_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	cursor_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(cursor_icon)
 	_cursor_visual.add_child(inner)
 	_cursor_count_label = Label.new()
 	_cursor_count_label.name = "CursorCount"

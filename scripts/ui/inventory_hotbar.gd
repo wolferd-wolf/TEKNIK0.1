@@ -14,6 +14,7 @@ const SLOT_GAP := 6.0
 
 var _slot_panels: Array[PanelContainer] = []
 var _swatch_panels: Array[PanelContainer] = []
+var _icon_rects: Array[TextureRect] = []
 var _swatch_styles: Array[StyleBoxFlat] = []
 var _count_labels: Array[Label] = []
 var _key_labels: Array[Label] = []
@@ -40,9 +41,12 @@ func refresh(slots: Array[Dictionary], selected_slot: int) -> void:
 
 		var visible := has_item
 		_swatch_panels[slot_index].visible = visible
+		var icon_rect := _icon_rects[slot_index]
 		if visible:
 			_swatch_styles[slot_index].bg_color = ITEM_REGISTRY.swatch_color(block_id)
 			_swatch_panels[slot_index].tooltip_text = ITEM_REGISTRY.display_name(block_id)
+			icon_rect.texture = ITEM_REGISTRY.icon(block_id)
+			icon_rect.modulate = ITEM_REGISTRY.icon_tint(block_id)
 
 		var count_label := _count_labels[slot_index]
 		count_label.text = "x%d" % count if has_item else ""
@@ -137,6 +141,21 @@ func _build_hotbar() -> void:
 		swatch.visible = false
 		var swatch_style := _swatch_box()
 		swatch.add_theme_stylebox_override("panel", swatch_style)
+
+		var icon_rect := TextureRect.new()
+		icon_rect.name = "Icon"
+		icon_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		icon_rect.offset_left = 4
+		icon_rect.offset_top = 4
+		icon_rect.offset_right = -4
+		icon_rect.offset_bottom = -4
+		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		swatch.add_child(icon_rect)
+		_icon_rects.append(icon_rect)
+
 		panel.add_child(swatch)
 		_swatch_panels.append(swatch)
 		_swatch_styles.append(swatch_style)
