@@ -112,4 +112,7 @@ func set_stack(stack: Dictionary) -> void:
 		_glyph_label.visible = show_swatch
 
 	_count_label.text = "" if block_id <= 0 or count <= 0 else "x%d" % count
+	# Icons/swatches are added after the label at build time, so without this
+	# they draw on top of the amount. Keep the label the topmost child.
+	_count_label.move_to_front()
 	tooltip_text = "" if block_id <= 0 else ItemRegistry.display_name(block_id)

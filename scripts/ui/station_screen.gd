@@ -12,7 +12,7 @@ signal inventory_visibility_changed(is_open: bool)
 const SLOT_SIZE := 46
 const MAX_STACK := 64
 
-enum Mode { INVENTORY, CRAFT, TABLE, FURNACE, CHEST }
+enum Mode { INVENTORY, CRAFT, TABLE, FURNACE, CHEST, BOOK }
 
 var player_inventory: BlockInventory
 var stations: BlockStations
@@ -47,6 +47,10 @@ var _furnace_output_view: ItemSlotView
 var _held_view: ItemSlotView
 var _active_touch_index := -1
 var _extra_buttons: Array[Button] = []
+var _book_button: Button
+var _book_box: VBoxContainer
+var _book_rows: Array[Dictionary] = []
+var _book_table_mode := false
 
 
 func _ready() -> void:
@@ -228,11 +232,21 @@ func _build_ui() -> void:
 	main_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(main_row)
 
+	var left_column := VBoxContainer.new()
+	left_column.add_theme_constant_override("separation", 4)
+	main_row.add_child(left_column)
+
 	_craft_button = _make_button("CRAFT", 92)
 	_craft_button.name = "CraftButton"
 	_craft_button.pressed.connect(_on_craft_pressed)
-	main_row.add_child(_craft_button)
+	left_column.add_child(_craft_button)
 	_extra_buttons.append(_craft_button)
+
+	_book_button = _make_button("RECIPES", 92)
+	_book_button.name = "BookButton"
+	_book_button.pressed.connect(_on_book_pressed)
+	left_column.add_child(_book_button)
+	_extra_buttons.append(_book_button)
 
 	_inv_panel = PanelContainer.new()
 	_inv_panel.name = "InvPanel"
@@ -295,6 +309,21 @@ func _build_station_areas() -> void:
 	var chest_grid := _make_grid(9, 3, "chest", _chest_views)
 	_chest_box.add_child(chest_grid)
 
+	# --- recipe book ---
+	_book_box = VBoxContainer.new()
+	_book_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_station_area.add_child(_book_box)
+	var book_scroll := ScrollContainer.new()
+	book_scroll.custom_minimum_size = Vector2(430, 190)
+	book_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_book_box.add_child(book_scroll)
+	var book_list := VBoxContainer.new()
+	book_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	book_list.add_theme_constant_override("separation", 3)
+	book_scroll.add_child(book_list)
+	for recipe in CraftingRecipes.RECIPES:
+		book_list.add_child(_make_book_row(recipe))
+
 	# --- furnace ---
 	_furnace_box = HBoxContainer.new()
 	_furnace_box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -333,6 +362,8 @@ func _set_mode(mode: int) -> void:
 		_craft_grid_container.visible = mode == Mode.CRAFT
 	if _table_grid_container != null:
 		_table_grid_container.visible = mode == Mode.TABLE
+	if _book_box != null:
+		_book_box.visible = mode == Mode.BOOK
 	_chest_box.visible = mode == Mode.CHEST
 	_furnace_box.visible = mode == Mode.FURNACE
 	match mode:
@@ -350,6 +381,9 @@ func _set_mode(mode: int) -> void:
 			_craft_button.text = "BACK"
 		Mode.CHEST:
 			_title.text = "CHEST"
+			_craft_button.text = "BACK"
+		Mode.BOOK:
+			_title.text = "RECIPE BOOK"
 			_craft_button.text = "BACK"
 	_refresh()
 
@@ -422,6 +456,7 @@ func _refresh() -> void:
 			_chest_views[index].set_stack({})
 	_refresh_result_view()
 	_refresh_furnace_views()
+	_refresh_book()
 	_held_view.visible = not _held.is_empty() and int(_held.get("count", 0)) > 0
 	_held_view.set_stack(_held)
 
@@ -654,6 +689,125 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory") or event.is_action_pressed("ui_cancel"):
 		close_screen()
 		get_viewport().set_input_as_handled()
+
+
+# ---------------------------------------------------------------- recipe book
+
+func _make_book_row(recipe: Dictionary) -> Control:
+	var output: Dictionary = recipe.get("output", {})
+	var out_id := int(output.get("block_id", 0))
+	var out_count := int(output.get("count", 0))
+
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override(
+		"panel",
+		_panel_style(Color(0.16, 0.16, 0.19))
+	)
+	row.custom_minimum_size = Vector2(420, 52)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	row.add_child(hbox)
+
+	var out_view := ItemSlotView.new({"kind": "book_out"})
+	out_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	out_view.set_stack({"block_id": out_id, "count": out_count})
+	hbox.add_child(out_view)
+
+	var labels := VBoxContainer.new()
+	labels.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	labels.alignment = BoxContainer.ALIGNMENT_CENTER
+	labels.add_theme_constant_override("separation", 0)
+	hbox.add_child(labels)
+	var name_label := Label.new()
+	name_label.text = "%s x%d" % [ItemRegistry.display_name(out_id), out_count]
+	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	name_label.add_theme_constant_override("outline_size", 3)
+	labels.add_child(name_label)
+	var parts: Array[String] = []
+	for req in recipe.get("inputs", []):
+		parts.append("%dx %s" % [
+			int(req.get("count", 0)),
+			ItemRegistry.display_name(int(req.get("block_id", 0))),
+		])
+	var inputs_label := Label.new()
+	inputs_label.text = " + ".join(parts)
+	if bool(recipe.get("table_only", false)):
+		inputs_label.text += "   [TABLE]"
+	inputs_label.add_theme_font_size_override("font_size", 12)
+	inputs_label.modulate = Color(0.85, 0.85, 0.85)
+	labels.add_child(inputs_label)
+
+	var craft_button := _make_button("CRAFT x0", 96)
+	craft_button.disabled = true
+	craft_button.pressed.connect(_on_book_craft_pressed.bind(recipe))
+	hbox.add_child(craft_button)
+	_extra_buttons.append(craft_button)
+
+	_book_rows.append({
+		"recipe": recipe,
+		"button": craft_button,
+	})
+	return row
+
+
+func _on_book_pressed() -> void:
+	if _mode == Mode.BOOK:
+		_set_mode(Mode.INVENTORY)
+	else:
+		# Remember whether the book was opened while standing at a table.
+		_book_table_mode = _mode == Mode.TABLE
+		_set_mode(Mode.BOOK)
+
+
+func _on_book_craft_pressed(recipe: Dictionary) -> void:
+	_craft_from_inventory(recipe)
+
+
+## Fast craft: consume inputs from the player inventory and add every copy
+## the inventory can produce and hold. Table-only recipes need table mode.
+func _craft_from_inventory(recipe: Dictionary) -> void:
+	if player_inventory == null or recipe.is_empty():
+		return
+	if not CraftingRecipes.can_craft_from_inventory(recipe, player_inventory, _book_table_mode):
+		return
+	var output: Dictionary = recipe.get("output", {})
+	var out_id := int(output.get("block_id", 0))
+	var out_count := int(output.get("count", 0))
+	if out_id <= 0 or out_count <= 0:
+		return
+	var crafted := 0
+	while crafted < 999 \
+			and CraftingRecipes.can_craft_from_inventory(recipe, player_inventory, _book_table_mode) \
+			and player_inventory.can_add_item(out_id, out_count):
+		var removed_all := true
+		for req in recipe.get("inputs", []):
+			if not player_inventory.remove_item(int(req.get("block_id", 0)), int(req.get("count", 0))):
+				removed_all = false
+				break
+		if not removed_all:
+			# Roll back whatever this iteration removed by restoring from the
+			# recipe definition is impossible generically; break safely. The
+			# can_craft pre-check makes this path unreachable in practice.
+			break
+		if not player_inventory.add_item(out_id, out_count):
+			break
+		crafted += 1
+	_refresh()
+
+
+func _refresh_book() -> void:
+	if player_inventory == null:
+		return
+	var slots := player_inventory.get_slots()
+	for entry in _book_rows:
+		var recipe: Dictionary = entry["recipe"]
+		var button: Button = entry["button"]
+		var allowed := not bool(recipe.get("table_only", false)) or _book_table_mode
+		var count := CraftingRecipes.max_craftable(recipe, slots) if allowed else 0
+		button.text = "CRAFT x%d" % count
+		button.disabled = count <= 0
 
 
 # ---------------------------------------------------------------- touch input

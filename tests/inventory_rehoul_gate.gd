@@ -62,6 +62,21 @@ func _run() -> void:
 	_mark("G5_STATIONS", before)
 
 	before = failures.size()
+	await _test_item_count_label()
+	_mark("G13_ITEM_COUNT", before)
+
+	before = failures.size()
+	await _test_recipe_book()
+	_mark("G14_BOOK", before)
+	var after_book := failures.size()
+
+	await _test_book_crafting()
+	if failures.size() == after_book:
+		print("G15_BOOK_CRAFT PASS")
+	else:
+		print("G15_BOOK_CRAFT FAIL")
+
+	before = failures.size()
 	_test_registry()
 	_mark("G6_REGISTRY", before)
 
@@ -188,6 +203,110 @@ func _test_stations() -> void:
 	var report: Dictionary = FURNACE.smelt_once(smelter)
 	_expect(bool(report.get("ok", false)), "furnace smelt succeeds")
 	_expect(smelter.get_item_count(BLOCK_IRON_INGOT) == 1, "smelt produced an iron ingot")
+
+
+# ------------------------------------------------- G13/G14/G15 count + book
+
+func _test_item_count_label() -> void:
+	var inv = INVENTORY.new()
+	var stations = STATIONS.new()
+	root.add_child(stations)
+	var screen = SCREEN.new()
+	root.add_child(screen)
+	await _wait_frames(2)
+	screen.setup(inv, stations)
+	screen.open_inventory()
+	await _wait_frames(3)
+
+	# With an icon-bearing item, the count label must be topmost.
+	inv.set_slot_stack(0, {"block_id": BLOCK_STONE, "count": 7})
+	await _wait_frames(3)
+	var view = screen._hotbar_views[0]
+	var label = view.get_node_or_null("Count")
+	_expect(label != null, "slot has a count label")
+	if label != null:
+		_expect(label.get_index() == view.get_child_count() - 1,
+			"count label is the topmost child so icons never cover amounts")
+		_expect(label.text == "x7", "count shows x7 (got %s)" % label.text)
+	screen.queue_free()
+
+
+func _make_standalone_screen():
+	var inv = INVENTORY.new()
+	var stations = STATIONS.new()
+	root.add_child(stations)
+	var screen = SCREEN.new()
+	root.add_child(screen)
+	await _wait_frames(2)
+	screen.setup(inv, stations)
+	screen.open_inventory()
+	await _wait_frames(3)
+	return screen
+
+
+func _test_recipe_book() -> void:
+	var screen = await _make_standalone_screen()
+	var inv = screen.player_inventory
+
+	# Book lists every recipe; nothing craftable with an empty bag.
+	_expect(screen._book_rows.size() == RECIPES.RECIPES.size(),
+		"book lists all recipes (%d vs %d)" % [screen._book_rows.size(), RECIPES.RECIPES.size()])
+	screen._book_table_mode = false
+	screen._set_mode(screen.Mode.BOOK)
+	await _wait_frames(3)
+	_expect(screen._book_box.visible, "book panel visible in book mode")
+	var all_disabled_empty := true
+	for entry in screen._book_rows:
+		if not entry["button"].disabled:
+			all_disabled_empty = false
+	_expect(all_disabled_empty, "every row disabled with an empty inventory")
+
+	inv.add_item(BLOCK_LOG, 2)
+	screen._refresh_book()
+	var table_row = null
+	for entry in screen._book_rows:
+		if int(entry["recipe"].get("output", {}).get("block_id", 0)) == BLOCK_TABLE:
+			table_row = entry
+	_expect(table_row != null and not table_row["button"].disabled,
+		"2 logs enable the crafting-table row")
+	screen.queue_free()
+
+
+func _test_book_crafting() -> void:
+	var screen = await _make_standalone_screen()
+	var inv = screen.player_inventory
+
+	inv.add_item(BLOCK_LOG, 2)
+	inv.add_item(BLOCK_STONE, 8)
+	screen._refresh_book()
+	var furnace_row = null
+	for entry in screen._book_rows:
+		if int(entry["recipe"].get("output", {}).get("block_id", 0)) == BLOCK_FURNACE:
+			furnace_row = entry
+	_expect(furnace_row != null and furnace_row["button"].disabled,
+		"furnace row locked while not at a table even with 8 stone")
+	_expect(String(furnace_row["button"].text).ends_with("x0"), "locked furnace row shows x0")
+
+	screen._book_table_mode = true
+	screen._refresh_book()
+	_expect(not furnace_row["button"].disabled, "furnace row unlocks at a table")
+	furnace_row["button"].pressed.emit()
+	await _wait_frames(3)
+	_expect(inv.get_item_count(BLOCK_FURNACE) == 1, "book craft produced a furnace")
+	_expect(inv.get_item_count(BLOCK_STONE) == 0, "book craft consumed exactly 8 stone")
+
+	inv.add_item(BLOCK_DIRT, 8)
+	screen._refresh_book()
+	var stone_row = null
+	for entry in screen._book_rows:
+		if int(entry["recipe"].get("output", {}).get("block_id", 0)) == BLOCK_STONE:
+			stone_row = entry
+	stone_row["button"].pressed.emit()
+	await _wait_frames(3)
+	_expect(inv.get_item_count(BLOCK_STONE) == 2,
+		"dirt->stone book craft ran twice from 8 dirt (got %d)" % inv.get_item_count(BLOCK_STONE))
+	screen.queue_free()
+
 
 
 # ---------------------------------------------------------------- G6 registry
