@@ -48,6 +48,11 @@ var _held_view: ItemSlotView
 var _active_touch_index := -1
 var _extra_buttons: Array[Button] = []
 var _book_button: Button
+var _book_pan_active := false
+var _book_pan_last_y := 0.0
+var _pending_press := {}
+const LONG_PRESS_MSEC := 450
+const TAP_MOVE_CANCEL_PX := 24.0
 var _book_box: VBoxContainer
 var _book_rows: Array[Dictionary] = []
 var _book_table_mode := false
@@ -678,11 +683,6 @@ static func _remainder_of(stack: Dictionary, taken: int) -> Dictionary:
 
 # ---------------------------------------------------------------- input
 
-func _process(_delta: float) -> void:
-	if _is_open and _held_view.visible:
-		_held_view.global_position = _root.get_global_mouse_position() + Vector2(-23, -23)
-
-
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
@@ -820,31 +820,86 @@ func _input(event: InputEvent) -> void:
 	if not _is_open:
 		return
 	var touch := event as InputEventScreenTouch
-	if touch == null:
+	if touch != null:
+		_handle_screen_touch(touch)
 		return
+	var drag := event as InputEventScreenDrag
+	if drag != null:
+		_handle_screen_drag(drag)
+
+
+func _handle_screen_touch(touch: InputEventScreenTouch) -> void:
 	if touch.pressed:
 		if _active_touch_index != -1:
 			return # one interacting finger at a time
-		if _route_touch_press(touch.position):
+		# Recipe book: taps on row buttons still work; everything else pans.
+		var button := _button_at(touch.position)
+		if _mode == Mode.BOOK and button == null \
+				and _book_box != null and _book_box.visible \
+				and _book_box.get_global_rect().has_point(touch.position):
+			_book_pan_active = true
+			_book_pan_last_y = touch.position.y
 			_active_touch_index = touch.index
 			get_viewport().set_input_as_handled()
-	elif touch.index == _active_touch_index:
-		_active_touch_index = -1
+			return
+		if button != null:
+			button.pressed.emit()
+			get_viewport().set_input_as_handled()
+			return
+		var view := _slot_view_at(touch.position)
+		if view != null:
+			# Defer routing: quick tap = full-stack action, holding = split.
+			_pending_press = {
+				"view": view,
+				"pos": touch.position,
+				"time": Time.get_ticks_msec(),
+				"long_done": false,
+			}
+			_active_touch_index = touch.index
+			get_viewport().set_input_as_handled()
+	else:
+		if touch.index == _active_touch_index:
+			if not _pending_press.is_empty() and not bool(_pending_press["long_done"]):
+				_on_slot_clicked(_pending_press["view"], MOUSE_BUTTON_LEFT, false)
+			_pending_press = {}
+			_book_pan_active = false
+			_active_touch_index = -1
 
 
-func _route_touch_press(position: Vector2) -> bool:
+func _handle_screen_drag(drag: InputEventScreenDrag) -> void:
+	if _mode == Mode.BOOK and _book_pan_active and _book_box != null:
+		var scroll_container: ScrollContainer = _book_box.get_child(0)
+		scroll_container.scroll_vertical -= int(drag.relative.y)
+		get_viewport().set_input_as_handled()
+		return
+	if drag.index == _active_touch_index and not _pending_press.is_empty():
+		var moved: float = (_pending_press["pos"] as Vector2 - drag.position).length()
+		if moved > TAP_MOVE_CANCEL_PX and not bool(_pending_press["long_done"]):
+			_pending_press = {} # swiped away: not a tap
+
+
+func _process(delta: float) -> void:
+	if _is_open and _held_view.visible:
+		_held_view.global_position = _root.get_global_mouse_position() + Vector2(-23, -23)
+	if not _pending_press.is_empty() and not bool(_pending_press["long_done"]):
+		if Time.get_ticks_msec() - int(_pending_press["time"]) >= LONG_PRESS_MSEC:
+			_pending_press["long_done"] = true
+			# Long press splits: same action as a right-click.
+			_on_slot_clicked(_pending_press["view"], MOUSE_BUTTON_RIGHT, false)
+
+
+func _slot_view_at(position: Vector2) -> ItemSlotView:
 	for view in _interactive_slot_views():
 		if view.is_visible_in_tree() and view.get_global_rect().has_point(position):
-			if view.context.get("kind", "") == "result":
-				_click_result(MOUSE_BUTTON_LEFT)
-			else:
-				_on_slot_clicked(view, MOUSE_BUTTON_LEFT, false)
-			return true
+			return view
+	return null
+
+
+func _button_at(position: Vector2) -> Button:
 	for button in _extra_buttons:
 		if button != null and button.is_visible_in_tree() 				and button.get_global_rect().has_point(position):
-			button.pressed.emit()
-			return true
-	return false
+			return button
+	return null
 
 
 func _interactive_slot_views() -> Array[ItemSlotView]:
