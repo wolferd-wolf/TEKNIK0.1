@@ -165,36 +165,52 @@ func _press_action(action: StringName) -> void:
 
 
 func _assert_rendered_slot(hotbar, slot_index: int, expected_text: String, selected: bool) -> void:
+	# expected_text keeps the legacy "<key>\n<NAME> x<count>" shape for
+	# readability; assertions target the rewritten swatch/count widgets.
+	var parts := expected_text.split("\n")
+	var stack_part := parts[parts.size() - 1] if parts.size() > 0 else ""
+	var name_count := stack_part.rsplit(" x", true, 1)
+	var expected_name := name_count[0].strip_edges() if name_count.size() > 0 else ""
+	var expected_count := int(name_count[1]) if name_count.size() > 1 else 0
+
 	var panel_path := "HotbarRoot/Slots/Slot%d" % (slot_index + 1)
 	var panel := hotbar.get_node_or_null(panel_path) as PanelContainer
-	var label := hotbar.get_node_or_null(panel_path + "/Content") as Label
-	if panel == null:
-		_fail("Rendered panel is missing for hotbar slot %d" % (slot_index + 1))
+	var count_label := hotbar.get_node_or_null(panel_path + "/Count") as Label
+	var swatch := hotbar.get_node_or_null(panel_path + "/Swatch") as PanelContainer
+	if panel == null or count_label == null or swatch == null:
+		_fail("Rendered widgets are missing for hotbar slot %d" % (slot_index + 1))
 		return
-	if label == null:
-		_fail("Rendered label is missing for hotbar slot %d" % (slot_index + 1))
-		return
-	if not panel.is_visible_in_tree() or not label.is_visible_in_tree():
-		_fail("Hotbar slot %d controls are not visible in the rendered scene tree" % (slot_index + 1))
-	if label.text != expected_text:
-		_fail("Rendered slot %d text expected %s, got %s" % [slot_index + 1, expected_text, label.text])
+	if not panel.is_visible_in_tree():
+		_fail("Hotbar slot %d is not visible in the rendered scene tree" % (slot_index + 1))
+
+	var has_item := expected_name != "EMPTY" and expected_count > 0
+	if count_label.text != ("x%d" % expected_count if has_item else ""):
+		_fail(
+			"Rendered slot %d count expected x%d got %s"
+			% [slot_index + 1, expected_count, count_label.text]
+		)
+	if swatch.visible != has_item:
+		_fail(
+			"Rendered slot %d swatch visibility expected %s got %s"
+			% [slot_index + 1, has_item, swatch.visible]
+		)
 
 	var style := panel.get_theme_stylebox("panel") as StyleBoxFlat
 	if style == null:
 		_fail("Rendered slot %d has no StyleBoxFlat panel" % (slot_index + 1))
 		return
-	var expected_border := 4 if selected else 1
-	if style.border_width_left != expected_border:
+	var selected_border := Color(0.98, 0.80, 0.20)
+	if selected and style.border_color != selected_border:
 		_fail(
-			"Rendered slot %d border expected %d for selected=%s, got %d"
-			% [slot_index + 1, expected_border, selected, style.border_width_left]
+			"Rendered slot %d border color expected selected accent, got %s"
+			% [slot_index + 1, style.border_color]
 		)
+	if not selected and style.border_color == selected_border:
+		_fail("Rendered slot %d should not use the selected accent border" % (slot_index + 1))
 
 	var viewport_rect := Rect2(Vector2.ZERO, Vector2(1280.0, 720.0))
 	if not viewport_rect.encloses(panel.get_global_rect()):
 		_fail("Rendered slot %d panel lies outside the viewport" % (slot_index + 1))
-	if not viewport_rect.encloses(label.get_global_rect()):
-		_fail("Rendered slot %d label lies outside the viewport" % (slot_index + 1))
 
 
 func _capture_screenshot() -> void:

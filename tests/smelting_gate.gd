@@ -12,6 +12,8 @@ extends SceneTree
 const INVENTORY := preload("res://scripts/inventory/block_inventory.gd")
 const FURNACE := preload("res://scripts/smelting/furnace_recipes.gd")
 const SCREEN := preload("res://scripts/ui/minecraft_inventory_screen.gd")
+const ITEM_REGISTRY := preload("res://scripts/items/item_registry.gd")
+const CRAFTING_RECIPES := preload("res://scripts/crafting/crafting_recipes.gd")
 
 var failures: Array[String] = []
 var checks := 0
@@ -113,7 +115,7 @@ func _init() -> void:
 	_expect(solo.get_item_count(5) == 1, "lone log preserved on failed self-smelt")
 
 	# --- crafting screen contract
-	var recipes: Array = SCREEN.RECIPES
+	var recipes: Array = CRAFTING_RECIPES.RECIPES
 	var found_furnace := false
 	var found_metal_drill := false
 	for recipe in recipes:
@@ -128,7 +130,7 @@ func _init() -> void:
 	_expect(found_furnace, "crafting must expose 8 stone -> furnace")
 	_expect(found_metal_drill, "crafting must expose iron-ingot mechanical drill recipe")
 	for new_name_id in [10, 11, 12, 13, 14, 15, 16, 17, 18]:
-		_expect(SCREEN.BLOCK_NAMES.has(new_name_id), "BLOCK_NAMES missing id %d" % new_name_id)
+		_expect(ITEM_REGISTRY.NAMES.has(new_name_id), "BLOCK_NAMES missing id %d" % new_name_id)
 
 	print("SMELTING_GATE_JSON=", JSON.stringify({
 		"gate": "smelting",
