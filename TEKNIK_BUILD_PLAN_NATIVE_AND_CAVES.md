@@ -41,7 +41,7 @@ Both native languages compile to arm64-v8a via the pinned NDK and load through G
 
 ### Session R0 — Rust bootstrap (gdext)
 7. ✅ **DONE** — `native/rust_fields` on godot 0.1.3 (gdext), own `teknik_rust_fields.gdextension` (entry `gdext_rust_init`), loads alongside the C++ extension. Local gates: fmt OK, clippy -D warnings clean, RUST_FIELDS_GATE_PASS (probe class answers 42 through ClassDB). CI job `rust-fields-build` added: lint + desktop + NDK r23c android arm64 builds + headless gate.
-8. Define the **cave field contract**: pure functions `field(seed, x, y, z) -> float` + tunnel/carve decision helpers. Write the GDScript reference implementation and freeze fixed parity vectors. Port to Rust. *Gate: Rust matches the frozen vectors exactly; GDScript reference matches the same vectors.*
+8. ✅ **DONE** (d0d1e78) — Define the **cave field contract**: pure functions `field(seed, x, y, z) -> float` + tunnel/carve decision helpers. Write the GDScript reference implementation and freeze fixed parity vectors. Port to Rust. *Gate: Rust matches the frozen vectors exactly; GDScript reference matches the same vectors.*
 
 ### Session W1 — Caves, stage 14 (GDScript reference first)
 9. ✅ **DONE** — Stage 14 data: 3D cave fields — spaghetti tunnels (product of two 3D fields near zero) plus cheese caverns (single low-frequency threshold, deep bands only). Depth guards: no carving within 4 blocks of the surface except a sparse deterministic entrance field; no carving under ocean/river columns above a safety margin; clamp to `y >= min_y + 2`.
