@@ -96,3 +96,47 @@ jobs:
             /tmp/native-threaded-chunks.log
             /tmp/chunk-apply-hitch.log
           if-no-files-found: warn
+
+  android-arm64-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends scons file
+
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r23c
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "ndk;23.2.8568313"
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> "$GITHUB_ENV"
+
+      - name: Build arm64 shared libraries
+        run: |
+          git clone --depth 1 --branch 4.3 https://github.com/godotengine/godot-cpp.git native/carpathian/godot-cpp
+          scons -C native/carpathian platform=android target=template_debug arch=arm64 build_profile=build_profile.json -j2
+          scons -C native/carpathian platform=android target=template_release arch=arm64 build_profile=build_profile.json -j2
+
+      - name: Verify arm64 artifacts
+        run: |
+          test -f native/carpathian/bin/libteknik_carpathian.android.template_debug.arm64.so
+          test -f native/carpathian/bin/libteknik_carpathian.android.template_release.arm64.so
+          file native/carpathian/bin/*.so | tee /tmp/arm64-files.txt
+          grep -q 'aarch64' /tmp/arm64-files.txt
+
+      - name: Upload arm64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-carpathian-android-arm64
+          path: native/carpathian/bin/*.so
+          if-no-files-found: error
