@@ -10,11 +10,11 @@ extends RefCounted
 ## All integer arithmetic wraps at 64 bits; shifts are arithmetic; the hash
 ## fraction uses exactly 53 mantissa bits so values land in [0, 1).
 
-const CAVE_C1 := -7046029254386353131
-const CAVE_C2 := -4417276556811493921
-const CAVE_C3 := 5504942323413186691
-const CAVE_C4 := -6321507891823812219
-const CAVE_C5 := 6321507891823812219
+const CAVE_C1 := -7046029254386353131 # splitmix golden ratio
+const CAVE_C2 := -4417276706812531889
+const CAVE_C3 := 1609587929392839161
+const CAVE_C4 := -49064778989728563   # murmur3 fmix64 constant
+const CAVE_C5 := -4265267296055464877 # murmur3 fmix64 constant
 
 const TUNNEL_SEED_A := 1372009017
 const TUNNEL_SEED_B := 729942611
@@ -24,21 +24,23 @@ const ENTRANCE_SEED := 491651065
 const TUNNEL_SCALE := 1.0 / 28.0
 const CHEESE_SCALE := 1.0 / 48.0
 const ENTRANCE_SCALE := 1.0 / 16.0
-const TUNNEL_BAND := 0.058
-const CHEESE_THRESHOLD := 0.72
+const TUNNEL_BAND := 0.035
+const CHEESE_THRESHOLD := 0.78
 const ENTRANCE_THRESHOLD := 0.78
 const FBM_GAIN := 0.5
 const FBM_LACUNARITY := 2.0
 
 
 static func hash01_3d(x: int, y: int, z: int, seed: int) -> float:
+	# The final operation must be a multiply: any trailing h ^= h >> k clears
+	# the sign bit (arithmetic shift sign-extends), which would halve the
+	# fraction range. Verified uniform over the full [0, 1) interval.
 	var h: int = seed
 	h = h ^ (x * CAVE_C1)
 	h = h ^ (y * CAVE_C2)
 	h = h ^ (z * CAVE_C3)
-	h = (h ^ (h >> 30)) * CAVE_C4
-	h = (h ^ (h >> 27)) * CAVE_C5
-	h = h ^ (h >> 31)
+	h = (h ^ (h >> 33)) * CAVE_C4
+	h = (h ^ (h >> 29)) * CAVE_C5
 	return float((h >> 11) & 0x1FFFFFFFFFFFFF) * (1.0 / 9007199254740992.0)
 
 

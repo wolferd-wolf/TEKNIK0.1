@@ -209,6 +209,8 @@ func get_block(cell: Vector3i) -> int:
 	var climate: Vector2 = sample_biome_climate(cell.x, cell.z)
 	var biome: int = stage8_classify_climate(climate, water_info.x)
 	if cell.y <= height:
+		if cave_carves_cell(cell.x, cell.y, cell.z, height, water_info.x):
+			return BLOCK_AIR
 		if cell.y < height - 2:
 			return stage8_surface_block(cell, height, biome)
 		var terrain_modifier: int = stage9_terrain_modifier_from_fields(fields.x, fields.y, water_info.x)
@@ -217,3 +219,81 @@ func get_block(cell: Vector3i) -> int:
 		var hydrology_modifier: int = stage11_hydrology_modifier_at(cell.x, cell.z)
 		return stage11_surface_block(cell, height, biome, transition_code, terrain_modifier, slope, hydrology_modifier)
 	return generated_tree_block(cell)
+
+
+# ---- Cave field integration (build plan steps 8-9) --------------------------
+# The pure contract lives in scripts/world/cave_field_reference.gd with a
+# bit-exact Rust port (TeknikRustFieldEvaluator). Carving happens after the
+# height fill and before water/trees consume the column: water cells sit above
+# `height` so they are untouched; tree suppression below keeps canopies from
+# floating over entrance breaches.
+
+const CAVE_FIELD_REFERENCE := preload("res://scripts/world/cave_field_reference.gd")
+const CAVE_EVALUATOR_CLASS := &"TeknikRustFieldEvaluator"
+const CAVE_CHUNK_SIZE := 12
+const CAVE_CACHE_PADDING := 2
+const CAVE_MIN_Y := 0
+
+var _cave_evaluator: Object = null
+
+
+func _cave_field() -> Object:
+	if _cave_evaluator != null and is_instance_valid(_cave_evaluator):
+		return _cave_evaluator
+	if not ClassDB.class_exists(CAVE_EVALUATOR_CLASS):
+		return null
+	_cave_evaluator = ClassDB.instantiate(CAVE_EVALUATOR_CLASS)
+	return _cave_evaluator
+
+
+## Single carving predicate shared by gameplay queries (get_block) and the
+## chunk carve map. Never returns true above `height`, so surface water and
+## trees are structurally out of reach except via entrance breaches.
+func cave_carves_cell(x: int, y: int, z: int, height: int, water_type: int) -> bool:
+	if y > height or y < CAVE_MIN_Y + 2:
+		return false
+	var water_column := water_type != WATER_NONE
+	var native := _cave_field()
+	if native != null:
+		return bool(
+			native.is_cave_cell(x, y, z, height, SEA_LEVEL, water_column, CAVE_MIN_Y)
+		)
+	return CAVE_FIELD_REFERENCE.is_cave_cell(x, y, z, height, SEA_LEVEL, water_column, CAVE_MIN_Y)
+
+
+## Deterministic carve map for one chunk build (padded cache domain).
+## Returns {"overrides": Dictionary "x,y,z" -> BLOCK_AIR,
+##          "blocked_columns": PackedInt32Array cache indexes whose surface
+##          cell was carved, used to suppress floating trees}.
+func cave_data_for_chunk(coord: Vector2i, caches: Dictionary, mesh_height: int) -> Dictionary:
+	var heights: PackedInt32Array = caches.get("heights", PackedInt32Array())
+	var result := {"overrides": {}, "blocked_columns": PackedInt32Array()}
+	if heights.is_empty():
+		return result
+	var width := roundi(sqrt(float(heights.size())))
+	if width * width != heights.size():
+		return result
+	var water_types: PackedByteArray = caches.get("stage7_water_types", PackedByteArray())
+	var overrides: Dictionary = {}
+	var blocked := PackedInt32Array()
+	var min_x := coord.x * CAVE_CHUNK_SIZE - CAVE_CACHE_PADDING
+	var min_z := coord.y * CAVE_CHUNK_SIZE - CAVE_CACHE_PADDING
+	for cz in range(width):
+		var row := cz * width
+		for cx in range(width):
+			var index := row + cx
+			var wx := min_x + cx
+			var wz := min_z + cz
+			var h := int(heights[index])
+			var water_type := int(water_types[index]) if water_types.size() == heights.size() else WATER_NONE
+			var top := mini(h, mesh_height - 1)
+			var y := CAVE_MIN_Y + 2
+			while y <= top:
+				if cave_carves_cell(wx, y, wz, h, water_type):
+					overrides["%d,%d,%d" % [wx, y, wz]] = BLOCK_AIR
+				y += 1
+			if top >= h and h >= CAVE_MIN_Y + 2 and cave_carves_cell(wx, h, wz, h, water_type):
+				blocked.append(index)
+	result["overrides"] = overrides
+	result["blocked_columns"] = blocked
+	return result

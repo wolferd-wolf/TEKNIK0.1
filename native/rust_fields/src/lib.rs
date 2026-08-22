@@ -18,11 +18,11 @@ use godot::prelude::*;
 
 // ---- shared constants (keep byte-identical with the GDScript reference) ----
 
-const CAVE_C1: i64 = -7046029254386353131;
-const CAVE_C2: i64 = -4417276556811493921;
-const CAVE_C3: i64 = 5504942323413186691;
-const CAVE_C4: i64 = -6321507891823812219;
-const CAVE_C5: i64 = 6321507891823812219;
+const CAVE_C1: i64 = -7046029254386353131; // splitmix golden ratio
+const CAVE_C2: i64 = -4417276706812531889;
+const CAVE_C3: i64 = 1609587929392839161;
+const CAVE_C4: i64 = -49064778989728563; // murmur3 fmix64 constant
+const CAVE_C5: i64 = -4265267296055464877; // murmur3 fmix64 constant
 
 const TUNNEL_SEED_A: i64 = 1372009017;
 const TUNNEL_SEED_B: i64 = 729942611;
@@ -32,8 +32,8 @@ const ENTRANCE_SEED: i64 = 491651065;
 const TUNNEL_SCALE: f64 = 1.0 / 28.0;
 const CHEESE_SCALE: f64 = 1.0 / 48.0;
 const ENTRANCE_SCALE: f64 = 1.0 / 16.0;
-const TUNNEL_BAND: f64 = 0.058;
-const CHEESE_THRESHOLD: f64 = 0.72;
+const TUNNEL_BAND: f64 = 0.035;
+const CHEESE_THRESHOLD: f64 = 0.78;
 const ENTRANCE_THRESHOLD: f64 = 0.78;
 const FBM_GAIN: f64 = 0.5;
 const FBM_LACUNARITY: f64 = 2.0;
@@ -41,13 +41,15 @@ const FRACTION_SCALE: f64 = 1.0 / 9007199254740992.0; // 2^-53
 const FRACTION_MASK: i64 = 9007199254740991; // 2^53 - 1
 
 fn cave_hash01(x: i64, y: i64, z: i64, seed: i64) -> f64 {
+    // The final operation must be a multiply: any trailing h ^= h >> k clears
+    // the sign bit (arithmetic shift sign-extends), which would halve the
+    // fraction range. Mirrors cave_field_reference.gd exactly.
     let mut h: i64 = seed;
     h ^= x.wrapping_mul(CAVE_C1);
     h ^= y.wrapping_mul(CAVE_C2);
     h ^= z.wrapping_mul(CAVE_C3);
-    h = (h ^ (h >> 30)).wrapping_mul(CAVE_C4);
-    h = (h ^ (h >> 27)).wrapping_mul(CAVE_C5);
-    h ^= h >> 31;
+    h = (h ^ (h >> 33)).wrapping_mul(CAVE_C4);
+    h = (h ^ (h >> 29)).wrapping_mul(CAVE_C5);
     ((h >> 11) & FRACTION_MASK) as f64 * FRACTION_SCALE
 }
 
