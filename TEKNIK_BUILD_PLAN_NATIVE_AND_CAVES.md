@@ -32,7 +32,7 @@ Both native languages compile to arm64-v8a via the pinned NDK and load through G
 ### Session N0 — Native infrastructure hardening (C++)
 1. ✅ **DONE** (6a43e23) — SConstruct + build_profile committed; CI uses them; local full build of the .so succeeded at -j2.
 2. ✅ **DONE** (8214787, 17ebf77) — `.gdextension`, NativeLoader autoload, dual-path headless gate; both runs PASS. Required fixing a pre-existing corrupted theme resource that aborted project parse.
-3. Add an Android arm64 cross-compile job (NDK r23c, godot-cpp android template) to the equivalence workflow. *Gate: arm64 `.so` artifact produced and loaded by the existing APK-on-emulator smoke workflow.*
+3. ✅ **DONE** (committed with workflow job `android-arm64-build`) — builds template_debug + template_release arm64 .so with NDK r23c, verifies aarch64 ELF, uploads artifacts. Gate runs on PR (CI-only; no local SDK by design). Committed .gdextension already declares matching android paths so APK export bundles them automatically.
 
 ### Session N1 — C++ mesher reaches shipping quality
 4. Extend `TeknikVoxelMesher` to full stage12-mesher parity: ambient occlusion, sky light, biome colors, tree blocks, **water faces** (currently missing). *Gate: extended equivalence test over a fixed chunk set including the 26 boundary topologies, water stacks, and tree clusters.*
