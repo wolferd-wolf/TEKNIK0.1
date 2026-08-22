@@ -12,30 +12,44 @@ const RECIPES: Array[Dictionary] = [
 		"inputs": [{"block_id": 2, "count": 4}],
 		"output": {"block_id": 3, "count": 1}
 	},
-	# 3 STONE + 1 DIRT -> 1 WATER_WHEEL (block 7)
+	# 2 LOG -> 1 CRAFTING TABLE (block 19)
+	{
+		"inputs": [{"block_id": 5, "count": 2}],
+		"output": {"block_id": 19, "count": 1}
+	},
+	# 4 LOG -> 1 CHEST (block 20)
+	{
+		"inputs": [{"block_id": 5, "count": 4}],
+		"output": {"block_id": 20, "count": 1}
+	},
+	# 3 STONE + 1 DIRT -> 1 WATER_WHEEL (block 7) [crafting table only]
 	{
 		"inputs": [{"block_id": 3, "count": 3}, {"block_id": 2, "count": 1}],
-		"output": {"block_id": 7, "count": 1}
+		"output": {"block_id": 7, "count": 1},
+		"table_only": true
 	},
 	# 2 STONE + 2 DIRT -> 1 SHAFT (block 8)
 	{
 		"inputs": [{"block_id": 3, "count": 2}, {"block_id": 2, "count": 2}],
 		"output": {"block_id": 8, "count": 1}
 	},
-	# 2 WATER_WHEEL + 1 STONE + 1 DIRT -> 1 MECHANICAL_DRILL (block 9)
+	# 2 WATER_WHEEL + 1 STONE + 1 DIRT -> 1 MECHANICAL_DRILL (block 9) [table]
 	{
 		"inputs": [{"block_id": 7, "count": 2}, {"block_id": 3, "count": 1}, {"block_id": 2, "count": 1}],
-		"output": {"block_id": 9, "count": 1}
+		"output": {"block_id": 9, "count": 1},
+		"table_only": true
 	},
-	# 8 STONE -> 1 FURNACE (block 13)
+	# 8 STONE -> 1 FURNACE (block 13) [crafting table only]
 	{
 		"inputs": [{"block_id": 3, "count": 8}],
-		"output": {"block_id": 13, "count": 1}
+		"output": {"block_id": 13, "count": 1},
+		"table_only": true
 	},
-	# Metal machine path: 2 IRON_INGOT + 1 COPPER_INGOT -> 1 MECHANICAL_DRILL
+	# Metal machine path: 2 IRON_INGOT + 1 COPPER_INGOT -> 1 MECHANICAL_DRILL [table]
 	{
 		"inputs": [{"block_id": 14, "count": 2}, {"block_id": 15, "count": 1}],
-		"output": {"block_id": 9, "count": 1}
+		"output": {"block_id": 9, "count": 1},
+		"table_only": true
 	},
 	# 1 IRON_INGOT + 2 STONE -> 2 SHAFT
 	{
@@ -70,7 +84,9 @@ static func find_recipe_for_output(output_block_id: int, recipes: Array = RECIPE
 	return {}
 
 
-static func match_recipe(grid: Array, recipe: Dictionary) -> bool:
+static func match_recipe(grid: Array, recipe: Dictionary, table_mode: bool = false) -> bool:
+	if bool(recipe.get("table_only", false)) and not table_mode:
+		return false
 	var available := _tally(grid)
 	for req in recipe.get("inputs", []):
 		var req_id := int(req.get("block_id", 0))
@@ -80,23 +96,33 @@ static func match_recipe(grid: Array, recipe: Dictionary) -> bool:
 	return true
 
 
-static func find_recipe(grid: Array, recipes: Array = RECIPES) -> Dictionary:
+static func find_recipe(grid: Array, recipes: Array = RECIPES, table_mode: bool = false) -> Dictionary:
 	for recipe in recipes:
-		if match_recipe(grid, recipe):
+		if match_recipe(grid, recipe, table_mode):
 			return recipe
 	return {}
 
 
 ## First recipe the raw inventory can cover (ignores grid contents).
-static func first_craftable_from_inventory(inventory, recipes: Array = RECIPES) -> Dictionary:
+static func first_craftable_from_inventory(
+	inventory,
+	recipes: Array = RECIPES,
+	table_mode: bool = false
+) -> Dictionary:
 	for recipe in recipes:
-		if can_craft_from_inventory(recipe, inventory):
+		if can_craft_from_inventory(recipe, inventory, table_mode):
 			return recipe
 	return {}
 
 
-static func can_craft_from_inventory(recipe: Dictionary, inventory) -> bool:
+static func can_craft_from_inventory(
+	recipe: Dictionary,
+	inventory,
+	table_mode: bool = false
+) -> bool:
 	if inventory == null:
+		return false
+	if bool(recipe.get("table_only", false)) and not table_mode:
 		return false
 	var available := _tally(inventory.get_slots())
 	for req in recipe.get("inputs", []):

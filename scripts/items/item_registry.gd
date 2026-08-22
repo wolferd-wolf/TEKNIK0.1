@@ -26,7 +26,14 @@ const NAMES := {
 	16: "COAL",
 	17: "GLASS",
 	18: "CHARCOAL",
+	19: "CRAFTING TABLE",
+	20: "CHEST",
 }
+
+# Station blocks that open a menu when used in the world.
+const STATION_CRAFTING_TABLE := 19
+const STATION_CHEST := 20
+const STATION_IDS := [13, STATION_CRAFTING_TABLE, STATION_CHEST]
 
 const SWATCH := {
 	0: Color(0.09, 0.10, 0.12),
@@ -48,6 +55,8 @@ const SWATCH := {
 	16: Color(0.12, 0.12, 0.13),
 	17: Color(0.78, 0.88, 0.92),
 	18: Color(0.20, 0.19, 0.18),
+	19: Color(0.58, 0.42, 0.24),
+	20: Color(0.45, 0.31, 0.16),
 }
 
 # Items that read better with a symbol glyph on the swatch.
@@ -56,6 +65,8 @@ const GLYPH := {
 	9: "D",    # drill
 	7: "W",    # water wheel
 	8: "|",    # shaft
+	19: "T",   # crafting table
+	20: "C",   # chest
 }
 
 

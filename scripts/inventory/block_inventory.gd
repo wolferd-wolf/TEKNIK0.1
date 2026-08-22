@@ -17,20 +17,29 @@ const CRAFT_GRID_SIZE := 4
 
 var _slot_count: int
 var _max_stack_size: int
+var _craft_grid_size: int
 var _slots: Array[Dictionary] = []
 var _craft_grid: Array[Dictionary] = []
 
 
 func _init(
 	slot_count: int = DEFAULT_SLOT_COUNT,
-	max_stack_size: int = DEFAULT_MAX_STACK_SIZE
+	max_stack_size: int = DEFAULT_MAX_STACK_SIZE,
+	craft_grid_size: int = CRAFT_GRID_SIZE
 ) -> void:
 	_slot_count = maxi(slot_count, 1)
 	_max_stack_size = maxi(max_stack_size, 1)
+	# 2x2 grid on the player inventory; a placed crafting table opens a
+	# larger grid by constructing its own BlockInventory-sized craft area.
+	_craft_grid_size = clampi(craft_grid_size, 1, 64)
 	for _slot_index in range(_slot_count):
 		_slots.append(_empty_slot())
-	for _grid_index in range(CRAFT_GRID_SIZE):
+	for _grid_index in range(_craft_grid_size):
 		_craft_grid.append(_empty_slot())
+
+
+func get_craft_grid_size() -> int:
+	return _craft_grid_size
 
 
 # ---------------------------------------------------------------- read access
@@ -416,7 +425,7 @@ func consume_grid_inputs(recipe: Dictionary) -> Array[Dictionary]:
 ## that could NOT be returned (inventory full); those stay in the grid.
 func return_craft_grid_to_inventory() -> int:
 	var stranded := 0
-	for craft_index in range(CRAFT_GRID_SIZE):
+	for craft_index in range(_craft_grid.size()):
 		var stack: Dictionary = _craft_grid[craft_index]
 		if int(stack["count"]) <= 0:
 			continue
@@ -550,7 +559,7 @@ func _is_valid_slot(slot_index: int) -> bool:
 
 
 func _is_valid_craft_index(craft_index: int) -> bool:
-	return craft_index >= 0 and craft_index < CRAFT_GRID_SIZE
+	return craft_index >= 0 and craft_index < _craft_grid_size
 
 
 func _empty_slot() -> Dictionary:

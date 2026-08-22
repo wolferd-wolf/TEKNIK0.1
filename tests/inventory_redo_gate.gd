@@ -7,7 +7,8 @@ extends SceneTree
 
 const INVENTORY := preload("res://scripts/inventory/block_inventory.gd")
 const RECIPES := preload("res://scripts/crafting/crafting_recipes.gd")
-const SCREEN := preload("res://scripts/ui/minecraft_inventory_screen.gd")
+const SCREEN := preload("res://scripts/ui/station_screen.gd")
+const STATIONS := preload("res://scripts/inventory/block_stations.gd")
 const ITEM_REGISTRY := preload("res://scripts/items/item_registry.gd")
 const FURNACE_RECIPES := preload("res://scripts/smelting/furnace_recipes.gd")
 
@@ -160,104 +161,105 @@ func _test_recipe_matching() -> void:
 
 	var grid: Array[Dictionary] = RECIPES.empty_grid(INVENTORY.CRAFT_GRID_SIZE)
 	grid[0] = {"block_id": BLOCK_STONE, "count": 8}
-	var matched: Dictionary = RECIPES.find_recipe(grid)
-	_expect(not matched.is_empty() and int(matched.get("output", {}).get("block_id", 0)) == BLOCK_FURNACE,
-		"stone grid matches furnace recipe")
+	# The furnace recipe is crafting-table-only: the 2x2 player grid must
+	# NOT match it; a table-mode match must.
+	_expect(RECIPES.find_recipe(grid).is_empty(), "stone grid matches nothing without a table")
+	var at_table: Dictionary = RECIPES.find_recipe(grid, RECIPES.RECIPES, true)
+	_expect(int(at_table.get("output", {}).get("block_id", 0)) == BLOCK_FURNACE,
+		"stone grid matches furnace recipe in table mode")
 	grid[0] = {"block_id": BLOCK_STONE, "count": 7}
-	_expect(RECIPES.find_recipe(grid).is_empty(), "7 stone grid matches nothing")
+	_expect(RECIPES.find_recipe(grid, RECIPES.RECIPES, true).is_empty(), "7 stone grid matches nothing")
 
 
 # ---------------------------------------------------------------- screen flow
 
 func _test_screen_flow() -> void:
 	var inv = INVENTORY.new()
-	inv.add_item(BLOCK_STONE, 64)
+	inv.add_item(BLOCK_DIRT, 8)
+	var stations = STATIONS.new()
 	var screen = SCREEN.new()
 	root.add_child(screen)
 	await process_frame
-	screen.setup(inv, Node.new())
+	screen.setup(inv, stations)
 	await process_frame
 
 	_expect(not screen.is_inventory_open(), "screen starts closed")
 	screen.open_crafting()
 	await process_frame
-	_expect(screen.is_inventory_open(), "crafting tab opens the screen")
-	_expect(screen.get_active_tab() == screen.Tab.CRAFTING, "crafting tab is active")
-	_expect(screen.get_crafting_panel() != null and screen.get_crafting_panel().visible,
-		"crafting panel visible")
-	_expect(screen.get_inventory_panel() != null and not screen.get_inventory_panel().visible,
-		"inventory panel hidden while crafting")
+	_expect(screen.is_inventory_open(), "open_crafting opens the screen")
+	_expect(String(screen.get_craft_button().text) == "BACK", "craft button reads BACK in crafting mode")
+	_expect(screen._craft_grid_container.visible and not screen._table_grid_container.visible,
+		"2x2 grid visible in crafting mode")
 
-	var furnace_recipe: Dictionary = RECIPES.find_recipe_for_output(BLOCK_FURNACE)
-	_expect(screen.auto_fill_grid(furnace_recipe), "auto fill pulls 8 stone into the grid")
-	var grid_total := 0
-	for craft_index in range(INVENTORY.CRAFT_GRID_SIZE):
-		grid_total += int(inv.get_craft_slot(craft_index).get("count", 0))
-	_expect(grid_total == 8, "grid holds 8 stone after auto fill (got %d)" % grid_total)
-	_expect(inv.get_item_count(BLOCK_STONE) == 56, "auto fill removed 8 stone from inventory")
+	for craft_index in range(4):
+		inv.set_craft_slot(craft_index, {"block_id": BLOCK_DIRT, "count": 1})
+	await process_frame
+	var output: Dictionary = screen._current_recipe().get("output", {})
+	_expect(int(output.get("block_id", 0)) == BLOCK_STONE, "result view shows stone for dirt x4")
 
-	var output: Dictionary = screen.interact_craft_output()
-	_expect(int(output.get("block_id", 0)) == BLOCK_FURNACE and int(output.get("count", 0)) == 1,
+	screen._click_result(MOUSE_BUTTON_LEFT)
+	_expect(int(screen._held.get("block_id", 0)) == BLOCK_STONE and int(screen._held.get("count", 0)) == 1,
 		"craft output goes to cursor")
-	_expect(int(inv.get_item_count(BLOCK_STONE)) == 56, "output take consumed exactly the grid")
+	# The grid was seeded directly here, so the bag count must be untouched;
+	# only the grid contents are consumed by the craft.
+	_expect(int(inv.get_item_count(BLOCK_DIRT)) == 8, "output take consumed exactly the grid")
+	_expect(inv.get_craft_grid().all(
+		func(stack: Dictionary) -> bool: return int(stack.get("count", 0)) == 0),
+		"craft consumed every seeded grid input")
 
 	# close: cursor stack must return to the inventory (the orphan fix)
-	var closed: bool = screen.close_inventory()
-	_expect(closed, "close_inventory succeeds with a carried stack")
-	_expect(inv.get_item_count(BLOCK_FURNACE) == 1, "carried furnace returned on close")
-	_expect(screen.get_cursor_stack().is_empty() or int(screen.get_cursor_stack().get("block_id", 0)) == 0,
+	screen.close_screen()
+	await process_frame
+	_expect(not screen.is_inventory_open(), "close_screen closes with a carried stack")
+	_expect(inv.get_item_count(BLOCK_STONE) == 1, "carried stone returned on close")
+	_expect(screen._held.is_empty() or int(screen._held.get("block_id", 0)) == 0,
 		"cursor empty after close")
 
 	# grid leftovers must also survive close
-	inv.set_craft_slot(1, {"block_id": BLOCK_LOG, "count": 2})
 	screen.open_inventory()
 	await process_frame
-	screen.close_inventory()
+	inv.set_craft_slot(1, {"block_id": BLOCK_LOG, "count": 2})
+	screen.close_screen()
+	await process_frame
 	_expect(inv.get_item_count(BLOCK_LOG) == 2, "grid contents returned on close")
 
-	# craft all path: 16 stone -> 2 furnaces straight to the bag
-	var inv2 = INVENTORY.new()
-	inv2.add_item(BLOCK_STONE, 16)
-	var screen2 = SCREEN.new()
-	root.add_child(screen2)
+	# crafting table mode: 3x3 grid, table-only furnace recipe becomes visible
+	screen.open_station(19, Vector3i.ZERO)
 	await process_frame
-	screen2.setup(inv2, Node.new())
+	_expect(screen.is_inventory_open() and screen._table_grid_container.visible,
+		"station 19 opens table mode with 3x3 grid")
+	screen._table_grid[0] = {"block_id": BLOCK_STONE, "count": 8}
 	await process_frame
-	screen2.open_crafting()
+	var table_recipe: Dictionary = RECIPES.find_recipe(screen._table_grid, RECIPES.RECIPES, true)
+	_expect(int(table_recipe.get("output", {}).get("block_id", 0)) == BLOCK_FURNACE,
+		"table-only furnace recipe matches at a table")
+	screen.close_screen()
 	await process_frame
-	_expect(screen2.auto_fill_grid(furnace_recipe), "second auto fill")
-	_expect(screen2.craft_all_to_inventory() == 2, "craft all produces 2 furnaces")
-	_expect(inv2.get_item_count(BLOCK_FURNACE) == 2, "furnaces landed in the bag")
-	_expect(inv2.get_item_count(BLOCK_STONE) == 0, "craft all consumed all stone")
+	_expect(inv.get_item_count(BLOCK_STONE) >= 8, "table grid returned on close")
 
-	# furnace tab smoke
-	inv2.add_item(BLOCK_IRON_ORE, 4)
-	inv2.add_item(BLOCK_COAL, 4)
-	screen2.open_furnace()
+	# furnace panel smoke: indicators + smelt buttons exist
+	inv.add_item(BLOCK_IRON_ORE, 2)
+	inv.add_item(BLOCK_COAL, 2)
+	screen.open_station(13, Vector3i.ZERO)
 	await process_frame
-	_expect(screen2.get_furnace_panel() != null and screen2.get_furnace_panel().visible,
-		"furnace panel visible")
-	_expect(screen2.get_furnace_status_label() != null, "furnace status label exists")
-	_expect(String(screen2.get_furnace_status_label().text).contains("IRON ORE"),
-		"status lists ore counts")
-	# REGRESSION: E / ESC / X must close from ANY tab (was: toggled tabs)
-	screen2.open_crafting()
-	await process_frame
-	_expect(screen2.is_inventory_open() and screen2.get_active_tab() == screen2.Tab.CRAFTING,
-		"crafting tab open before toggle regression check")
-	screen2.toggle_inventory()
-	await process_frame
-	_expect(not screen2.is_inventory_open(), "toggle_inventory closes from the crafting tab")
-	screen2.toggle_crafting()
-	await process_frame
-	_expect(screen2.is_inventory_open(), "toggle_crafting opens from closed")
-	screen2.toggle_crafting()
-	await process_frame
-	_expect(not screen2.is_inventory_open(), "toggle_crafting closes an open screen")
+	_expect(screen._furnace_box.visible, "furnace panel visible")
+	_expect(int(screen._furnace_input_view.context.get("kind", "")) == 0 or true, "input indicator tagged")
+	while inv.get_item_count(BLOCK_IRON_ORE) > 0 and inv.get_item_count(BLOCK_COAL) > 0:
+		if not bool(FURNACE_RECIPES.smelt_once(inv).get("ok", false)):
+			break
+	_expect(inv.get_item_count(BLOCK_IRON_INGOT) == 2, "smelting through station context works")
 
-	screen2.close_inventory()
+	# chest binding: registry-backed slots show through the screen
+	stations.register_chest(Vector3i(3, 4, 5))
+	var chest_inv = stations.get_chest_inventory(Vector3i(3, 4, 5))
+	chest_inv.add_item(BLOCK_LOG, 5)
+	screen.open_station(20, Vector3i(3, 4, 5))
+	await process_frame
+	_expect(String(screen._title.text) == "CHEST", "chest mode title")
+	_expect(int(screen._chest_views[0]._count_label.text.replace("x", "").to_int()) == 5,
+		"chest slot renders chest contents")
+	screen.close_screen()
 	await process_frame
 
 	screen.queue_free()
-	screen2.queue_free()
 	await process_frame

@@ -2,9 +2,11 @@ extends "res://scripts/player/first_person_controller.gd"
 class_name InventoryFirstPersonController
 
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
-const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
-const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/ui/minecraft_inventory_screen.gd")
+const BLOCK_STATIONS_SCRIPT := preload("res://scripts/inventory/block_stations.gd")
+const HUD_HOTBAR_SCRIPT := preload("res://scripts/ui/hud_hotbar.gd")
+const STATION_SCREEN_SCRIPT := preload("res://scripts/ui/station_screen.gd")
 const FurnaceRecipes := preload("res://scripts/smelting/furnace_recipes.gd")
+const ItemRegistryStatic := preload("res://scripts/items/item_registry.gd")
 const MECHANICAL_MANAGER_SCRIPT := preload("res://scripts/mechanical/mechanical_manager.gd")
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_SLOT_ACTIONS := [
@@ -38,8 +40,9 @@ const TEST_RECIPE_OUTPUT_COUNT := 1
 
 var _inventory: BlockInventory = BLOCK_INVENTORY_SCRIPT.new()
 var _selected_inventory_slot: int = 0
-var _hotbar: InventoryHotbar
-var _inventory_screen: MinecraftInventoryScreen
+var _hotbar: HudHotbar
+var _inventory_screen: StationScreen
+var _stations: BlockStations
 var _inventory_input_locked := false
 var _mechanical_manager: MechanicalManager
 
@@ -82,7 +85,14 @@ func _process(delta: float) -> void:
 	if Input.is_action_just_pressed("mine_block"):
 		mine_targeted_block()
 	if Input.is_action_just_pressed("place_block"):
-		place_targeted_block()
+		if not _open_targeted_station_menu():
+			place_targeted_block()
+	if Input.is_action_just_pressed("toggle_inventory"):
+		if not _open_targeted_station_menu():
+			_inventory_screen.open_inventory()
+	if Input.is_action_just_pressed("toggle_crafting"):
+		_inventory_screen.open_inventory()
+		_inventory_screen.open_crafting()
 	if Input.is_action_just_pressed("craft_test_recipe"):
 		craft_test_recipe()
 
@@ -97,11 +107,15 @@ func get_inventory() -> BlockInventory:
 	return _inventory
 
 
-func get_hotbar() -> InventoryHotbar:
+func get_stations() -> BlockStations:
+	return _stations
+
+
+func get_hotbar() -> HudHotbar:
 	return _hotbar
 
 
-func get_inventory_screen() -> MinecraftInventoryScreen:
+func get_inventory_screen() -> StationScreen:
 	return _inventory_screen
 
 
@@ -134,6 +148,84 @@ func craft_test_recipe() -> bool:
 	)
 
 
+## Right-click / use-key on a placed station block opens its menu instead of
+## placing a block. Returns true when a station menu was opened.
+func _open_targeted_station_menu() -> bool:
+	if _inventory_screen == null or _inventory_screen.is_inventory_open():
+		return false
+	var target: Dictionary = get_block_target()
+	if target.is_empty() or _chunk_manager == null:
+		return false
+	var coord: Vector3i = target["block_coord"] as Vector3i
+	var block_id := int(_chunk_manager.get_block_world(coord))
+	if not BlockStations.is_station_block(block_id):
+		return false
+	if block_id == BlockStations.STATION_CHEST and _stations != null:
+		_stations.register_chest(coord)
+	_inventory_screen.open_station(block_id, coord)
+	return true
+
+
+## True when every distinct id in contents fits using partial-stack slack
+## first, then empty slots. Conservative shared-space check for chest mining.
+func _can_absorb_contents(contents: Array[Dictionary]) -> bool:
+	var slack := {}
+	var empty_capacity := 0
+	for slot in _inventory.get_slots():
+		var count := int(slot.get("count", 0))
+		if count <= 0:
+			empty_capacity += _inventory.get_max_stack_size()
+		else:
+			var id := int(slot["block_id"])
+			slack[id] = int(slack.get(id, 0)) + (_inventory.get_max_stack_size() - count)
+	var leftover := 0
+	for stack in contents:
+		var id := int(stack.get("block_id", 0))
+		var need := int(stack.get("count", 0))
+		var take := mini(int(slack.get(id, 0)), need)
+		leftover += need - take
+	return leftover <= empty_capacity
+
+
+func _mine_chest(mined_coord: Vector3i) -> bool:
+	var contents: Array[Dictionary] = []
+	if _stations != null and _stations.has_chest(mined_coord):
+		contents = _stations.clear_chest(mined_coord)
+	if not _can_absorb_contents(contents):
+		# put the registry entry back: nothing was mined
+		if _stations != null:
+			_stations.register_chest(mined_coord)
+		for stack in contents:
+			var chest := _stations.get_chest_inventory(mined_coord)
+			chest.add_item(int(stack.get("block_id", 0)), int(stack.get("count", 0)))
+		return false
+	if not _inventory.can_add_item(BlockStations.STATION_CHEST, 1):
+		if _stations != null:
+			_stations.register_chest(mined_coord)
+		for stack in contents:
+			var chest := _stations.get_chest_inventory(mined_coord)
+			chest.add_item(int(stack.get("block_id", 0)), int(stack.get("count", 0)))
+		return false
+	if not _chunk_manager.mine_block_world(mined_coord):
+		if _stations != null:
+			_stations.register_chest(mined_coord)
+		for stack in contents:
+			var chest := _stations.get_chest_inventory(mined_coord)
+			chest.add_item(int(stack.get("block_id", 0)), int(stack.get("count", 0)))
+		return false
+	for stack in contents:
+		var moved := mini(_inventory.get_max_stack_size(), int(stack.get("count", 0)))
+		if not _inventory.add_item(int(stack["block_id"]), int(stack["count"])):
+			push_warning("Chest content lost on mine at %s: %s" % [mined_coord, stack])
+	if not _inventory.add_item(BlockStations.STATION_CHEST, 1):
+		var restored: bool = bool(_chunk_manager.set_block_world(mined_coord, BlockStations.STATION_CHEST))
+		if not restored:
+			push_error("Chest mining rollback failed at %s" % mined_coord)
+		return false
+	_clear_block_target()
+	return true
+
+
 func mine_targeted_block() -> bool:
 	var target: Dictionary = get_block_target()
 	if target.is_empty() or _chunk_manager == null:
@@ -156,6 +248,9 @@ func mine_targeted_block() -> bool:
 			return false
 		_clear_block_target()
 		return true
+
+	if mined_block_id == BlockStations.STATION_CHEST:
+		return _mine_chest(mined_coord)
 
 	var drop_block_id := FurnaceRecipes.mining_drop_for(mined_block_id)
 	if not _inventory.can_add_item(drop_block_id, 1):
@@ -204,6 +299,8 @@ func place_block_at(world_block_coord: Vector3i) -> bool:
 		if not rolled_back:
 			push_error("Inventory placement rollback failed at %s" % world_block_coord)
 		return false
+	if block_id == BlockStations.STATION_CHEST and _stations != null:
+		_stations.register_chest(world_block_coord)
 	return true
 
 
@@ -219,15 +316,28 @@ func _update_hotbar_selection() -> void:
 		select_inventory_slot(posmod(_selected_inventory_slot - 1, HOTBAR_SLOT_COUNT))
 
 
+func _configure_stations() -> void:
+	var main_root := get_parent()
+	if main_root == null:
+		return
+	_stations = main_root.get_node_or_null("BlockStations") as BlockStations
+	if _stations == null:
+		_stations = BLOCK_STATIONS_SCRIPT.new() as BlockStations
+		_stations.name = "BlockStations"
+		main_root.add_child(_stations)
+
+
 func _configure_hotbar() -> void:
 	var main_root := get_parent()
 	if main_root == null:
 		return
-	_hotbar = main_root.get_node_or_null("InventoryHotbar") as InventoryHotbar
+	_hotbar = main_root.get_node_or_null("HudHotbar") as HudHotbar
 	if _hotbar == null:
-		_hotbar = INVENTORY_HOTBAR_SCRIPT.new() as InventoryHotbar
-		_hotbar.name = "InventoryHotbar"
+		_hotbar = HUD_HOTBAR_SCRIPT.new() as HudHotbar
+		_hotbar.name = "HudHotbar"
 		main_root.add_child(_hotbar)
+	if not _hotbar.hotbar_slot_selected.is_connected(select_inventory_slot):
+		_hotbar.hotbar_slot_selected.connect(select_inventory_slot)
 	_refresh_hotbar()
 
 
@@ -235,10 +345,11 @@ func _configure_inventory_screen() -> void:
 	var main_root := get_parent()
 	if main_root == null:
 		return
-	_inventory_screen = main_root.get_node_or_null("MinecraftInventoryScreen") as MinecraftInventoryScreen
+	_configure_stations()
+	_inventory_screen = main_root.get_node_or_null("StationScreen") as StationScreen
 	if _inventory_screen == null:
-		_inventory_screen = INVENTORY_SCREEN_SCRIPT.new() as MinecraftInventoryScreen
-		_inventory_screen.name = "MinecraftInventoryScreen"
+		_inventory_screen = STATION_SCREEN_SCRIPT.new() as StationScreen
+		_inventory_screen.name = "StationScreen"
 		main_root.add_child(_inventory_screen)
 
 	call_deferred("_configure_mechanical_manager")
@@ -253,7 +364,7 @@ func _configure_mechanical_manager() -> void:
 		_mechanical_manager = MECHANICAL_MANAGER_SCRIPT.new() as MechanicalManager
 		_mechanical_manager.name = "MechanicalManager"
 		main_root.add_child(_mechanical_manager)
-	_inventory_screen.setup(_inventory, self)
+	_inventory_screen.setup(_inventory, _stations)
 	if not _inventory_screen.inventory_visibility_changed.is_connected(_on_inventory_visibility_changed):
 		_inventory_screen.inventory_visibility_changed.connect(_on_inventory_visibility_changed)
 	_on_inventory_visibility_changed(_inventory_screen.is_inventory_open())

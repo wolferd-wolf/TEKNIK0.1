@@ -11,7 +11,6 @@ extends SceneTree
 
 const INVENTORY := preload("res://scripts/inventory/block_inventory.gd")
 const FURNACE := preload("res://scripts/smelting/furnace_recipes.gd")
-const SCREEN := preload("res://scripts/ui/minecraft_inventory_screen.gd")
 const ITEM_REGISTRY := preload("res://scripts/items/item_registry.gd")
 const CRAFTING_RECIPES := preload("res://scripts/crafting/crafting_recipes.gd")
 

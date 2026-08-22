@@ -161,21 +161,22 @@ func _assert_slot(
 
 
 func _assert_rendered_slot(hotbar, slot_index: int, expected_count: int, block_id: int) -> void:
+	var view: Node = hotbar.get_node_or_null("Root/Bar/Slot%d/View" % (slot_index + 1))
 	var count_label := hotbar.get_node_or_null(
-		"HotbarRoot/Slots/Slot%d/Count" % (slot_index + 1)
+		"Root/Bar/Slot%d/View/Count" % (slot_index + 1)
 	) as Label
-	var swatch := hotbar.get_node_or_null(
-		"HotbarRoot/Slots/Slot%d/Swatch" % (slot_index + 1)
-	) as PanelContainer
-	if count_label == null or swatch == null:
+	if view == null or count_label == null:
 		_fail("Rendered widgets are missing for hotbar slot %d" % (slot_index + 1))
 		return
 	var has_item := block_id > 0 and expected_count > 0
 	if count_label.text != ("x%d" % expected_count if has_item else ""):
 		_fail("Rendered slot %d count expected x%d got %s"
 			% [slot_index + 1, expected_count, count_label.text])
-	if swatch.visible != has_item:
-		_fail("Rendered slot %d swatch visibility expected %s" % [slot_index + 1, has_item])
+	var icon := view.get_node_or_null("Icon") as TextureRect
+	var swatch := view.get_node_or_null("Swatch") as ColorRect
+	var visual_visible := (icon != null and icon.visible) or (swatch != null and swatch.visible)
+	if visual_visible != has_item:
+		_fail("Rendered slot %d item visual visibility expected %s" % [slot_index + 1, has_item])
 
 
 func _capture_screenshot() -> void:
