@@ -18,7 +18,9 @@ ALLOWED+='|^(scripts/inventory/(block_inventory|block_stations)\.gd)$'
 ALLOWED+='|^(scripts/crafting/crafting_recipes\.gd)$'
 ALLOWED+='|^(scripts/world/playable_world_mesher\.gd)$'
 ALLOWED+='|^(native/carpathian/src/teknik_voxel_mesher\.hpp)$'
-ALLOWED+='|^tests/(inventory_rehoul_gate|inventory_redo_gate|inventory_ui_v2_gate|inventory_hotbar_step4_gate|inventory_crafting_step5_gate|smelting_gate|diagnostic_log_capture_gate)\.gd$'
+ALLOWED+='|^tests/(inventory_rehoul_gate|inventory_touch_gate|inventory_redo_gate|inventory_ui_v2_gate|inventory_hotbar_step4_gate|inventory_crafting_step5_gate|smelting_gate|diagnostic_log_capture_gate)\.gd$'
+ALLOWED+='|^scripts/ui/touch_action_controls\.gd$'
+ALLOWED+='|^scripts/ui/hud_hotbar\.gd$'
 
 DIFF_NAMES="$(git diff --name-only "$BASELINE" -- scripts scenes native tests)"
 if [ $? -ne 0 ]; then

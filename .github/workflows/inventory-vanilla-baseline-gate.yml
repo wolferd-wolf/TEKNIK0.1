@@ -76,7 +76,8 @@ jobs:
             inventory_mining_step2_gate.gd \
             inventory_placement_step3_gate.gd \
             inventory_hotbar_step4_gate.gd \
-            inventory_crafting_step5_gate.gd
+            inventory_crafting_step5_gate.gd \
+            inventory_touch_gate.gd
           do
             name="${gate%.gd}"
             XDG_DATA_HOME="$RUNNER_TEMP/teknik-${name}" \

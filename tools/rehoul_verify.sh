@@ -25,9 +25,11 @@ HEADLESS_GATES=(
   tests/inventory_redo_gate.gd
   tests/smelting_gate.gd
 )
-# These two capture screenshots of the rendered UI: CI runs them under
-# xvfb-run (acceptance-gate.yml), not --headless. Mirror that here.
+# These drive real input/rendering: CI runs them under xvfb-run
+# (acceptance-gate.yml), not --headless. Raw ScreenTouch events are only
+# delivered with a real display server, so the touch gate belongs here too.
 RENDERED_GATES=(
+  tests/inventory_touch_gate.gd
   tests/inventory_hotbar_step4_gate.gd
   tests/inventory_crafting_step5_gate.gd
 )

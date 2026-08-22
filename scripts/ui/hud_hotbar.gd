@@ -58,6 +58,15 @@ func _on_slot_clicked(view: ItemSlotView, _mouse_button_index: int, _shift_held:
 	hotbar_slot_selected.emit(int(view.context.get("index", 0)))
 
 
+## Global-screen rect of one visible hotbar frame; TouchActionControls aligns
+## its invisible tap targets to these every frame (touch does not emulate
+## mouse in this project).
+func get_slot_global_rect(slot_index: int) -> Rect2:
+	if slot_index < 0 or slot_index >= _frames.size():
+		return Rect2()
+	return _frames[slot_index].get_global_rect()
+
+
 func refresh(slots: Array[Dictionary], selected_index: int) -> void:
 	_selected = clampi(selected_index, 0, SLOT_COUNT - 1)
 	for slot_index in range(_slots.size()):

@@ -66,6 +66,32 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+func _process(_delta: float) -> void:
+	_align_hotbar_touch_targets()
+
+
+## The visible HUD hotbar owns slot layout now. Keep the invisible touch
+## targets glued to it so taps on what the player SEES select that slot
+## (touch never emulates mouse in this project).
+func _align_hotbar_touch_targets() -> void:
+	var main := get_parent()
+	if main == null:
+		return
+	var hud := main.get_node_or_null("HudHotbar") as HudHotbar
+	if hud == null:
+		return
+	for slot_index in range(_hotbar_buttons.size()):
+		var rect := hud.get_slot_global_rect(slot_index)
+		if rect.size == Vector2.ZERO:
+			continue
+		# Grow slightly beyond the visual frame; stay within the 4px bar
+		# separation so neighboring targets never overlap.
+		var grow := 2.0
+		var target_rect := rect.grow(grow)
+		_hotbar_buttons[slot_index].position = target_rect.position
+		_hotbar_buttons[slot_index].size = target_rect.size
+
+
 func _exit_tree() -> void:
 	for action in _pressed_actions.keys():
 		Input.action_release(action)

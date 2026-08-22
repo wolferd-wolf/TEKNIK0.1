@@ -45,6 +45,8 @@ var _furnace_input_view: ItemSlotView
 var _furnace_fuel_view: ItemSlotView
 var _furnace_output_view: ItemSlotView
 var _held_view: ItemSlotView
+var _active_touch_index := -1
+var _extra_buttons: Array[Button] = []
 
 
 func _ready() -> void:
@@ -87,6 +89,22 @@ func open_inventory() -> void:
 func open_crafting() -> void:
 	_set_mode(Mode.CRAFT)
 	_set_open(true)
+
+
+## Compat contract used by TouchActionControls (and the old screen's API).
+func toggle_inventory() -> void:
+	if _is_open:
+		close_screen()
+	else:
+		open_inventory()
+
+
+## Compat contract: opens crafting from closed, closes an open screen.
+func toggle_crafting() -> void:
+	if _is_open:
+		close_screen()
+	else:
+		open_crafting()
 
 
 func open_station(block_id: int, coord: Vector3i) -> void:
@@ -214,6 +232,7 @@ func _build_ui() -> void:
 	_craft_button.name = "CraftButton"
 	_craft_button.pressed.connect(_on_craft_pressed)
 	main_row.add_child(_craft_button)
+	_extra_buttons.append(_craft_button)
 
 	_inv_panel = PanelContainer.new()
 	_inv_panel.name = "InvPanel"
@@ -235,6 +254,7 @@ func _build_ui() -> void:
 	_close_button.name = "CloseButton"
 	_close_button.pressed.connect(close_screen)
 	main_row.add_child(_close_button)
+	_extra_buttons.append(_close_button)
 
 	_held_view = ItemSlotView.new({"kind": "held"})
 	_held_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -300,6 +320,7 @@ func _build_station_areas() -> void:
 		var smelt_button := _make_button("SMELT x%d" % batch, 110)
 		smelt_button.pressed.connect(_on_smelt_pressed.bind(batch))
 		smelt_buttons.add_child(smelt_button)
+		_extra_buttons.append(smelt_button)
 	_furnace_box.add_child(smelt_buttons)
 
 
@@ -450,7 +471,12 @@ func _refresh_furnace_views() -> void:
 func _on_slot_clicked(view: ItemSlotView, mouse_button_index: int, shift_held: bool) -> void:
 	var kind := String(view.context.get("kind", ""))
 	match kind:
-		"storage", "hotbar":
+		"storage":
+			# Storage views are numbered relative to the storage half; item
+			# operations need the absolute player-inventory slot index.
+			var absolute_index := player_inventory.get_hotbar_slot_count() 				+ int(view.context.get("index", 0)) if player_inventory != null 				else int(view.context.get("index", 0))
+			_click_inventory_slot(absolute_index, mouse_button_index, shift_held)
+		"hotbar":
 			_click_inventory_slot(int(view.context.get("index", 0)), mouse_button_index, shift_held)
 		"craft":
 			_click_craft_slot(int(view.context.get("index", 0)), mouse_button_index)
@@ -628,3 +654,51 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory") or event.is_action_pressed("ui_cancel"):
 		close_screen()
 		get_viewport().set_input_as_handled()
+
+
+# ---------------------------------------------------------------- touch input
+# The project disables mouse-emulation-from-touch
+# (input_devices/pointing/emulate_mouse_from_touch=false), so plain Buttons
+# never see taps. Route raw ScreenTouch presses into the same handlers the
+# mouse uses, exactly like the previous screen did.
+
+func _input(event: InputEvent) -> void:
+	if not _is_open:
+		return
+	var touch := event as InputEventScreenTouch
+	if touch == null:
+		return
+	if touch.pressed:
+		if _active_touch_index != -1:
+			return # one interacting finger at a time
+		if _route_touch_press(touch.position):
+			_active_touch_index = touch.index
+			get_viewport().set_input_as_handled()
+	elif touch.index == _active_touch_index:
+		_active_touch_index = -1
+
+
+func _route_touch_press(position: Vector2) -> bool:
+	for view in _interactive_slot_views():
+		if view.is_visible_in_tree() and view.get_global_rect().has_point(position):
+			if view.context.get("kind", "") == "result":
+				_click_result(MOUSE_BUTTON_LEFT)
+			else:
+				_on_slot_clicked(view, MOUSE_BUTTON_LEFT, false)
+			return true
+	for button in _extra_buttons:
+		if button != null and button.is_visible_in_tree() 				and button.get_global_rect().has_point(position):
+			button.pressed.emit()
+			return true
+	return false
+
+
+func _interactive_slot_views() -> Array[ItemSlotView]:
+	var views: Array[ItemSlotView] = []
+	views.append_array(_storage_views)
+	views.append_array(_hotbar_views)
+	views.append_array(_craft_views)
+	views.append_array(_table_views)
+	views.append(_result_view)
+	views.append_array(_chest_views)
+	return views
