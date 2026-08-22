@@ -212,7 +212,12 @@ func get_block(cell: Vector3i) -> int:
 		if cave_carves_cell(cell.x, cell.y, cell.z, height, water_info.x):
 			return BLOCK_AIR
 		if cell.y < height - 2:
-			return stage8_surface_block(cell, height, biome)
+			var base_block: int = stage8_surface_block(cell, height, biome)
+			if base_block == BLOCK_STONE:
+				var ore_id := ORE_FIELD.ore_block_for_cell(cell.x, cell.y, cell.z, height)
+				if ore_id != BLOCK_AIR:
+					return ore_id
+			return base_block
 		var terrain_modifier: int = stage9_terrain_modifier_from_fields(fields.x, fields.y, water_info.x)
 		var slope: float = stage7_surface_slope_at(cell.x, cell.z, height)
 		var transition_code: int = stage10_transition_code_for_climate(climate, water_info.x)
@@ -229,6 +234,7 @@ func get_block(cell: Vector3i) -> int:
 # floating over entrance breaches.
 
 const CAVE_FIELD_REFERENCE := preload("res://scripts/world/cave_field_reference.gd")
+const ORE_FIELD := preload("res://scripts/world/ore_field_reference.gd")
 const CAVE_EVALUATOR_CLASS := &"TeknikRustFieldEvaluator"
 const CAVE_CHUNK_SIZE := 12
 const CAVE_CACHE_PADDING := 2
@@ -274,6 +280,7 @@ func cave_data_for_chunk(coord: Vector2i, caches: Dictionary, mesh_height: int) 
 	if width * width != heights.size():
 		return result
 	var water_types: PackedByteArray = caches.get("stage7_water_types", PackedByteArray())
+	var biomes: PackedByteArray = caches.get("biomes", PackedByteArray())
 	var overrides: Dictionary = {}
 	var blocked := PackedInt32Array()
 	var min_x := coord.x * CAVE_CHUNK_SIZE - CAVE_CACHE_PADDING
@@ -291,6 +298,14 @@ func cave_data_for_chunk(coord: Vector2i, caches: Dictionary, mesh_height: int) 
 			while y <= top:
 				if cave_carves_cell(wx, y, wz, h, water_type):
 					overrides["%d,%d,%d" % [wx, y, wz]] = BLOCK_AIR
+				elif h - y >= 4 and y < h - 2:
+					# Ore policy mirrors get_block exactly: stone-only cells.
+					var biome_here := int(biomes[index]) if biomes.size() == heights.size() else 0
+					var base_block := stage8_surface_block(Vector3i(wx, y, wz), h, biome_here)
+					if base_block == BLOCK_STONE:
+						var ore_id := ORE_FIELD.ore_block_for_cell(wx, y, wz, h)
+						if ore_id != BLOCK_AIR:
+							overrides["%d,%d,%d" % [wx, y, wz]] = ore_id
 				y += 1
 			if top >= h and h >= CAVE_MIN_Y + 2 and cave_carves_cell(wx, h, wz, h, water_type):
 				blocked.append(index)

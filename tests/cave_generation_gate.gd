@@ -68,6 +68,8 @@ func _init() -> void:
 			if parts.size() != 3:
 				_fail("bad override key %s" % [key])
 				continue
+			if int(overrides[key]) != data.BLOCK_AIR:
+				continue # ore placement, not a carve; checked by ore_generation_gate
 			var wx := int(parts[0])
 			var wy := int(parts[1])
 			var wz := int(parts[2])
@@ -100,11 +102,14 @@ func _init() -> void:
 				var h := int(heights[cz * width + cx])
 				var y := 2
 				while y <= mini(h, 40) and sample_count < 4096:
-					var carved: bool = overrides.has("%d,%d,%d" % [wx, y, wz])
+					var key2 := "%d,%d,%d" % [wx, y, wz]
+					var map_value := int(overrides[key2]) if overrides.has(key2) else -1
 					var block_id: int = data.get_block(Vector3i(wx, y, wz))
-					if carved and block_id != data.BLOCK_AIR:
+					if map_value == data.BLOCK_AIR and block_id != data.BLOCK_AIR:
 						_fail("carve map says air, get_block says %d at %d,%d,%d" % [block_id, wx, y, wz])
-					if not carved and block_id == data.BLOCK_AIR and y <= h:
+					if map_value >= data.BLOCK_COAL_ORE and block_id != map_value:
+						_fail("ore map says %d, get_block says %d at %d,%d,%d" % [map_value, block_id, wx, y, wz])
+					if map_value < 0 and block_id == data.BLOCK_AIR and y <= h:
 						_fail("get_block carved outside map at %d,%d,%d" % [wx, y, wz])
 					sample_count += 1
 					y += 1
@@ -147,7 +152,8 @@ func _init() -> void:
 					continue
 				var wx2 := min_x + cx2
 				var wz2 := min_z + cz2
-				if overrides.has("%d,%d,%d" % [wx2, h2, wz2]):
+				var surf_key := "%d,%d,%d" % [wx2, h2, wz2]
+				if overrides.has(surf_key) and int(overrides[surf_key]) == data.BLOCK_AIR:
 					_expect(blocked.has(idx2), "surface carve not blocked for trees at %d,%d" % [wx2, wz2])
 
 	_expect(total_seam_matches > 0, "no seam overlap sampled across all probe chunks")
