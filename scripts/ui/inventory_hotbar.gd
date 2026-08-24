@@ -14,13 +14,10 @@ const BLOCK_NAMES := {
 
 var _slot_panels: Array[PanelContainer] = []
 var _slot_labels: Array[Label] = []
-var _normal_style: StyleBoxFlat
-var _selected_style: StyleBoxFlat
 
 
 func _ready() -> void:
 	layer = 20
-	_build_styles()
 	_build_hotbar()
 
 
@@ -28,6 +25,7 @@ func refresh(slots: Array[Dictionary], selected_slot: int) -> void:
 	if _slot_labels.size() != HOTBAR_SLOT_COUNT:
 		return
 
+	var theme := get_theme()
 	for slot_index in range(HOTBAR_SLOT_COUNT):
 		var slot := {"block_id": 0, "count": 0}
 		if slot_index < slots.size():
@@ -36,35 +34,14 @@ func refresh(slots: Array[Dictionary], selected_slot: int) -> void:
 		var count := int(slot.get("count", 0))
 		var block_name := String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
 		_slot_labels[slot_index].text = "%d\n%s x%d" % [slot_index + 1, block_name, count]
-		_slot_panels[slot_index].add_theme_stylebox_override(
-			"panel",
-			_selected_style if slot_index == selected_slot else _normal_style
-		)
 
-
-func _build_styles() -> void:
-	# Use theme's default PanelContainer style (shadcn dark theme provides one)
-	# Just add corner radius and selection highlight
-	_normal_style = StyleBoxFlat.new()
-	_normal_style.corner_radius_top_left = 4
-	_normal_style.corner_radius_top_right = 4
-	_normal_style.corner_radius_bottom_left = 4
-	_normal_style.corner_radius_bottom_right = 4
-
-	_selected_style = StyleBoxFlat.new()
-	_selected_style.corner_radius_top_left = 4
-	_selected_style.corner_radius_top_right = 4
-	_selected_style.corner_radius_bottom_left = 4
-	_selected_style.corner_radius_bottom_right = 4
-	_selected_style.border_color = Color(1.0, 0.82, 0.12, 1.0)
-	_set_border_width(_selected_style, 4)
-
-
-func _set_border_width(style: StyleBoxFlat, width: int) -> void:
-	style.border_width_left = width
-	style.border_width_top = width
-	style.border_width_right = width
-	style.border_width_bottom = width
+		# Use theme resource styles instead of hardcoded
+		if slot_index == selected_slot:
+			_slot_panels[slot_index].add_theme_stylebox_override("panel", theme.get_stylebox("slot_selected", "PanelContainer"))
+		elif block_id > 0 and count > 0:
+			_slot_panels[slot_index].add_theme_stylebox_override("panel", theme.get_stylebox("slot_occupied", "PanelContainer"))
+		else:
+			_slot_panels[slot_index].add_theme_stylebox_override("panel", theme.get_stylebox("slot_empty", "PanelContainer"))
 
 
 func _build_hotbar() -> void:
@@ -96,7 +73,8 @@ func _build_hotbar() -> void:
 		panel.name = "Slot%d" % (slot_index + 1)
 		panel.custom_minimum_size = Vector2(104.0, 78.0)
 		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_theme_stylebox_override("panel", _normal_style)
+		# Start with empty slot style
+		panel.add_theme_stylebox_override("panel", get_theme().get_stylebox("slot_empty", "PanelContainer"))
 		row.add_child(panel)
 		_slot_panels.append(panel)
 

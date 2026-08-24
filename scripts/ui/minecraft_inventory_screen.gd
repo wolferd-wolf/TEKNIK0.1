@@ -528,6 +528,68 @@ func _refresh_craft_slots() -> void:
 				crafting_out_label.text = "EMPTY x0"
 
 
+func _update_slot_style(slot_index: int) -> void:
+	if not _slot_buttons.has(slot_index):
+		return
+	var slot := _inventory.get_slot(slot_index)
+	var block_id: int = int(slot.get("block_id", 0))
+	var count: int = int(slot.get("count", 0))
+	var panel: PanelContainer = _slot_buttons[slot_index].get_parent() as PanelContainer
+	if not is_instance_valid(panel):
+		return
+	var theme := get_theme()
+	if block_id > 0 and count > 0:
+		panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_occupied", "PanelContainer"))
+	else:
+		panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_empty", "PanelContainer"))
+
+
+func _refresh_craft_slot_styles() -> void:
+	var theme := get_theme()
+	var inputs: Array = _get_craft_inputs()
+	# Update inventory panel craft input slots
+	for i in range(CRAFT_INPUT_SIZE):
+		if i < _craft_input_buttons.size():
+			var button := _craft_input_buttons[i]
+			if is_instance_valid(button):
+				var panel := button.get_parent() as PanelContainer
+				if is_instance_valid(panel):
+					var stack: Dictionary = inputs[i]
+					var block_id: int = int(stack.get("block_id", 0))
+					var count: int = int(stack.get("count", 0))
+					if block_id > 0 and count > 0:
+						panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_occupied", "PanelContainer"))
+					else:
+						panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_empty", "PanelContainer"))
+	# Update crafting panel craft input slots
+	if has_meta("__crafting_input_labels"):
+		var crafting_labels: Array = get_meta("__crafting_input_labels")
+		for i in range(CRAFT_INPUT_SIZE):
+			if i < crafting_labels.size():
+				var label := crafting_labels[i] as Label
+				if is_instance_valid(label):
+					var panel := label.get_parent() as PanelContainer
+					if is_instance_valid(panel):
+						var stack: Dictionary = inputs[i]
+						var block_id: int = int(stack.get("block_id", 0))
+						var count: int = int(stack.get("count", 0))
+						if block_id > 0 and count > 0:
+							panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_occupied", "PanelContainer"))
+						else:
+							panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_empty", "PanelContainer"))
+	# Update output slots (always empty style for output)
+	if is_instance_valid(_craft_output_button):
+		var panel := _craft_output_button.get_parent() as PanelContainer
+		if is_instance_valid(panel):
+			panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_empty", "PanelContainer"))
+	if has_meta("__crafting_output_label"):
+		var crafting_out_label := get_meta("__crafting_output_label") as Label
+		if is_instance_valid(crafting_out_label):
+			var panel := crafting_out_label.get_parent() as PanelContainer
+			if is_instance_valid(panel):
+				panel.add_theme_stylebox_override("panel", theme.get_stylebox("slot_empty", "PanelContainer"))
+
+
 func _create_recipe_button(parent: Control, recipe: Dictionary) -> Button:
 	var btn := Button.new()
 	btn.name = "RecipeButton"
@@ -676,13 +738,16 @@ func _refresh() -> void:
 		for slot_index in range(HOTBAR_SLOT_COUNT):
 			if slot_index < _hotbar_labels.size():
 				_hotbar_labels[slot_index].text = _slot_text(slot_index, true)
+				_update_slot_style(slot_index)
 		for storage_index in range(STORAGE_SLOT_COUNT):
 			if storage_index < _storage_labels.size():
 				_storage_labels[storage_index].text = _slot_text(STORAGE_START_INDEX + storage_index, false)
+				_update_slot_style(STORAGE_START_INDEX + storage_index)
 	if is_instance_valid(_cursor_label):
 		_cursor_label.text = _cursor_text()
 	_refresh_craft_slots()
 	_refresh_recipe_book()
+	_refresh_craft_slot_styles()
 
 
 func _slot_text(slot_index: int, include_number: bool) -> String:
@@ -1114,14 +1179,8 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 
 
 func _style_slot(panel: PanelContainer) -> void:
-	# Use theme's default slot style (shadcn provides Panel style)
-	# We just ensure consistent corner radius for our grid layout
-	var style := StyleBoxFlat.new()
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	panel.add_theme_stylebox_override("panel", style)
+	# Use theme resource style for empty slots (default)
+	panel.add_theme_stylebox_override("panel", get_theme().get_stylebox("slot_empty", "PanelContainer"))
 
 
 func _create_craft_input_slot(parent: Control, slot_name: String, craft_index: int) -> Dictionary:

@@ -105,12 +105,54 @@ corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
-# ==================== THEME OVERRIDES ====================
+; ===== NEW SLOT STYLES (Commit 1) =====
+; Empty slot: bg #2a2a2e, 2px border #1a1a1c, corner_radius 4px
+[sub_resource type="StyleBoxFlat" id="sb_slot_empty"]
+bg_color = Color(0.165, 0.165, 0.18, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.102, 0.102, 0.11, 1)
 
-# PanelContainer (used for inventory panels, slots)
+; Occupied slot (has item): same bg, border #4a4a52
+[sub_resource type="StyleBoxFlat" id="sb_slot_occupied"]
+bg_color = Color(0.165, 0.165, 0.18, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.29, 0.29, 0.32, 1)
+
+; Selected hotbar slot: 3px border #e8c547
+[sub_resource type="StyleBoxFlat" id="sb_slot_selected"]
+bg_color = Color(0.165, 0.165, 0.18, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.91, 0.77, 0.28, 1)
+
+[resource]
+
+; ==================== THEME OVERRIDES ====================
+
+; PanelContainer (used for inventory panels, slots)
 PanelContainer/styles/panel = SubResource("sb_panel")
 
-# Button
+; Button
 Button/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 Button/colors/font_hover_color = Color(0.98, 0.98, 0.98, 1)
 Button/colors/font_pressed_color = Color(0.98, 0.98, 0.98, 1)
@@ -122,13 +164,21 @@ Button/styles/pressed = SubResource("sb_button_pressed")
 Button/styles/focus = SubResource("sb_button_focus")
 Button/styles/disabled = SubResource("sb_button_disabled")
 
-# Label
+; Label
 Label/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 
-# TextureRect (for slot backgrounds)
+; TextureRect (for slot backgrounds)
 TextureRect/styles/normal = SubResource("sb_slot")
 
-# LineEdit (if used)
+; Slot style variations (accessed via add_theme_stylebox_override("panel", theme.get_stylebox(...)))
+; Empty slot
+PanelContainer/styles/slot_empty = SubResource("sb_slot_empty")
+; Occupied slot (has item)
+PanelContainer/styles/slot_occupied = SubResource("sb_slot_occupied")
+; Selected hotbar slot
+PanelContainer/styles/slot_selected = SubResource("sb_slot_selected")
+
+; LineEdit (if used)
 LineEdit/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 LineEdit/colors/font_placeholder_color = Color(0.6, 0.6, 0.65, 0.8)
 LineEdit/colors/caret_color = Color(0.23, 0.51, 0.96, 1)
@@ -137,43 +187,43 @@ LineEdit/styles/normal = SubResource("sb_button_normal")
 LineEdit/styles/focus = SubResource("sb_button_focus")
 LineEdit/styles/read_only = SubResource("sb_button_disabled")
 
-# HBoxContainer / VBoxContainer
+; HBoxContainer / VBoxContainer
 HBoxContainer/constants/separation = 3
 VBoxContainer/constants/separation = 3
 
-# GridContainer
+; GridContainer
 GridContainer/constants/h_separation = 8
 GridContainer/constants/v_separation = 8
 
-# ScrollContainer
+; ScrollContainer
 ScrollContainer/styles/panel = SubResource("sb_scroll_bg")
 ScrollContainer/styles/focus = SubResource("sb_button_focus")
 ScrollContainer/styles/hover = SubResource("sb_button_hover")
 
-# OptionButton (dropdown)
+; OptionButton (dropdown)
 OptionButton/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 OptionButton/colors/font_hover_color = Color(0.98, 0.98, 0.98, 1)
 OptionButton/styles/normal = SubResource("sb_button_normal")
 OptionButton/styles/hover = SubResource("sb_button_hover")
 OptionButton/styles/focus = SubResource("sb_button_focus")
 
-# CheckBox
+; CheckBox
 CheckBox/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 CheckBox/colors/font_hover_color = Color(0.98, 0.98, 0.98, 1)
 CheckBox/colors/font_pressed_color = Color(0.98, 0.98, 0.98, 1)
 CheckBox/styles/normal = SubResource("sb_button_normal")
 
-# Slider
+; Slider
 Slider/styles/slider = SubResource("sb_scroll_bg")
 Slider/styles/grabber = SubResource("sb_scroll_grabber")
 Slider/styles/grabber_highlight = SubResource("sb_scroll_grabber")
 Slider/styles/grabber_pressed = SubResource("sb_scroll_grabber")
 
-# ProgressBar
+; ProgressBar
 ProgressBar/styles/background = SubResource("sb_scroll_bg")
 ProgressBar/styles/fill = SubResource("sb_button_hover")
 
-# TabContainer
+; TabContainer
 TabContainer/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 TabContainer/colors/font_selected_color = Color(0.98, 0.98, 0.98, 1)
 TabContainer/styles/panel = SubResource("sb_panel")
@@ -184,7 +234,7 @@ TabContainer/styles/tab_hovered = SubResource("sb_button_hover")
 TabContainer/styles/tab_focus = SubResource("sb_button_focus")
 TabContainer/styles/tab_disabled = SubResource("sb_button_disabled")
 
-# ItemList
+; ItemList
 ItemList/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 ItemList/colors/font_selected_color = Color(0.98, 0.98, 0.98, 1)
 ItemList/colors/guide_color = Color(0.0, 0.0, 0.0, 0.0)
@@ -194,7 +244,7 @@ ItemList/styles/hovered = SubResource("sb_button_hover")
 ItemList/styles/selected = SubResource("sb_button_hover")
 ItemList/styles/selected_focus = SubResource("sb_button_hover")
 
-# Tree
+; Tree
 Tree/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 Tree/colors/guide_color = Color(0.0, 0.0, 0.0, 0.0)
 Tree/styles/panel = SubResource("sb_panel")
@@ -206,15 +256,15 @@ Tree/constants/v_separation = 1
 Tree/constants/draw_guides = 0
 Tree/constants/draw_relationship_lines = 0
 
-# RichTextLabel
+; RichTextLabel
 RichTextLabel/styles/normal = SubResource("sb_panel")
 RichTextLabel/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 RichTextLabel/colors/link_color = Color(0.23, 0.51, 0.96, 1)
 
-# Window (for dialogs/popups)
+; Window (for dialogs/popups)
 Window/styles/panel = SubResource("sb_panel")
 
-# TabBar
+; TabBar
 TabBar/colors/font_unselected_color = Color(0.45, 0.45, 0.45, 1)
 TabBar/colors/font_selected_color = Color(0.98, 0.98, 0.98, 1)
 TabBar/styles/tab_unselected = SubResource("sb_button_normal")
@@ -223,7 +273,7 @@ TabBar/styles/tab_hovered = SubResource("sb_button_hover")
 TabBar/styles/tab_focus = SubResource("sb_button_focus")
 TabBar/styles/tab_disabled = SubResource("sb_button_disabled")
 
-# VScrollBar / HScrollBar
+; VScrollBar / HScrollBar
 VScrollBar/styles/grabber = SubResource("sb_scroll_grabber")
 VScrollBar/styles/grabber_highlight = SubResource("sb_scroll_grabber")
 VScrollBar/styles/grabber_pressed = SubResource("sb_scroll_grabber")
@@ -235,18 +285,18 @@ HScrollBar/styles/grabber_pressed = SubResource("sb_scroll_grabber")
 HScrollBar/styles/scroll = SubResource("sb_scroll_bg")
 HScrollBar/styles/scroll_focus = SubResource("sb_scroll_bg")
 
-# Separator
+; Separator
 HSeparator/constants/separation = 1
 HSeparator/styles/separator = SubResource("sb_button_disabled")
 VSeparator/constants/separation = 1
 VSeparator/styles/separator = SubResource("sb_button_disabled")
 
-# SplitContainer
+; SplitContainer
 SplitContainer/constants/separation = 3
 SplitContainer/constants/minimum_grab_thickness = 12
 
-# ColorPicker
+; ColorPicker
 ColorPicker/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
 
-# FileDialog
+; FileDialog
 FileDialog/styles/panel = SubResource("sb_panel")

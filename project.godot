@@ -144,4 +144,4 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 
 [gui]
-theme/default_theme = ExtResource("res://assets/shadcn_dark_theme.tres")
+theme/custom="res://assets/shadcn_dark_theme.tres"
