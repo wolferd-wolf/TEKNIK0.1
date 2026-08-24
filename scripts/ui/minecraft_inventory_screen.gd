@@ -1121,14 +1121,8 @@ func _build_screen() -> void:
 
 
 func _style_panel(panel: PanelContainer) -> void:
-	# Use theme's default PanelContainer style (shadcn dark theme provides one)
-	# If we want to ensure rounded corners, apply a small override
-	var style := StyleBoxFlat.new()
-	style.corner_radius_top_left = PANEL_RADIUS
-	style.corner_radius_top_right = PANEL_RADIUS
-	style.corner_radius_bottom_left = PANEL_RADIUS
-	style.corner_radius_bottom_right = PANEL_RADIUS
-	panel.add_theme_stylebox_override("panel", style)
+	# Use theme resource style for inventory/crafting panels
+	panel.add_theme_stylebox_override("panel", get_theme().get_stylebox("panel_inventory", "PanelContainer"))
 
 
 func _create_button(text: String, callback: Callable, size: Vector2) -> Button:
