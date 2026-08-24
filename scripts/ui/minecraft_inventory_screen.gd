@@ -409,6 +409,7 @@ func _get_craft_inputs() -> Array:
 func _update_craft_output() -> void:
 	if _inventory == null:
 		_craft_preview_stack = {"block_id": 0, "count": 0}
+		_update_toggle_button_style(false)
 		return
 	var inputs: Array[Dictionary] = _get_craft_inputs()
 	var matched_recipe
@@ -418,8 +419,20 @@ func _update_craft_output() -> void:
 			break
 	if matched_recipe:
 		_craft_preview_stack = matched_recipe.output.duplicate(true)
+		_update_toggle_button_style(true)
 	else:
 		_craft_preview_stack = {"block_id": 0, "count": 0}
+		_update_toggle_button_style(false)
+
+
+func _update_toggle_button_style(is_valid: bool) -> void:
+	if is_instance_valid(_toggle_button):
+		if is_valid:
+			_toggle_button.add_theme_stylebox_override("normal", get_theme().get_stylebox("button_primary", "Button"))
+			_toggle_button.add_theme_color_override("font_color", Color.WHITE)
+		else:
+			_toggle_button.add_theme_stylebox_override("normal", get_theme().get_stylebox("button_primary_disabled", "Button"))
+			_toggle_button.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65, 1))
 
 
 func _recipe_matches(inputs: Array[Dictionary], recipe: Dictionary) -> bool:
@@ -598,6 +611,10 @@ func _create_recipe_button(parent: Control, recipe: Dictionary) -> Button:
 	btn.custom_minimum_size = Vector2(0.0, 54.0)
 	btn.add_theme_font_size_override("font_size", 13)
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	# Use Tier 2 (secondary/navigation) style for recipe buttons
+	btn.add_theme_stylebox_override("normal", get_theme().get_stylebox("button_secondary", "Button"))
+	btn.add_theme_color_override("font_hover_color", COLOR_CRAFTABLE)
+	btn.add_theme_color_override("font_pressed_color", Color(0.7, 0.7, 0.75, 1))
 
 	var inputs: Array = recipe.inputs
 	var output: Dictionary = recipe.output
@@ -615,10 +632,6 @@ func _create_recipe_button(parent: Control, recipe: Dictionary) -> Button:
 		else:
 			recipe_text += " + %s x%d" % [req_name, req_count]
 	btn.text = recipe_text
-
-	# Style - use theme Button style, just override colors
-	btn.add_theme_color_override("font_color", Color(0.6, 0.62, 0.68, 1.0))
-	btn.add_theme_color_override("font_hover_color", COLOR_CRAFTABLE)
 
 	# Highlight craftable recipes
 	btn.pressed.connect(_on_recipe_button_pressed.bind(recipe))
@@ -904,7 +917,7 @@ func _build_screen() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
 	title_row.add_child(spacer)
 
-	_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
+	_close_button = _create_secondary_button("× Close", close_inventory, Vector2(100.0, 36.0))
 	title_row.add_child(_close_button)
 
 	# Carried item display
@@ -1032,11 +1045,11 @@ func _build_screen() -> void:
 	craft_spacer.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
 	craft_title_row.add_child(craft_spacer)
 
-	_craft_back_button = _create_button("← Inventory", close_crafting, Vector2(110.0, 36.0))
+	_craft_back_button = _create_secondary_button("← Inventory", close_crafting, Vector2(110.0, 36.0))
 	_craft_back_button.visible = false
 	craft_title_row.add_child(_craft_back_button)
 
-	_craft_close_button = _create_button("× Close", close_inventory, Vector2(100.0, 36.0))
+	_craft_close_button = _create_secondary_button("× Close", close_inventory, Vector2(100.0, 36.0))
 	craft_title_row.add_child(_craft_close_button)
 
 	# Crafting grid (2x2 input + output)
@@ -1112,7 +1125,7 @@ func _build_screen() -> void:
 	set_meta("__recipe_buttons", recipe_buttons)
 
 	# Create the toggle button (always visible when open, not in overlay)
-	_toggle_button = _create_button("Craft", toggle_crafting, Vector2(100.0, 36.0))
+	_toggle_button = _create_primary_button("Craft", toggle_crafting, Vector2(100.0, 36.0), false)  # Initially invalid
 	_toggle_button.name = "ModeToggleButton"
 	_toggle_button.position = Vector2(-480.0, -290.0)  # Above the panel, left side
 	_overlay.add_child(_toggle_button)
@@ -1134,6 +1147,41 @@ func _create_button(text: String, callback: Callable, size: Vector2) -> Button:
 	# Use theme button styles, just override accent colors
 	btn.add_theme_color_override("font_hover_color", COLOR_ACCENT)
 	btn.add_theme_color_override("font_pressed_color", Color(0.7, 0.55, 0.1, 1.0))
+	btn.pressed.connect(callback)
+	return btn
+
+
+func _create_primary_button(text: String, callback: Callable, size: Vector2, is_valid: bool = true) -> Button:
+	"""Create Tier 1 primary button (CRAFT when recipe valid)"""
+	var btn := Button.new()
+	btn.text = text
+	btn.custom_minimum_size = size
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", BTN_FONT_SIZE)
+	if is_valid:
+		btn.add_theme_stylebox_override("normal", get_theme().get_stylebox("button_primary", "Button"))
+		btn.add_theme_font_override("font", get_theme().get_font("font", "Label"))
+		btn.add_theme_constant_override("font_size", BTN_FONT_SIZE)
+		btn.add_theme_color_override("font_color", Color.WHITE)
+	else:
+		btn.add_theme_stylebox_override("normal", get_theme().get_stylebox("button_primary_disabled", "Button"))
+		btn.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65, 1))
+	btn.add_theme_color_override("font_hover_color", Color.WHITE)
+	btn.add_theme_color_override("font_pressed_color", Color(0.8, 0.8, 0.8, 1))
+	btn.pressed.connect(callback)
+	return btn
+
+
+func _create_secondary_button(text: String, callback: Callable, size: Vector2) -> Button:
+	"""Create Tier 2 navigation button (RECIPES, BACK, CLOSE)"""
+	var btn := Button.new()
+	btn.text = text
+	btn.custom_minimum_size = size
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", BTN_FONT_SIZE)
+	btn.add_theme_stylebox_override("normal", get_theme().get_stylebox("button_secondary", "Button"))
+	btn.add_theme_color_override("font_hover_color", Color.WHITE)
+	btn.add_theme_color_override("font_pressed_color", Color(0.7, 0.7, 0.75, 1))
 	btn.pressed.connect(callback)
 	return btn
 

@@ -159,6 +159,48 @@ border_width_right = 1
 border_width_bottom = 1
 border_color = Color(0.227, 0.227, 0.25, 1)
 
+; ===== NEW BUTTON TIER STYLES (Commit 3) =====
+; Tier 1 (Primary - CRAFT when valid): bg #4a7c4e, bold text
+[sub_resource type="StyleBoxFlat" id="sb_button_primary"]
+bg_color = Color(0.29, 0.486, 0.306, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+
+; Tier 1 (Primary - CRAFT when invalid/dimmed): tier-3 gray
+[sub_resource type="StyleBoxFlat" id="sb_button_primary_disabled"]
+bg_color = Color(0.165, 0.165, 0.18, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+
+; Tier 2 (Navigation - RECIPES, BACK, CLOSE): bg #2a2a2e, no accent
+[sub_resource type="StyleBoxFlat" id="sb_button_secondary"]
+bg_color = Color(0.165, 0.165, 0.18, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+content_margin_left = 12.0
+content_margin_top = 7.2
+content_margin_right = 12.0
+content_margin_bottom = 7.2
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.227, 0.227, 0.25, 1)
+
 [resource]
 
 ; ==================== THEME OVERRIDES ====================
@@ -180,6 +222,14 @@ Button/styles/hover = SubResource("sb_button_hover")
 Button/styles/pressed = SubResource("sb_button_pressed")
 Button/styles/focus = SubResource("sb_button_focus")
 Button/styles/disabled = SubResource("sb_button_disabled")
+
+; Button tier style variations (accessed via add_theme_stylebox_override("normal", theme.get_stylebox(...)))
+; Tier 1 (Primary - CRAFT when valid)
+Button/styles/button_primary = SubResource("sb_button_primary")
+; Tier 1 (Primary - CRAFT when invalid)
+Button/styles/button_primary_disabled = SubResource("sb_button_primary_disabled")
+; Tier 2 (Navigation - RECIPES, BACK, CLOSE)
+Button/styles/button_secondary = SubResource("sb_button_secondary")
 
 ; Label
 Label/colors/font_color = Color(0.98, 0.98, 0.98, 0.92)
