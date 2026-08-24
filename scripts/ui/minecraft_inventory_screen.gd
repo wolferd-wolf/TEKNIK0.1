@@ -929,7 +929,7 @@ func _build_screen() -> void:
 	_cursor_label.add_theme_color_override("font_color", COLOR_CARRIED)
 	inv_column.add_child(_cursor_label)
 
-	# Crafting grid (2x2 input + output)
+	# Crafting grid (2x2 input + output) - wrapped in bordered sub-panel
 	var craft_section := VBoxContainer.new()
 	craft_section.add_theme_constant_override("separation", 8)
 	inv_column.add_child(craft_section)
@@ -939,12 +939,22 @@ func _build_screen() -> void:
 	craft_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
 	craft_section.add_child(craft_title)
 
+	# Wrap craft grid in bordered panel using panel_inventory style
+	var craft_grid_panel := PanelContainer.new()
+	craft_grid_panel.name = "CraftGridPanel"
+	craft_grid_panel.add_theme_stylebox_override("panel", get_theme().get_stylebox("panel_inventory", "PanelContainer"))
+	craft_grid_panel.add_theme_constant_override("margin_left", 8)
+	craft_grid_panel.add_theme_constant_override("margin_top", 8)
+	craft_grid_panel.add_theme_constant_override("margin_right", 8)
+	craft_grid_panel.add_theme_constant_override("margin_bottom", 8)
+	craft_section.add_child(craft_grid_panel)
+
 	var craft_grid := GridContainer.new()
 	craft_grid.name = "CraftGrid"
 	craft_grid.columns = 2
 	craft_grid.add_theme_constant_override("h_separation", SLOT_GAP)
 	craft_grid.add_theme_constant_override("v_separation", SLOT_GAP)
-	craft_section.add_child(craft_grid)
+	craft_grid_panel.add_child(craft_grid)
 
 	# 4 input slots (2x2)
 	for i in range(CRAFT_INPUT_SIZE):
@@ -952,10 +962,25 @@ func _build_screen() -> void:
 		_craft_input_labels.append(slot_nodes["label"] as Label)
 		_craft_input_buttons[i] = slot_nodes["button"]
 
+	# Arrow separator (visual) - larger font to match slot scale
+	var arrow_label := Label.new()
+	arrow_label.name = "ArrowLabel"
+	arrow_label.text = "→"
+	arrow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	arrow_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	arrow_label.add_theme_font_size_override("font_size", 28)  # Increased to match slot scale
+	arrow_label.custom_minimum_size = Vector2(50.0, 50.0)
+	craft_grid.add_child(arrow_label)
+
 	# Output slot (placeholder - will be updated by craft logic)
 	var output_slot := _create_craft_output_slot(craft_grid, "CraftOutputSlot")
 	_craft_output_label = output_slot["label"] as Label
 	_craft_output_button = output_slot["button"]
+
+	# Separator between craft grid and storage grid
+	var separator := HSeparator.new()
+	separator.add_theme_color_override("color", Color(0.227, 0.227, 0.25, 1))  # #3a3a40
+	inv_column.add_child(separator)
 
 	# Storage section
 	var storage_section := VBoxContainer.new()
@@ -1052,7 +1077,7 @@ func _build_screen() -> void:
 	_craft_close_button = _create_secondary_button("× Close", close_inventory, Vector2(100.0, 36.0))
 	craft_title_row.add_child(_craft_close_button)
 
-	# Crafting grid (2x2 input + output)
+	# Crafting grid (2x2 input + output) - wrapped in bordered sub-panel
 	var craft_grid_section := VBoxContainer.new()
 	craft_grid_section.add_theme_constant_override("separation", 8)
 	craft_column.add_child(craft_grid_section)
@@ -1062,12 +1087,22 @@ func _build_screen() -> void:
 	craft_grid_title.add_theme_font_size_override("font_size", SUBTITLE_SIZE)
 	craft_grid_section.add_child(craft_grid_title)
 
+	# Wrap craft grid in bordered panel using panel_inventory style
+	var craft_grid_panel2 := PanelContainer.new()
+	craft_grid_panel2.name = "CraftGridPanel"
+	craft_grid_panel2.add_theme_stylebox_override("panel", get_theme().get_stylebox("panel_inventory", "PanelContainer"))
+	craft_grid_panel2.add_theme_constant_override("margin_left", 8)
+	craft_grid_panel2.add_theme_constant_override("margin_top", 8)
+	craft_grid_panel2.add_theme_constant_override("margin_right", 8)
+	craft_grid_panel2.add_theme_constant_override("margin_bottom", 8)
+	craft_grid_section.add_child(craft_grid_panel2)
+
 	var craft_grid2 := GridContainer.new()
 	craft_grid2.name = "CraftGrid"
 	craft_grid2.columns = 2
 	craft_grid2.add_theme_constant_override("h_separation", SLOT_GAP)
 	craft_grid2.add_theme_constant_override("v_separation", SLOT_GAP)
-	craft_grid_section.add_child(craft_grid2)
+	craft_grid_panel2.add_child(craft_grid2)
 
 	# 4 input slots (2x2) - these share the same logic but need their own visual elements
 	var crafting_input_labels: Array[Label] = []
@@ -1076,13 +1111,13 @@ func _build_screen() -> void:
 		crafting_input_labels.append(slot_nodes["label"] as Label)
 		# Note: these share the same underlying craft inputs, just different visual slots
 
-	# Arrow separator (visual)
+	# Arrow separator (visual) - larger font to match slot scale
 	var arrow_label2 := Label.new()
 	arrow_label2.name = "ArrowLabel"
 	arrow_label2.text = "→"
 	arrow_label2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	arrow_label2.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	arrow_label2.add_theme_font_size_override("font_size", 24)
+	arrow_label2.add_theme_font_size_override("font_size", 28)  # Increased to match slot scale
 	arrow_label2.custom_minimum_size = Vector2(50.0, 50.0)
 	craft_grid2.add_child(arrow_label2)
 
