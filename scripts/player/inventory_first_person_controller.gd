@@ -4,6 +4,7 @@ class_name InventoryFirstPersonController
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
 const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/ui/minecraft_inventory_screen.gd")
+const MECHANICAL_MANAGER_SCRIPT := preload("res://scripts/mechanical/mechanical_manager.gd")
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_SLOT_ACTIONS := [
 	"select_hotbar_1",
@@ -39,6 +40,7 @@ var _selected_inventory_slot: int = 0
 var _hotbar: InventoryHotbar
 var _inventory_screen: MinecraftInventoryScreen
 var _inventory_input_locked := false
+var _mechanical_manager: MechanicalManager
 
 
 func _ready() -> void:
@@ -111,7 +113,7 @@ func get_selected_inventory_slot() -> int:
 
 
 func get_selected_inventory_item() -> Dictionary:
-	return _inventory.get_slot(_selected_inventory_slot)
+	return _inventory.get_slot(_selected_inventory_slot) as Dictionary
 
 
 func select_inventory_slot(slot_index: int) -> bool:
@@ -132,14 +134,28 @@ func craft_test_recipe() -> bool:
 
 
 func mine_targeted_block() -> bool:
-	var target := get_block_target()
+	var target: Dictionary = get_block_target()
 	if target.is_empty() or _chunk_manager == null:
 		return false
 
-	var mined_coord: Vector3i = target["block_coord"]
+	var mined_coord: Vector3i = target["block_coord"] as Vector3i
 	var mined_block_id: int = _chunk_manager.get_block_world(mined_coord)
 	if mined_block_id == BLOCK_AIR:
 		return false
+
+	# Check if this is a mechanical block
+	if _mechanical_manager != null and _mechanical_manager.is_mechanical_block(mined_block_id):
+		if not _inventory.can_add_item(mined_block_id, 1):
+			return false
+		if not _mechanical_manager.break_mechanical_block(mined_coord):
+			return false
+		if not _inventory.add_item(mined_block_id, 1):
+			# Rollback: re-place the mechanical block
+			_mechanical_manager.place_mechanical_block(mined_coord, mined_block_id)
+			return false
+		_clear_block_target()
+		return true
+
 	if not _inventory.can_add_item(mined_block_id, 1):
 		return false
 	if not _chunk_manager.mine_block_world(mined_coord):
@@ -159,13 +175,25 @@ func place_block_at(world_block_coord: Vector3i) -> bool:
 	if not can_place_block_at(world_block_coord):
 		return false
 
-	var selected_item := get_selected_inventory_item()
+	var selected_item: Dictionary = get_selected_inventory_item()
 	if selected_item.is_empty():
 		return false
-	var block_id := int(selected_item.get("block_id", BLOCK_AIR))
-	var count := int(selected_item.get("count", 0))
+	var block_id: int = int(selected_item.get("block_id", BLOCK_AIR))
+	var count: int = int(selected_item.get("count", 0))
 	if block_id == BLOCK_AIR or count <= 0:
 		return false
+
+	# Check if this is a mechanical block
+	if _mechanical_manager != null and _mechanical_manager.is_mechanical_block(block_id):
+		# Place via mechanical manager (which also handles world placement)
+		if not _mechanical_manager.place_mechanical_block(world_block_coord, block_id):
+			return false
+		if not _inventory.remove_from_slot(_selected_inventory_slot, 1):
+			_mechanical_manager.break_mechanical_block(world_block_coord)
+			return false
+		return true
+
+	# Regular block placement
 	if not _chunk_manager.place_block_world(world_block_coord, block_id):
 		return false
 
@@ -210,6 +238,19 @@ func _configure_inventory_screen() -> void:
 		_inventory_screen = INVENTORY_SCREEN_SCRIPT.new() as MinecraftInventoryScreen
 		_inventory_screen.name = "MinecraftInventoryScreen"
 		main_root.add_child(_inventory_screen)
+
+	call_deferred("_configure_mechanical_manager")
+
+
+func _configure_mechanical_manager() -> void:
+	var main_root := get_parent()
+	if main_root == null:
+		return
+	_mechanical_manager = main_root.get_node_or_null("MechanicalManager") as MechanicalManager
+	if _mechanical_manager == null:
+		_mechanical_manager = MECHANICAL_MANAGER_SCRIPT.new() as MechanicalManager
+		_mechanical_manager.name = "MechanicalManager"
+		main_root.add_child(_mechanical_manager)
 	_inventory_screen.setup(_inventory, self)
 	if not _inventory_screen.inventory_visibility_changed.is_connected(_on_inventory_visibility_changed):
 		_inventory_screen.inventory_visibility_changed.connect(_on_inventory_visibility_changed)

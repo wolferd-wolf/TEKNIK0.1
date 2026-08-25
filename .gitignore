@@ -2,3 +2,5 @@
 android/build/
 *.keystore
 *.jks
+native/carpathian/godot-cpp/
+native/carpathian/bin/
