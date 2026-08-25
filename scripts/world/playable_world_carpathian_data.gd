@@ -18,7 +18,7 @@ func _native_carpathian() -> Object:
 	var created: Object = ClassDB.instantiate(CARPATHIAN_CLASS)
 	if created == null:
 		return null
-	created.call("set_seed", WORLD_SEED)
+	created.call("set_seed", world_seed)
 	_carpathian_sampler = created
 	return _carpathian_sampler
 

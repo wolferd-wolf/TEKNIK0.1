@@ -9,8 +9,10 @@ const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
 const WORLD_HEIGHT := 60
 const SEA_LEVEL := 7
-const WORLD_SEED := 734921
+const DEFAULT_WORLD_SEED := 734921
 const SAVE_PATH := "user://teknik_world_v1.json"
+
+var world_seed: int = DEFAULT_WORLD_SEED
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
@@ -71,43 +73,52 @@ var height_noise: FastNoiseLite
 var region_noise: FastNoiseLite
 
 
-func _init() -> void:
-	continentalness_noise.seed = WORLD_SEED
+func _setup_noise_samplers() -> void:
+	continentalness_noise.seed = world_seed
 	continentalness_noise.frequency = 0.011
 	continentalness_noise.fractal_octaves = 4
 	continentalness_noise.fractal_gain = 0.48
 	continentalness_noise.fractal_lacunarity = 2.05
 	_configure_domain_warp(continentalness_noise)
 
-	terrain_shape_noise.seed = WORLD_SEED ^ 0x5f3759df
+	terrain_shape_noise.seed = world_seed ^ 0x5f3759df
 	terrain_shape_noise.frequency = 0.0035
 	terrain_shape_noise.fractal_octaves = 2
 	_configure_domain_warp(terrain_shape_noise)
 
 	_configure_climate_noise(
 		temperature_noise,
-		WORLD_SEED ^ 0x68bc21eb,
+		world_seed ^ 0x68bc21eb,
 		TERRAIN_TEMPERATURE_NOISE_FREQUENCY
 	)
 	_configure_climate_noise(
 		moisture_noise,
-		WORLD_SEED ^ 0x02e5be93,
+		world_seed ^ 0x02e5be93,
 		TERRAIN_MOISTURE_NOISE_FREQUENCY
 	)
 	_configure_climate_noise(
 		biome_temperature_noise,
-		WORLD_SEED ^ 0x68bc21eb,
+		world_seed ^ 0x68bc21eb,
 		BIOME_TEMPERATURE_NOISE_FREQUENCY
 	)
 	_configure_climate_noise(
 		biome_moisture_noise,
-		WORLD_SEED ^ 0x02e5be93,
+		world_seed ^ 0x02e5be93,
 		BIOME_MOISTURE_NOISE_FREQUENCY
 	)
 
+
+func _init() -> void:
+	# Initialize noise samplers with the world seed
+	_setup_noise_samplers()
+	load_save()
+	# If the save file didn't have a seed (fresh world), generate a random one
+	if world_seed == DEFAULT_WORLD_SEED:
+		world_seed = randi()
+		_setup_noise_samplers()
+
 	height_noise = continentalness_noise
 	region_noise = terrain_shape_noise
-	load_save()
 
 
 func _configure_climate_noise(noise: FastNoiseLite, seed_value: int, frequency: float) -> void:
@@ -348,7 +359,7 @@ func _resolve_large_zone_biome(x: int, z: int) -> int:
 
 	var patch_x := floori(world_x * BIOME_BLEND_PATCH_RECIPROCAL)
 	var patch_z := floori(world_z * BIOME_BLEND_PATCH_RECIPROCAL)
-	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (WORLD_SEED * 83492791)
+	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (world_seed * 83492791)
 	hash_value = absi(hash_value)
 	var selector := float(hash_value % 1000003) / 1000003.0
 	if selector < plains:
@@ -454,7 +465,7 @@ func is_tree_origin_for_biome(x: int, z: int, surface: int, biome: int) -> bool:
 	)
 	if not baseline_grid and not forest_grid:
 		return false
-	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ world_seed)
 	if forest_grid and not baseline_grid:
 		return hash_value % 3 != 0
 	return hash_value % 4 != 0
@@ -466,7 +477,7 @@ func _smooth_range(edge_start: float, edge_end: float, value: float) -> float:
 
 
 func _blend_selector(patch_x: int, patch_z: int) -> float:
-	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (WORLD_SEED * 83492791)
+	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (world_seed * 83492791)
 	hash_value = absi(hash_value)
 	return float(hash_value % 1000003) / 1000003.0
 
@@ -495,7 +506,7 @@ func save_world() -> void:
 		return
 	file.store_string(JSON.stringify({
 		"version": 1,
-		"seed": WORLD_SEED,
+		"seed": world_seed,
 		"overrides": overrides,
 	}))
 	dirty = false
@@ -508,8 +519,11 @@ func load_save() -> void:
 	if file == null:
 		return
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if parsed is Dictionary and parsed.get("overrides") is Dictionary:
-		overrides = parsed["overrides"].duplicate(true)
+	if parsed is Dictionary:
+		if parsed.get("overrides") is Dictionary:
+			overrides = parsed["overrides"].duplicate(true)
+		if parsed.has("seed") and parsed["seed"] is int:
+			world_seed = int(parsed["seed"])
 
 
 func cell_key(cell: Vector3i) -> String:

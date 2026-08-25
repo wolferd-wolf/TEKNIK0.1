@@ -66,7 +66,7 @@ static func _legacy_tree_origin(
 	)
 	if not baseline_grid and not forest_grid:
 		return false
-	var hash_value: int = absi((x * 73856093) ^ (z * 19349663) ^ sampler.WORLD_SEED)
+	var hash_value: int = absi((x * 73856093) ^ (z * 19349663) ^ sampler.world_seed)
 	if forest_grid and not baseline_grid:
 		return hash_value % 3 != 0
 	return baseline_grid and hash_value % 4 != 0

@@ -205,7 +205,7 @@ func classify_biome(climate: Vector2, x: int, z: int) -> int:
 
 	var patch_x := floori(float(x) * BIOME_BLEND_PATCH_RECIPROCAL)
 	var patch_z := floori(float(z) * BIOME_BLEND_PATCH_RECIPROCAL)
-	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (WORLD_SEED * 83492791)
+	var hash_value := (patch_x * 73856093) ^ (patch_z * 19349663) ^ (world_seed * 83492791)
 	hash_value = absi(hash_value)
 	var selector := float(hash_value % 1000003) / 1000003.0
 	if selector < plains:
@@ -284,7 +284,7 @@ func is_tree_origin_for_biome(x: int, z: int, surface: int, biome: int) -> bool:
 	)
 	if not baseline_grid and not forest_grid:
 		return false
-	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ world_seed)
 	if forest_grid and not baseline_grid:
 		return hash_value % 3 != 0
 	return hash_value % 4 != 0
