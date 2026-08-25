@@ -31,7 +31,7 @@ static func _base_tree_candidate(
 	)
 	if not baseline_grid and not forest_grid:
 		return false
-	var hash_value: int = absi((x * 73856093) ^ (z * 19349663) ^ int(sampler.WORLD_SEED))
+	var hash_value: int = absi((x * 73856093) ^ (z * 19349663) ^ int(sampler.world_seed))
 	if forest_grid and not baseline_grid:
 		return hash_value % 3 != 0
 	return hash_value % 4 != 0

@@ -110,7 +110,7 @@ func biome_name(biome: int) -> String:
 
 
 func _stage8_hash(x: int, z: int, salt: int = 0) -> int:
-	var value: int = (x * 73856093) ^ (z * 19349663) ^ (WORLD_SEED * 83492791) ^ salt
+	var value: int = (x * 73856093) ^ (z * 19349663) ^ (world_seed * 83492791) ^ salt
 	value = (value ^ (value >> 13)) * 1274126177
 	return value ^ (value >> 16)
 
@@ -166,7 +166,7 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 	if surface <= SEA_LEVEL + 1 or surface + trunk_height + 2 >= OVERHAUL_WORLD_HEIGHT:
 		return false
 
-	var hash_value: int = absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	var hash_value: int = absi((x * 73856093) ^ (z * 19349663) ^ world_seed)
 	var baseline_grid: bool = (
 		posmod(x, TREE_SPACING) == TREE_OFFSET
 		and posmod(z, TREE_SPACING) == TREE_OFFSET

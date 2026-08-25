@@ -7,7 +7,6 @@ const BLOCK_STONE := 3
 const BLOCK_SAND := 4
 const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
-const WORLD_SEED := 734921
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
@@ -65,7 +64,8 @@ static func build(
 	chunk_size: int,
 	world_height: int,
 	sea_level: int,
-	biomes: PackedByteArray = PackedByteArray()
+	biomes: PackedByteArray = PackedByteArray(),
+	world_seed: int = 734921
 ) -> Dictionary:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -430,7 +430,7 @@ static func _generated_tree_block(
 				continue
 			var surface := heights[cache_z * cache_width + cache_x]
 			var biome := _cached_biome(tree_x, tree_z, origin, biomes, cache_width, cache_padding)
-			if not _is_tree_origin(tree_x, tree_z, surface, world_height, sea_level, biome):
+			if not _is_tree_origin(tree_x, tree_z, surface, world_height, sea_level, biome, world_seed):
 				continue
 			var trunk_top := surface + TREE_TRUNK_HEIGHT
 			if cell.x == tree_x and cell.z == tree_z and cell.y > surface and cell.y <= trunk_top:
@@ -446,7 +446,8 @@ static func _is_tree_origin(
 	surface: int,
 	world_height: int,
 	sea_level: int,
-	biome: int = BIOME_PLAINS
+	biome: int = BIOME_PLAINS,
+	world_seed: int = 734921
 ) -> bool:
 	if biome == BIOME_DESERT or biome == BIOME_ROCKY:
 		return false
@@ -463,7 +464,7 @@ static func _is_tree_origin(
 	)
 	if not baseline_grid and not forest_grid:
 		return false
-	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ WORLD_SEED)
+	var hash_value := absi((x * 73856093) ^ (z * 19349663) ^ world_seed)
 	if forest_grid and not baseline_grid:
 		return hash_value % 3 != 0
 	return hash_value % 4 != 0

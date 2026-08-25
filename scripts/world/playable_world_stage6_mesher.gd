@@ -3,7 +3,6 @@ extends RefCounted
 const BASE_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 
 const BLOCK_AIR := 0
-const WORLD_SEED := 734921
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
@@ -26,7 +25,8 @@ static func _tree_origin_from_cache(
 	cache_padding: int,
 	world_height: int,
 	sea_level: int,
-	blocked: Dictionary
+	blocked: Dictionary,
+	world_seed: int = 734921
 ) -> bool:
 	var cache_x := tree_x - origin.x + cache_padding
 	var cache_z := tree_z - origin.z + cache_padding
@@ -54,7 +54,7 @@ static func _tree_origin_from_cache(
 	)
 	if not baseline_grid and not forest_grid:
 		return false
-	var hash_value := absi((tree_x * 73856093) ^ (tree_z * 19349663) ^ WORLD_SEED)
+	var hash_value := absi((tree_x * 73856093) ^ (tree_z * 19349663) ^ world_seed)
 	if forest_grid and not baseline_grid:
 		return hash_value % 3 != 0
 	return hash_value % 4 != 0
@@ -69,7 +69,8 @@ static func _has_unblocked_tree_block(
 	cache_padding: int,
 	world_height: int,
 	sea_level: int,
-	blocked: Dictionary
+	blocked: Dictionary,
+	world_seed: int = 734921
 ) -> bool:
 	for tree_z in range(cell.z - TREE_CANOPY_RADIUS, cell.z + TREE_CANOPY_RADIUS + 1):
 		for tree_x in range(cell.x - TREE_CANOPY_RADIUS, cell.x + TREE_CANOPY_RADIUS + 1):
@@ -83,7 +84,8 @@ static func _has_unblocked_tree_block(
 				cache_padding,
 				world_height,
 				sea_level,
-				blocked
+				blocked,
+				world_seed
 			):
 				continue
 			var cache_x := tree_x - origin.x + cache_padding

@@ -391,7 +391,8 @@ static func _worker_build_chunk(
 		CHUNK_SIZE,
 		WORLD_DATA.WORLD_HEIGHT,
 		WORLD_DATA.SEA_LEVEL,
-		biomes
+		biomes,
+				sampler.world_seed
 	)
 	var mesh_usec := Time.get_ticks_usec() - mesh_started_usec
 	var result := {

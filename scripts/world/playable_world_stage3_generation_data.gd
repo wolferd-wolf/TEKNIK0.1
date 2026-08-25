@@ -23,7 +23,7 @@ func _stage3_hash01(lattice_x: int, lattice_z: int, salt: int) -> float:
 	var value := (
 		(lattice_x * 73856093)
 		^ (lattice_z * 19349663)
-		^ (WORLD_SEED * 83492791)
+		^ (world_seed * 83492791)
 		^ salt
 	)
 	value = (value ^ (value >> 13)) * 1274126177
