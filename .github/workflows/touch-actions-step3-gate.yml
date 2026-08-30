@@ -2,6 +2,12 @@ name: TEKNIK Step 3 Touch Gate
 
 on:
   pull_request:
+    paths:
+      - 'scripts/ui/touch_action_controls.gd'
+      - 'scripts/ui/touch_controls.gd'
+      - 'scenes/main.tscn'
+      - 'tests/touch_actions_step3_gate.gd'
+      - '.github/workflows/touch-actions-step3-gate.yml'
   workflow_dispatch:
 
 permissions:
@@ -24,9 +30,9 @@ jobs:
 
       - name: Install Godot 4.3
         run: |
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip -O /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp/godot
-          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          mv /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 /tmp/godot/godot
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 

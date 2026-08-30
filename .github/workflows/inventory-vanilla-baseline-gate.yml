@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+    paths:
+      - 'scripts/inventory/**'
+      - 'scripts/ui/inventory_hotbar.gd'
+      - 'scripts/ui/minecraft_inventory_screen.gd'
+      - 'scripts/player/inventory_first_person_controller.gd'
+      - 'scripts/world/playable_world_port.gd'
+      - 'tests/inventory_vanilla_baseline_gate.gd'
+      - 'tests/playable_world_mining_port_gate.gd'
+      - '.github/workflows/inventory-vanilla-baseline-gate.yml'
   workflow_dispatch:
 
 permissions:
@@ -26,9 +35,9 @@ jobs:
 
       - name: Install Godot 4.3
         run: |
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip -O /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp/godot
-          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          mv /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 /tmp/godot/godot
           chmod +x /tmp/godot/godot
           /tmp/godot/godot --version
 

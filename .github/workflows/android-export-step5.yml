@@ -118,15 +118,15 @@ jobs:
 
       - name: Install Godot 4.3 and matching export templates
         run: |
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip -O /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp/godot
-          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          mv /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 /tmp/godot/godot
           chmod +x /tmp/godot/godot
 
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.1.stable"
           unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
-          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.7.1.stable/"
 
           /tmp/godot/godot --version | tee artifacts/godot-version.txt
           java -version 2>&1 | tee artifacts/java-version.txt

@@ -60,15 +60,15 @@ jobs:
 
       - name: Install Godot 4.3 editor and matching export templates
         run: |
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip -O /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp/godot
-          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          mv /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 /tmp/godot/godot
           chmod +x /tmp/godot/godot
 
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.1.stable"
           unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
-          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.7.1.stable/"
 
       - name: Verify exact toolchain versions and template inventory
         run: |
@@ -92,10 +92,10 @@ jobs:
               "${ANDROID_HOME}/cmake/3.10.2.4988404" \
               "${ANDROID_HOME}/ndk/23.2.8568313"
             echo '=== Godot 4.3 templates ==='
-            test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
-            test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_release.apk"
-            test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_source.zip"
-            ls -lh "$HOME/.local/share/godot/export_templates/4.3.stable/android_"*
+            test -f "$HOME/.local/share/godot/export_templates/4.7.1.stable/android_debug.apk"
+            test -f "$HOME/.local/share/godot/export_templates/4.7.1.stable/android_release.apk"
+            test -f "$HOME/.local/share/godot/export_templates/4.7.1.stable/android_source.zip"
+            ls -lh "$HOME/.local/share/godot/export_templates/4.7.1.stable/android_"*
           } 2>&1 | tee artifacts/android-toolchain.log
 
           /tmp/godot/godot --version | grep -q '^4\.3'
@@ -104,9 +104,9 @@ jobs:
       - name: Install and verify project-local Android Gradle template
         run: |
           bash scripts/android/install_gradle_build_template.sh \
-            "$HOME/.local/share/godot/export_templates/4.3.stable" \
+            "$HOME/.local/share/godot/export_templates/4.7.1.stable" \
             "$GITHUB_WORKSPACE" \
-            "4.3.stable" \
+            "4.7.1.stable" \
             2>&1 | tee artifacts/gradle-template.log
 
           test -x android/build/gradlew
@@ -114,7 +114,7 @@ jobs:
           test -f android/build/settings.gradle
           test -f android/build/.gdignore
           test -f android/.build_version
-          grep -Fxq '4.3.stable' android/.build_version
+          grep -Fxq '4.7.1.stable' android/.build_version
 
           {
             echo '=== android/.build_version ==='

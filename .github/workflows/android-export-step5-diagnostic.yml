@@ -36,18 +36,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends unzip wget
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -O /tmp/godot.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip -O /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp/godot
-          mv /tmp/godot/Godot_v4.3-stable_linux.x86_64 /tmp/godot/godot
+          mv /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 /tmp/godot/godot
           chmod +x /tmp/godot/godot
 
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/godot-templates.tpz
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_export_templates.tpz -O /tmp/godot-templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.1.stable"
           unzip -q /tmp/godot-templates.tpz -d /tmp/godot-template-unpack
-          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          cp -a /tmp/godot-template-unpack/templates/. "$HOME/.local/share/godot/export_templates/4.7.1.stable/"
 
           /tmp/godot/godot --version | tee artifacts/godot-version.txt
-          test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_source.zip"
+          test -f "$HOME/.local/share/godot/export_templates/4.7.1.stable/android_source.zip"
 
       - name: Generate the same ephemeral debug keystore
         run: |
@@ -83,9 +83,9 @@ jobs:
       - name: Install and inspect complete Godot 4.3 Gradle template
         run: |
           bash scripts/android/install_gradle_build_template.sh \
-            "$HOME/.local/share/godot/export_templates/4.3.stable" \
+            "$HOME/.local/share/godot/export_templates/4.7.1.stable" \
             "$GITHUB_WORKSPACE" \
-            "4.3.stable" \
+            "4.7.1.stable" \
             2>&1 | tee artifacts/gradle-template.log
 
           test -x android/build/gradlew
@@ -93,7 +93,7 @@ jobs:
           test -f android/build/settings.gradle
           test -f android/build/.gdignore
           test -f android/.build_version
-          grep -Fxq '4.3.stable' android/.build_version
+          grep -Fxq '4.7.1.stable' android/.build_version
 
           {
             echo '=== android/.build_version ==='
@@ -104,10 +104,10 @@ jobs:
 
       - name: Verify the exact Godot 4.3 installer and validation paths
         run: |
-          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/editor/export/export_template_manager.cpp -O /tmp/export-template-manager.cpp
-          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/editor/editor_node.cpp -O /tmp/editor-node.cpp
-          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/main/main.cpp -O /tmp/main.cpp
-          wget -q https://raw.githubusercontent.com/godotengine/godot/4.3-stable/platform/android/export/export_plugin.cpp -O /tmp/android-export-plugin.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.7.1-stable/editor/export/export_template_manager.cpp -O /tmp/export-template-manager.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.7.1-stable/editor/editor_node.cpp -O /tmp/editor-node.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.7.1-stable/main/main.cpp -O /tmp/main.cpp
+          wget -q https://raw.githubusercontent.com/godotengine/godot/4.7.1-stable/platform/android/export/export_plugin.cpp -O /tmp/android-export-plugin.cpp
 
           {
             echo '=== Built-in installer marker and ignore file ==='
@@ -133,7 +133,7 @@ jobs:
           cat > artifacts/root-cause.txt <<'EOF'
           ROOT_CAUSE=The previous CI helper extracted android_source.zip into android/build but did not create android/.build_version.
           GODOT_4_3_EXPECTED_MARKER=android/.build_version
-          GODOT_4_3_EXPECTED_IDENTIFIER=4.3.stable
+          GODOT_4_3_EXPECTED_IDENTIFIER=4.7.1.stable
           SECONDARY_OMISSION=The previous helper also omitted android/build/.gdignore.
           FIX_STEP4=The configuration-only installer now creates and validates both files and the archive root structure.
           FIX_STEP5=The supervised export command uses Godot 4.3's built-in --install-android-build-template option together with --export-debug.
