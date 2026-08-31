@@ -1,6 +1,8 @@
 extends CanvasLayer
 class_name TouchControls
 
+const THEME := preload("res://scripts/ui/teknik_theme.gd")
+
 const MOVE_LEFT_ACTION := StringName("move_left")
 const MOVE_RIGHT_ACTION := StringName("move_right")
 const MOVE_FORWARD_ACTION := StringName("move_forward")
@@ -234,9 +236,9 @@ func _build_joystick() -> void:
 	_joystick_base.name = "MoveJoystickBase"
 	_joystick_base.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_joystick_base.add_theme_stylebox_override("panel", _create_rounded_style(
-		Color(0.05, 0.07, 0.1, 0.42),
-		Color(0.86, 0.9, 0.96, 0.7),
-		3,
+		THEME.COLOR_PANEL_BG,
+		THEME.COLOR_BORDER,
+		THEME.BORDER_WIDTH,
 		ceili(joystick_radius)
 	))
 	_touch_root.add_child(_joystick_base)
@@ -249,7 +251,7 @@ func _build_joystick() -> void:
 	move_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	move_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	move_label.add_theme_font_size_override("font_size", 18)
-	move_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.62))
+	move_label.add_theme_color_override("font_color", Color(THEME.COLOR_TEXT_SECONDARY, 0.75))
 	move_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_joystick_base.add_child(move_label)
 
@@ -257,8 +259,8 @@ func _build_joystick() -> void:
 	_joystick_knob.name = "MoveJoystickKnob"
 	_joystick_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_joystick_knob.add_theme_stylebox_override("panel", _create_rounded_style(
-		Color(0.72, 0.78, 0.88, 0.72),
-		Color(1.0, 1.0, 1.0, 0.9),
+		THEME.COLOR_PANEL_BG_RAISED.lightened(0.15),
+		THEME.COLOR_ACCENT_DIM,
 		2,
 		ceili(knob_radius)
 	))
@@ -267,14 +269,14 @@ func _build_joystick() -> void:
 
 func _build_look_hint() -> void:
 	_look_hint_normal_style = _create_rounded_style(
-		Color(0.05, 0.07, 0.1, 0.34),
-		Color(0.86, 0.9, 0.96, 0.62),
+		THEME.COLOR_PANEL_BG,
+		THEME.COLOR_BORDER,
 		2,
 		12
 	)
 	_look_hint_active_style = _create_rounded_style(
-		Color(0.16, 0.18, 0.22, 0.68),
-		Color(1.0, 0.82, 0.12, 0.96),
+		THEME.COLOR_PANEL_BG_RAISED,
+		THEME.COLOR_ACCENT,
 		4,
 		12
 	)
@@ -291,7 +293,7 @@ func _build_look_hint() -> void:
 	_look_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_look_hint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_look_hint_label.add_theme_font_size_override("font_size", 18)
-	_look_hint_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.78))
+	_look_hint_label.add_theme_color_override("font_color", Color(THEME.COLOR_TEXT_PRIMARY, 0.85))
 	_look_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_look_hint.add_child(_look_hint_label)
 

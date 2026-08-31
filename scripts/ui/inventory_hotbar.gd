@@ -1,6 +1,8 @@
 extends CanvasLayer
 class_name InventoryHotbar
 
+const THEME := preload("res://scripts/ui/teknik_theme.gd")
+
 const HOTBAR_SLOT_COUNT := 9
 const BLOCK_NAMES := {
 	0: "EMPTY",
@@ -14,6 +16,8 @@ const BLOCK_NAMES := {
 
 var _slot_panels: Array[PanelContainer] = []
 var _slot_labels: Array[Label] = []
+var _slot_swatches: Array[Panel] = []
+var _slot_counts: Array[Label] = []
 var _normal_style: StyleBoxFlat
 var _selected_style: StyleBoxFlat
 
@@ -35,7 +39,12 @@ func refresh(slots: Array[Dictionary], selected_slot: int) -> void:
 		var block_id := int(slot.get("block_id", 0))
 		var count := int(slot.get("count", 0))
 		var block_name := String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))
-		_slot_labels[slot_index].text = "%d\n%s x%d" % [slot_index + 1, block_name, count]
+		_slot_labels[slot_index].text = str(slot_index + 1)
+		_slot_swatches[slot_index].add_theme_stylebox_override(
+			"panel", THEME.block_swatch_style(THEME.block_color(block_id))
+		)
+		_slot_swatches[slot_index].tooltip_text = block_name
+		_slot_counts[slot_index].text = str(count) if count > 0 else ""
 		_slot_panels[slot_index].add_theme_stylebox_override(
 			"panel",
 			_selected_style if slot_index == selected_slot else _normal_style
@@ -43,30 +52,8 @@ func refresh(slots: Array[Dictionary], selected_slot: int) -> void:
 
 
 func _build_styles() -> void:
-	_normal_style = StyleBoxFlat.new()
-	_normal_style.bg_color = Color(0.06, 0.07, 0.09, 0.9)
-	_normal_style.border_color = Color(0.48, 0.52, 0.58, 1.0)
-	_set_border_width(_normal_style, 1)
-	_normal_style.corner_radius_top_left = 4
-	_normal_style.corner_radius_top_right = 4
-	_normal_style.corner_radius_bottom_left = 4
-	_normal_style.corner_radius_bottom_right = 4
-
-	_selected_style = StyleBoxFlat.new()
-	_selected_style.bg_color = Color(0.16, 0.18, 0.22, 0.96)
-	_selected_style.border_color = Color(1.0, 0.82, 0.12, 1.0)
-	_set_border_width(_selected_style, 4)
-	_selected_style.corner_radius_top_left = 4
-	_selected_style.corner_radius_top_right = 4
-	_selected_style.corner_radius_bottom_left = 4
-	_selected_style.corner_radius_bottom_right = 4
-
-
-func _set_border_width(style: StyleBoxFlat, width: int) -> void:
-	style.border_width_left = width
-	style.border_width_top = width
-	style.border_width_right = width
-	style.border_width_bottom = width
+	_normal_style = THEME.panel_style()
+	_selected_style = THEME.selected_panel_style()
 
 
 func _build_hotbar() -> void:
@@ -102,16 +89,47 @@ func _build_hotbar() -> void:
 		row.add_child(panel)
 		_slot_panels.append(panel)
 
-		var label := Label.new()
-		label.name = "Content"
-		label.text = "%d\nEMPTY x0" % (slot_index + 1)
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.add_theme_font_size_override("font_size", 15)
-		label.add_theme_color_override("font_color", Color.WHITE)
-		label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
-		label.add_theme_constant_override("shadow_offset_x", 1)
-		label.add_theme_constant_override("shadow_offset_y", 1)
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(label)
-		_slot_labels.append(label)
+		# Layered content: block-color swatch fills most of the slot, with the
+		# slot number pinned top-left and stack count pinned bottom-right --
+		# replaces the old stacked "1\nGRASS x3" text block.
+		var content := Control.new()
+		content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		content.custom_minimum_size = Vector2(96.0, 70.0)
+		panel.add_child(content)
+
+		var swatch := Panel.new()
+		swatch.name = "Swatch"
+		swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		swatch.set_anchors_preset(Control.PRESET_CENTER)
+		swatch.offset_left = -22.0
+		swatch.offset_top = -22.0
+		swatch.offset_right = 22.0
+		swatch.offset_bottom = 22.0
+		swatch.add_theme_stylebox_override("panel", THEME.block_swatch_style(THEME.block_color(0)))
+		content.add_child(swatch)
+		_slot_swatches.append(swatch)
+
+		var number_label := Label.new()
+		number_label.name = "SlotNumber"
+		number_label.text = str(slot_index + 1)
+		number_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		number_label.offset_left = 4.0
+		number_label.offset_top = 2.0
+		number_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		THEME.style_label(number_label, 13, THEME.COLOR_TEXT_SECONDARY)
+		content.add_child(number_label)
+		_slot_labels.append(number_label)
+
+		var count_label := Label.new()
+		count_label.name = "Count"
+		count_label.text = ""
+		count_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		count_label.offset_left = -34.0
+		count_label.offset_top = -22.0
+		count_label.offset_right = -4.0
+		count_label.offset_bottom = -2.0
+		count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		THEME.style_label(count_label, 16, THEME.COLOR_TEXT_PRIMARY)
+		content.add_child(count_label)
+		_slot_counts.append(count_label)

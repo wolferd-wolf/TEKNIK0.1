@@ -1,6 +1,8 @@
 extends CanvasLayer
 class_name DiagnosticLogButton
 
+const THEME := preload("res://scripts/ui/teknik_theme.gd")
+
 const BUTTON_SIZE := Vector2(124.0, 48.0)
 const RIGHT_MARGIN := 16.0
 const TOP_MARGIN := 16.0
@@ -56,6 +58,8 @@ func _build_ui() -> void:
 	_copy_button.offset_right = -RIGHT_MARGIN
 	_copy_button.offset_bottom = TOP_MARGIN + BUTTON_SIZE.y
 	_copy_button.tooltip_text = "Copy TEKNIK runtime diagnostics"
+	_copy_button.add_theme_font_size_override("font_size", 15)
+	THEME.style_button(_copy_button, false)
 	_copy_button.pressed.connect(_copy_log)
 	_root.add_child(_copy_button)
 
