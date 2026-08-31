@@ -3,7 +3,7 @@ extends RefCounted
 const BASE_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 
 const BLOCK_AIR := 0
-const WORLD_SEED := 734921
+static var WORLD_SEED: int = 734921
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
