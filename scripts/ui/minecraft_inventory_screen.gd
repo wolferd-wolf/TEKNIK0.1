@@ -3,6 +3,7 @@ class_name MinecraftInventoryScreen
 
 signal inventory_visibility_changed(is_open: bool)
 
+const THEME := preload("res://scripts/ui/teknik_theme.gd")
 const TOGGLE_ACTION := StringName("toggle_inventory")
 const HOTBAR_SLOT_COUNT := 9
 const STORAGE_SLOT_COUNT := 27
@@ -317,7 +318,7 @@ func _build_screen() -> void:
 	dim.name = "Dim"
 	dim.anchor_right = 1.0
 	dim.anchor_bottom = 1.0
-	dim.color = Color(0.0, 0.0, 0.0, 0.78)
+	dim.color = THEME.COLOR_DIM_BACKDROP
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(dim)
 
@@ -332,6 +333,7 @@ func _build_screen() -> void:
 	_inventory_panel.offset_right = 500.0
 	_inventory_panel.offset_bottom = 280.0
 	_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_inventory_panel.add_theme_stylebox_override("panel", THEME.panel_style(THEME.COLOR_PANEL_BG_RAISED))
 	_overlay.add_child(_inventory_panel)
 
 	var margin := MarginContainer.new()
@@ -350,20 +352,19 @@ func _build_screen() -> void:
 	title.name = "Title"
 	title.text = "INVENTORY"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
+	THEME.style_label(title, 24, THEME.COLOR_ACCENT)
 	column.add_child(title)
 
 	_cursor_label = Label.new()
 	_cursor_label.name = "CursorStack"
 	_cursor_label.text = "CARRIED: EMPTY x0"
 	_cursor_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_cursor_label.add_theme_font_size_override("font_size", 17)
-	_cursor_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.18, 1.0))
+	THEME.style_label(_cursor_label, 17, THEME.COLOR_ACCENT)
 	column.add_child(_cursor_label)
 
 	var storage_title := Label.new()
 	storage_title.text = "STORAGE — 27 SLOTS"
-	storage_title.add_theme_font_size_override("font_size", 15)
+	THEME.style_label(storage_title, 15, THEME.COLOR_TEXT_SECONDARY)
 	column.add_child(storage_title)
 
 	var storage_grid := GridContainer.new()
@@ -380,7 +381,7 @@ func _build_screen() -> void:
 
 	var hotbar_title := Label.new()
 	hotbar_title.text = "HOTBAR — 9 SLOTS"
-	hotbar_title.add_theme_font_size_override("font_size", 15)
+	THEME.style_label(hotbar_title, 15, THEME.COLOR_TEXT_SECONDARY)
 	column.add_child(hotbar_title)
 
 	var hotbar_grid := GridContainer.new()
@@ -399,6 +400,7 @@ func _build_screen() -> void:
 	_close_button.custom_minimum_size = Vector2(0.0, 44.0)
 	_close_button.focus_mode = Control.FOCUS_NONE
 	_close_button.add_theme_font_size_override("font_size", 18)
+	THEME.style_button(_close_button)
 	_close_button.pressed.connect(close_inventory)
 	column.add_child(_close_button)
 
@@ -408,6 +410,7 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 	panel.name = slot_name
 	panel.custom_minimum_size = Vector2(98.0, 62.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.add_theme_stylebox_override("panel", THEME.panel_style())
 	parent.add_child(panel)
 
 	var label := Label.new()
@@ -415,11 +418,7 @@ func _create_slot(parent: Control, slot_name: String, slot_index: int) -> Dictio
 	label.text = "EMPTY x0"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color.WHITE)
-	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
-	label.add_theme_constant_override("shadow_offset_x", 1)
-	label.add_theme_constant_override("shadow_offset_y", 1)
+	THEME.style_label(label, 14, THEME.COLOR_TEXT_PRIMARY)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(label)
 

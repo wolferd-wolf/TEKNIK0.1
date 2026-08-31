@@ -1,6 +1,7 @@
 extends CanvasLayer
 class_name WorldMapOverlay
 
+const THEME := preload("res://scripts/ui/teknik_theme.gd")
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const MAP_PIXEL_DIAMETER := 49
 const MAP_SAMPLE_SPACING := 2
@@ -152,7 +153,7 @@ func _build_screen() -> void:
 	dim.name = "Dim"
 	dim.anchor_right = 1.0
 	dim.anchor_bottom = 1.0
-	dim.color = Color(0.0, 0.0, 0.0, 0.78)
+	dim.color = THEME.COLOR_DIM_BACKDROP
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(dim)
 
@@ -167,6 +168,7 @@ func _build_screen() -> void:
 	_map_panel.offset_right = 270.0
 	_map_panel.offset_bottom = 330.0
 	_map_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_map_panel.add_theme_stylebox_override("panel", THEME.panel_style(THEME.COLOR_PANEL_BG_RAISED))
 	_overlay.add_child(_map_panel)
 
 	var margin := MarginContainer.new()
@@ -185,20 +187,21 @@ func _build_screen() -> void:
 	title.name = "Title"
 	title.text = "LOCAL MAP"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
+	THEME.style_label(title, 24, THEME.COLOR_ACCENT)
 	column.add_child(title)
 
 	_coordinates_label = Label.new()
 	_coordinates_label.name = "Coordinates"
 	_coordinates_label.text = "X 0   Z 0"
 	_coordinates_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_coordinates_label.add_theme_font_size_override("font_size", 16)
+	THEME.style_label(_coordinates_label, 16, THEME.COLOR_TEXT_SECONDARY)
 	column.add_child(_coordinates_label)
 
 	var map_frame := PanelContainer.new()
 	map_frame.name = "MapFrame"
 	map_frame.custom_minimum_size = Vector2(460.0, 460.0)
 	map_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_frame.add_theme_stylebox_override("panel", THEME.panel_style(THEME.COLOR_PANEL_BG, THEME.COLOR_BORDER, 1))
 	column.add_child(map_frame)
 
 	_map_texture_rect = TextureRect.new()
@@ -214,7 +217,7 @@ func _build_screen() -> void:
 	legend.name = "Legend"
 	legend.text = "NORTH UP   •   YELLOW = PLAYER   •   SHADE = TERRAIN RELIEF"
 	legend.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	legend.add_theme_font_size_override("font_size", 14)
+	THEME.style_label(legend, 14, THEME.COLOR_TEXT_SECONDARY)
 	column.add_child(legend)
 
 	_close_button = Button.new()
@@ -223,6 +226,7 @@ func _build_screen() -> void:
 	_close_button.custom_minimum_size = Vector2(0.0, 42.0)
 	_close_button.focus_mode = Control.FOCUS_NONE
 	_close_button.add_theme_font_size_override("font_size", 17)
+	THEME.style_button(_close_button)
 	_close_button.pressed.connect(close_map)
 	column.add_child(_close_button)
 
@@ -233,6 +237,7 @@ func _build_screen() -> void:
 	_map_button.size = MAP_BUTTON_SIZE
 	_map_button.focus_mode = Control.FOCUS_NONE
 	_map_button.add_theme_font_size_override("font_size", 17)
+	THEME.style_button(_map_button)
 	_map_button.pressed.connect(toggle_map)
 	_root.add_child(_map_button)
 
@@ -249,9 +254,7 @@ func _build_screen() -> void:
 	_biome_label.text = "BIOME: UNKNOWN"
 	_biome_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_biome_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_biome_label.add_theme_font_size_override("font_size", 18)
-	_biome_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
-	_biome_label.add_theme_constant_override("outline_size", 6)
+	THEME.style_label(_biome_label, 18, THEME.COLOR_TEXT_PRIMARY, true)
 	_biome_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_biome_label)
 
