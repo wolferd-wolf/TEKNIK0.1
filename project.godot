@@ -13,6 +13,7 @@ run/flush_stdout_on_print.debug=false
 
 [autoload]
 
+SaveManager="*res://scripts/world/save_manager.gd"
 WorldSeed="*res://scripts/world/world_seed.gd"
 DiagnosticLogCapture="*res://scripts/debug/diagnostic_log_capture.gd"
 

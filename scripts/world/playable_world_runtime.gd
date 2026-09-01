@@ -17,6 +17,7 @@ const WORKER_STALL_DIAGNOSTIC_USEC := 5000000
 var target: Node3D
 var target_physics_enabled := false
 var spawn_prepared := false
+var override_spawn_position: Variant = null
 var center := Vector2i(2147483647, 2147483647)
 var data = WORLD_DATA.new()
 var material := StandardMaterial3D.new()
@@ -748,13 +749,16 @@ func _prepare_spawn() -> void:
 	spawn_prepared = true
 	if not is_instance_valid(target):
 		return
-	var spawn_x := int(CHUNK_SIZE * 0.5)
-	var spawn_z := int(CHUNK_SIZE * 0.5)
-	target.global_position = Vector3(
-		spawn_x + 0.5,
-		data.terrain_height(spawn_x, spawn_z) + 2.2,
-		spawn_z + 0.5
-	)
+	if override_spawn_position != null:
+		target.global_position = override_spawn_position
+	else:
+		var spawn_x := int(CHUNK_SIZE * 0.5)
+		var spawn_z := int(CHUNK_SIZE * 0.5)
+		target.global_position = Vector3(
+			spawn_x + 0.5,
+			data.terrain_height(spawn_x, spawn_z) + 2.2,
+			spawn_z + 0.5
+		)
 	if target_physics_enabled:
 		target.set_physics_process(true)
 
