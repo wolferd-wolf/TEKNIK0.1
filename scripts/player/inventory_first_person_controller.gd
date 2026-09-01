@@ -44,10 +44,40 @@ var _inventory_input_locked := false
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_pitch_radians = camera.rotation.x
+	_restore_saved_state()
 	_configure_target_highlight()
 	_inventory.changed.connect(_refresh_hotbar)
 	call_deferred("_configure_hotbar")
 	call_deferred("_configure_inventory_screen")
+
+
+func _restore_saved_state() -> void:
+	var look := SaveManager.get_saved_player_look()
+	if look.has("yaw"):
+		rotation.y = float(look["yaw"])
+	if look.has("pitch"):
+		_pitch_radians = float(look["pitch"])
+		camera.rotation.x = _pitch_radians
+	var saved_slots: Array = SaveManager.get_saved_inventory()
+	for slot_index in range(saved_slots.size()):
+		var slot: Variant = saved_slots[slot_index]
+		if not (slot is Dictionary):
+			continue
+		var block_id := int(slot.get("block_id", 0))
+		var count := int(slot.get("count", 0))
+		if block_id > 0 and count > 0:
+			_inventory.put_stack_into_slot(slot_index, {"block_id": block_id, "count": count})
+	_selected_inventory_slot = clampi(SaveManager.get_saved_selected_slot(), 0, HOTBAR_SLOT_COUNT - 1)
+
+
+func save_state_now() -> void:
+	SaveManager.write_player_state(
+		global_position,
+		rotation.y,
+		_pitch_radians,
+		_inventory.get_slots(),
+		_selected_inventory_slot
+	)
 
 
 func _unhandled_input(event: InputEvent) -> void:

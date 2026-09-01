@@ -10,7 +10,6 @@ const BLOCK_LEAVES := 6
 const WORLD_HEIGHT := 60
 const SEA_LEVEL := 7
 var WORLD_SEED: int = WorldSeed.current_seed
-const SAVE_PATH := "user://teknik_world_v1.json"
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
@@ -489,27 +488,14 @@ func tick_save(delta: float) -> void:
 
 
 func save_world() -> void:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if file == null:
-		push_warning("Unable to save imported TEKNIK world edits")
-		return
-	file.store_string(JSON.stringify({
-		"version": 1,
-		"seed": WORLD_SEED,
-		"overrides": overrides,
-	}))
+	SaveManager.write_world_state(WORLD_SEED, overrides)
 	dirty = false
 
 
 func load_save() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if file == null:
-		return
-	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if parsed is Dictionary and parsed.get("overrides") is Dictionary:
-		overrides = parsed["overrides"].duplicate(true)
+	var saved_overrides := SaveManager.get_saved_overrides()
+	if not saved_overrides.is_empty():
+		overrides = saved_overrides.duplicate(true)
 
 
 func cell_key(cell: Vector3i) -> String:

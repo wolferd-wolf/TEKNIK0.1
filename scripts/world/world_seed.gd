@@ -23,8 +23,12 @@ const TREE_MESHER := preload("res://scripts/world/playable_world_stage6_mesher.g
 var current_seed: int = 0
 
 func _ready() -> void:
-	randomize()
-	current_seed = randi()
+	var saved_seed: Variant = SaveManager.get_saved_seed()
+	if saved_seed != null:
+		current_seed = int(saved_seed)
+	else:
+		randomize()
+		current_seed = randi()
 	_apply_to_static_meshers()
 
 # Call before world generation starts to use a specific seed instead of a

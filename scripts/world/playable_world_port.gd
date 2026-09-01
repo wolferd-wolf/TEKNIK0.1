@@ -18,11 +18,19 @@ func _ready() -> void:
 	_runtime = PORT_RUNTIME.new()
 	_runtime.name = "PlayableWorldRuntime"
 	add_child(_runtime)
+	var saved_position: Variant = SaveManager.get_saved_player_position()
+	if saved_position != null:
+		_runtime.override_spawn_position = saved_position
 	_runtime.configure(get_node_or_null(streaming_target_path) as Node3D)
 	_runtime.material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_runtime.material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	chunks = _runtime.loaded
 	_update_center_compatibility()
+
+
+func save_state_now() -> void:
+	if _runtime != null and _runtime.data != null:
+		_runtime.data.save_world()
 
 
 func _process(delta: float) -> void:
