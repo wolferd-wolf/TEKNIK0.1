@@ -329,8 +329,8 @@ func _gate_contract(report: Dictionary, aggregate: Dictionary, screenshot: Dicti
 	var plains_mods: Dictionary = report["plains_modifier_percent"]
 	if not _between(float(global_mods["none"]), 35.0, 45.0):
 		_fail("Global none share missed 35-45%% target: %.3f%%" % float(global_mods["none"]))
-	if not _between(float(plains_mods["none"]), 35.0, 50.0):
-		_fail("Plains none share missed 35-50%% target: %.3f%%" % float(plains_mods["none"]))
+	if not _between(float(plains_mods["none"]), 99.0, 100.0):
+		_fail("Plains ecology is no longer terrain-flat: %.3f%% none (want >=99%%)" % float(plains_mods["none"]))
 
 	# This is the physical gate the earlier percentage-only audit was missing.
 	# It uses final cached heights, not labels or provisional values. The only

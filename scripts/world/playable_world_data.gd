@@ -9,7 +9,7 @@ const BLOCK_LOG := 5
 const BLOCK_LEAVES := 6
 const WORLD_HEIGHT := 60
 const SEA_LEVEL := 7
-var WORLD_SEED: int = WorldSeed.current_seed
+var WORLD_SEED: int = _resolve_default_world_seed()
 const TREE_SPACING := 7
 const TREE_OFFSET := 3
 const FOREST_TREE_SPACING := 5
@@ -68,6 +68,12 @@ var biome_moisture_noise := FastNoiseLite.new()
 # pre-Stage-1 names.
 var height_noise: FastNoiseLite
 var region_noise: FastNoiseLite
+
+
+func _resolve_default_world_seed() -> int:
+	if not Engine.has_singleton("WorldSeed"):
+		return 0
+	return int(Engine.get_singleton("WorldSeed").current_seed)
 
 
 func _init() -> void:
@@ -488,12 +494,17 @@ func tick_save(delta: float) -> void:
 
 
 func save_world() -> void:
-	SaveManager.write_world_state(WORLD_SEED, overrides)
+	if not Engine.has_singleton("SaveManager"):
+		dirty = false
+		return
+	Engine.get_singleton("SaveManager").write_world_state(WORLD_SEED, overrides)
 	dirty = false
 
 
 func load_save() -> void:
-	var saved_overrides := SaveManager.get_saved_overrides()
+	if not Engine.has_singleton("SaveManager"):
+		return
+	var saved_overrides: Dictionary = Engine.get_singleton("SaveManager").get_saved_overrides()
 	if not saved_overrides.is_empty():
 		overrides = saved_overrides.duplicate(true)
 

@@ -319,7 +319,7 @@ func get_block(cell: Vector3i) -> int:
 	var height: int = finalize_height(water_shaped_height)
 	var water_type: int = water_type_at(cell.x, cell.z)
 	var climate: Vector2 = sample_biome_climate(cell.x, cell.z)
-	var biome: int = stage8_classify_climate(climate, water_type)
+	var biome: int = classify_biome(climate, cell.x, cell.z)
 	if cell.y <= height:
 		if cell.y < height - 2:
 			return stage8_surface_block(cell, height, biome)

@@ -25,6 +25,12 @@ const STAGE8_DRY_TREE_SPACING := 11
 const STAGE8_DRY_TREE_OFFSET := 5
 const STAGE8_COLD_TREE_SPACING := 5
 const STAGE8_COLD_TREE_OFFSET := 3
+# Plains previously reused the shared baseline grid (spacing 7, 75% accept),
+# which is the same density Forest falls back to outside its own tighter
+# grid. That made "open plains" read as densely treed as forest edges.
+# Plains now gets its own much wider, sparser grid.
+const STAGE8_PLAINS_TREE_SPACING := 19
+const STAGE8_PLAINS_TREE_OFFSET := 7
 
 const STAGE8_DRY_SURFACE_SALT := 0x13579bdf
 const STAGE8_COLD_SURFACE_SALT := 0x2468ace1
@@ -36,14 +42,17 @@ func _stage8_distance_sq(climate: Vector2, target: Vector2) -> float:
 	return dx * dx + dy * dy
 
 
-func stage8_classify_climate(climate: Vector2, water_type: int) -> int:
+func stage8_classify_climate(climate: Vector2, water_type: int, allow_plains: bool = true) -> int:
 	# Water remains geography, not a biome. Until Stage 11 adds water-aware
 	# expression, physical water columns retain neutral Plains as base ecology.
 	if water_type != WATER_NONE:
 		return BIOME_PLAINS
 
-	var best_biome: int = BIOME_PLAINS
-	var best_distance: float = _stage8_distance_sq(climate, STAGE8_PLAINS_TARGET)
+	var best_biome: int = BIOME_FOREST
+	var best_distance: float = INF
+	if allow_plains:
+		best_biome = BIOME_PLAINS
+		best_distance = _stage8_distance_sq(climate, STAGE8_PLAINS_TARGET)
 
 	var distance: float = _stage8_distance_sq(climate, STAGE8_FOREST_TARGET)
 	if distance < best_distance:
@@ -174,7 +183,11 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 
 	match biome:
 		BIOME_PLAINS:
-			return baseline_grid and hash_value % 4 != 0
+			var plains_grid: bool = (
+				posmod(x, STAGE8_PLAINS_TREE_SPACING) == STAGE8_PLAINS_TREE_OFFSET
+				and posmod(z, STAGE8_PLAINS_TREE_SPACING) == STAGE8_PLAINS_TREE_OFFSET
+			)
+			return plains_grid and hash_value % 3 != 0
 		BIOME_FOREST:
 			var forest_grid: bool = (
 				posmod(x, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET

@@ -53,6 +53,24 @@ func stage9_terrain_modifier_from_fields(
 	return TERRAIN_MODIFIER_NONE
 
 
+func classify_biome(climate: Vector2, x: int, z: int) -> int:
+	# Stage 8 chose ecology from climate alone, completely independent of the
+	# terrain-structure field that decides flat/hill/plateau/mountain/valley.
+	# That let "Plains" get assigned to columns that were physically hilly,
+	# because nothing connected the two noise fields. Plains is the one
+	# ecology whose name promises flatness, so it is the one ecology that
+	# must actually check the terrain modifier before claiming a column.
+	var water_type: int = water_type_at(x, z)
+	var biome: int = stage8_classify_climate(climate, water_type)
+	if biome != BIOME_PLAINS or water_type != WATER_NONE:
+		return biome
+	var fields: Vector4 = sample_world_fields(x, z)
+	var modifier: int = stage9_terrain_modifier_from_fields(fields.x, fields.y, water_type)
+	if modifier == TERRAIN_MODIFIER_NONE:
+		return biome
+	return stage8_classify_climate(climate, water_type, false)
+
+
 func stage9_terrain_modifier_at(x: int, z: int) -> int:
 	var fields: Vector4 = sample_world_fields(x, z)
 	return stage9_terrain_modifier_from_fields(fields.x, fields.y, water_type_at(x, z))
@@ -225,7 +243,7 @@ func get_block(cell: Vector3i) -> int:
 	var height: int = finalize_height(water_shaped_height)
 	var water_type: int = water_type_at(cell.x, cell.z)
 	var climate: Vector2 = sample_biome_climate(cell.x, cell.z)
-	var biome: int = stage8_classify_climate(climate, water_type)
+	var biome: int = classify_biome(climate, cell.x, cell.z)
 	if cell.y <= height:
 		if cell.y < height - 1:
 			return stage8_surface_block(cell, height, biome)

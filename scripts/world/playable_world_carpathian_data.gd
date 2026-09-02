@@ -167,7 +167,9 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 			accept_mod = 4
 			accept_limit = 3
 		BIOME_PLAINS:
-			pass
+			spacing = STAGE8_PLAINS_TREE_SPACING
+			accept_mod = 3
+			accept_limit = 2
 		_:
 			return false
 	if not _carpathian_jittered_tree_origin(x, z, spacing, biome_salt):
@@ -207,7 +209,7 @@ func get_block(cell: Vector3i) -> int:
 
 	var fields: Vector4 = sample_world_fields(cell.x, cell.z)
 	var climate: Vector2 = sample_biome_climate(cell.x, cell.z)
-	var biome: int = stage8_classify_climate(climate, water_info.x)
+	var biome: int = classify_biome(climate, cell.x, cell.z)
 	if cell.y <= height:
 		if cell.y < height - 2:
 			return stage8_surface_block(cell, height, biome)

@@ -356,7 +356,7 @@ func _validate_equivalence(data, runtime) -> Dictionary:
 				var index: int = (local_z + PADDING) * WIDTH + local_x + PADDING
 				var world_x: int = origin_x + local_x
 				var world_z: int = origin_z + local_z
-				var expected: int = data.biome_at(world_x, world_z)
+				var expected: int = runtime.data.biome_at(world_x, world_z)
 				if int(biomes8[index]) != expected:
 					_fail("Stage 8 cache/public biome mismatch at (%d,%d)" % [world_x, world_z])
 				biome_columns += 1

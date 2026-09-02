@@ -319,7 +319,7 @@ static func build(coord: Vector2i, sampler) -> Dictionary:
 			if moisture <= PLAINS_FOREST_MOISTURE_BOUNDARY:
 				if 1.04 * temperature < 0.72 * moisture - 0.3856:
 					biome = biome_cold
-				elif 0.80 * temperature <= 0.44 * moisture + 0.2172:
+				elif structure <= flat_terrain_max and 0.80 * temperature <= 0.44 * moisture + 0.2172:
 					biome = biome_plains
 				elif 0.52 * temperature >= 0.72 * moisture + 0.578:
 					biome = biome_desert
