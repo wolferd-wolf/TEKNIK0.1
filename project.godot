@@ -6,7 +6,7 @@ config_version=5
 
 config/name="TEKNIK 0.1"
 config/icon="res://assets/icon.svg"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/main_menu.tscn"
 ; Chunk diagnostics are still captured, but debug stdout/file logging is allowed
 ; to buffer instead of forcing storage flushes on every per-chunk print.
 run/flush_stdout_on_print.debug=false

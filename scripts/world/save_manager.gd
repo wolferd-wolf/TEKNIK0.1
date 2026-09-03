@@ -57,6 +57,16 @@ func has_save() -> bool:
 	return _loaded and not _cached_save.is_empty()
 
 
+# Wipes the save file and cached state. Used by New Game so a fresh start
+# doesn't inherit the old seed, block edits, position, or inventory --
+# without this, WorldSeed and the world/player data would still read the
+# stale save on their next lookup.
+func clear_save() -> void:
+	_cached_save = {}
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(SAVE_PATH)
+
+
 func get_saved_seed() -> Variant:
 	if not has_save() or not _cached_save.has("seed"):
 		return null
