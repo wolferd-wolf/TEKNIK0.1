@@ -29,8 +29,8 @@ const STAGE8_COLD_TREE_OFFSET := 3
 # which is the same density Forest falls back to outside its own tighter
 # grid. That made "open plains" read as densely treed as forest edges.
 # Plains now gets its own much wider, sparser grid.
-const STAGE8_PLAINS_TREE_SPACING := 19
-const STAGE8_PLAINS_TREE_OFFSET := 7
+const STAGE8_PLAINS_TREE_SPACING := 27
+const STAGE8_PLAINS_TREE_OFFSET := 11
 
 const STAGE8_DRY_SURFACE_SALT := 0x13579bdf
 const STAGE8_COLD_SURFACE_SALT := 0x2468ace1
@@ -187,7 +187,7 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 				posmod(x, STAGE8_PLAINS_TREE_SPACING) == STAGE8_PLAINS_TREE_OFFSET
 				and posmod(z, STAGE8_PLAINS_TREE_SPACING) == STAGE8_PLAINS_TREE_OFFSET
 			)
-			return plains_grid and hash_value % 3 != 0
+			return plains_grid and hash_value % 4 == 0
 		BIOME_FOREST:
 			var forest_grid: bool = (
 				posmod(x, FOREST_TREE_SPACING) == FOREST_TREE_OFFSET

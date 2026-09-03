@@ -168,8 +168,8 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 			accept_limit = 3
 		BIOME_PLAINS:
 			spacing = STAGE8_PLAINS_TREE_SPACING
-			accept_mod = 3
-			accept_limit = 2
+			accept_mod = 4
+			accept_limit = 1
 		_:
 			return false
 	if not _carpathian_jittered_tree_origin(x, z, spacing, biome_salt):
