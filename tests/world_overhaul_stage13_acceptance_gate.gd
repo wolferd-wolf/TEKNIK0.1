@@ -1,8 +1,8 @@
 extends SceneTree
 
 const AUDIT_DATA := preload("res://tests/world_overhaul_stage13_audit_data.gd")
-const SHIPPING_DATA := preload("res://scripts/world/playable_world_stage11_water_biome_data.gd")
-const GENERATION_CACHE := preload("res://scripts/world/playable_world_stage10_generation_cache_fast.gd")
+const SHIPPING_DATA := preload("res://scripts/world/playable_world_carpathian_data.gd")
+const GENERATION_CACHE := preload("res://scripts/world/playable_world_stage13_generation_cache_fast.gd")
 
 const CHUNK_SIZE := 12
 const PADDING := 2
