@@ -9,19 +9,18 @@
 ## Autoloads (project.godot)
 `SaveManager`, `WorldSeed`, `DiagnosticLogCapture` — in that order. SaveManager must load before WorldSeed (its save file has to be read before WorldSeed decides whether to randomize or reuse a seed).
 
-## Critical Gotcha: headless test autoload access
-Running a test as the direct `--script res://tests/whatever.gd` entry point (a `SceneTree` main-loop override) means **that script itself is parsed before autoloads are registered as global identifiers/singletons** — neither the bare identifier (`SaveManager.foo()`) nor `Engine.get_singleton("SaveManager")` resolves from *that specific file*, even though the autoload node genuinely exists as a child of `root` by the time `_initialize()`/`call_deferred` runs. Confirmed empirically:
-- `Engine.has_singleton("SaveManager")` → `false` in this context.
-- Bare `SaveManager` identifier → `SCRIPT ERROR: Compile Error: Identifier not found`.
-- `root.get_node_or_null("SaveManager")` → **works**, since the node is really there.
+## Critical Gotcha: headless `--script` entry files and autoloads
+Root cause, fully confirmed (not theory): when Godot boots with `--script X.gd`, that script is compiled as the MainLoop implementation **before** ProjectSettings autoloads get registered as known global identifiers. Any *other* script that's a compile-time dependency of the entry file (`const Y := preload("...")` at the top) gets compiled in that same early pass — so it inherits the same failure, regardless of how deeply nested it is. This is not about scene-tree structure; it's about **when the script gets compiled**.
 
-So for a bare `--script` entry file, fetch it via:
-```gdscript
-var save_manager := root.get_node_or_null("SaveManager")
-```
-This does **not** apply to scripts that run as part of a loaded scene (e.g. `inventory_vanilla_baseline_gate.gd` loads `main.tscn` as a child first) — those are parsed after autoload setup completes, so bare identifiers work normally there, matching how the rest of the game's scripts (`main_menu.gd`, `playable_world_port.gd`, `world_seed.gd`, `inventory_first_person_controller.gd`) actually call `SaveManager`/`WorldSeed`.
+Confirmed empirically:
+- `Engine.has_singleton("SaveManager")` → `false` from the entry script.
+- Bare `SaveManager` identifier in the entry script, or in anything it `preload()`s → `SCRIPT ERROR: Compile Error: Identifier not found`.
+- Bare `SaveManager` identifier in a script obtained via `load()` **at runtime**, inside a deferred call (e.g. `call_deferred("_run_gate")` → `load("res://...").new()`) → **works fine**, because by that point the engine has finished registering autoloads and this script is only now being compiled.
+- `root.get_node_or_null("SaveManager")` also always works (the node genuinely exists under root the whole time) — use this in the entry script itself, where you can't avoid early compilation.
 
-**Known risk, not yet fixed:** `playable_world_data.gd`'s own `save_world()` / `load_save()` / `_resolve_default_world_seed()` guard on `Engine.has_singleton(...)` — the pattern just shown to fail for a bare entry script. Whether it also fails in a real, normally-booted game (main.tscn as entry point, not `--script`) is **unverified** — no existing test proves voxel block-edit persistence actually round-trips. Every other working save/load call site in the codebase uses the bare identifier instead. Worth a real gate test before trusting this path; don't silently assume it works.
+**Practical rule for gate tests:** in the `--script` entry file, never `preload()` a script that (transitively) references a bare autoload identifier. Either `load()` it at runtime inside the deferred callback, or fetch the autoload via `root.get_node_or_null(...)` instead of the bare name. `Engine.get_singleton(...)` calls are always syntactically valid (no compile error) but still return null/false in this mode — same practical effect, different failure shape.
+
+This resolved a real, tested risk from the previous version of this note: `playable_world_runtime.gd`'s own mechanical-block save/load methods use the bare `SaveManager` identifier (matching the rest of the codebase's convention) and were verified, via `load()` at runtime in a gate test, to work correctly. `playable_world_data.gd`'s `save_world()`/`load_save()`/`_resolve_default_world_seed()` still use `Engine.get_singleton(...)` instead — unverified whether that path works in a real (non-`--script`) game boot; no existing test proves voxel override persistence. Flagged, not fixed — out of scope so far.
 
 ## Running Godot headless (no binary ships in the repo/container)
 ```bash
