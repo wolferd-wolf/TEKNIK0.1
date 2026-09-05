@@ -10,11 +10,18 @@
 `SaveManager`, `WorldSeed`, `DiagnosticLogCapture` — in that order. SaveManager must load before WorldSeed (its save file has to be read before WorldSeed decides whether to randomize or reuse a seed).
 
 ## Critical Gotcha: headless test autoload access
-Running a test via `--script res://tests/whatever.gd` (a `SceneTree` main-loop override) **does not** register autoloads with `Engine.get_singleton()` — `Engine.has_singleton("SaveManager")` returns `false` in this mode even though the autoload node genuinely exists. Fetch it via:
+Running a test as the direct `--script res://tests/whatever.gd` entry point (a `SceneTree` main-loop override) means **that script itself is parsed before autoloads are registered as global identifiers/singletons** — neither the bare identifier (`SaveManager.foo()`) nor `Engine.get_singleton("SaveManager")` resolves from *that specific file*, even though the autoload node genuinely exists as a child of `root` by the time `_initialize()`/`call_deferred` runs. Confirmed empirically:
+- `Engine.has_singleton("SaveManager")` → `false` in this context.
+- Bare `SaveManager` identifier → `SCRIPT ERROR: Compile Error: Identifier not found`.
+- `root.get_node_or_null("SaveManager")` → **works**, since the node is really there.
+
+So for a bare `--script` entry file, fetch it via:
 ```gdscript
 var save_manager := root.get_node_or_null("SaveManager")
 ```
-`Engine.get_singleton(...)` is used elsewhere in the codebase (e.g. `playable_world_data.gd`) — that's existing code, don't "fix" it without confirming it actually fails in its real call context; the failure mode above was only confirmed for headless `--script` main-loop scripts.
+This does **not** apply to scripts that run as part of a loaded scene (e.g. `inventory_vanilla_baseline_gate.gd` loads `main.tscn` as a child first) — those are parsed after autoload setup completes, so bare identifiers work normally there, matching how the rest of the game's scripts (`main_menu.gd`, `playable_world_port.gd`, `world_seed.gd`, `inventory_first_person_controller.gd`) actually call `SaveManager`/`WorldSeed`.
+
+**Known risk, not yet fixed:** `playable_world_data.gd`'s own `save_world()` / `load_save()` / `_resolve_default_world_seed()` guard on `Engine.has_singleton(...)` — the pattern just shown to fail for a bare entry script. Whether it also fails in a real, normally-booted game (main.tscn as entry point, not `--script`) is **unverified** — no existing test proves voxel block-edit persistence actually round-trips. Every other working save/load call site in the codebase uses the bare identifier instead. Worth a real gate test before trusting this path; don't silently assume it works.
 
 ## Running Godot headless (no binary ships in the repo/container)
 ```bash
