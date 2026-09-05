@@ -21,8 +21,8 @@ const STAGE8_COLD_FOREST_TARGET := Vector2(-0.52, 0.34)
 
 const STAGE8_DENSE_TREE_SPACING := 4
 const STAGE8_DENSE_TREE_OFFSET := 1
-const STAGE8_DRY_TREE_SPACING := 11
-const STAGE8_DRY_TREE_OFFSET := 5
+const STAGE8_DRY_TREE_SPACING := 45
+const STAGE8_DRY_TREE_OFFSET := 17
 const STAGE8_COLD_TREE_SPACING := 5
 const STAGE8_COLD_TREE_OFFSET := 3
 # Plains previously reused the shared baseline grid (spacing 7, 75% accept),
@@ -210,7 +210,7 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 			return (
 				posmod(x, STAGE8_DRY_TREE_SPACING) == STAGE8_DRY_TREE_OFFSET
 				and posmod(z, STAGE8_DRY_TREE_SPACING) == STAGE8_DRY_TREE_OFFSET
-				and hash_value % 2 == 0
+				and hash_value % 8 == 0
 			)
 		BIOME_COLD_FOREST:
 			if stage8_cold_surface_is_stone(x, z):

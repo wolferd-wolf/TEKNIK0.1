@@ -158,7 +158,7 @@ func stage8_tree_candidate_for_biome(x: int, z: int, surface: int, biome: int) -
 			if stage8_dry_surface_is_sand(x, z):
 				return false
 			spacing = STAGE8_DRY_TREE_SPACING
-			accept_mod = 2
+			accept_mod = 8
 			accept_limit = 1
 		BIOME_COLD_FOREST:
 			if stage8_cold_surface_is_stone(x, z):
