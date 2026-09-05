@@ -2,6 +2,7 @@ extends Node3D
 
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const WORLD_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
+const MECHANICAL_DATA := preload("res://scripts/world/mechanical_block_data.gd")
 
 const CHUNK_SIZE := 12
 const RENDER_RADIUS := 3
@@ -20,6 +21,10 @@ var spawn_prepared := false
 var override_spawn_position: Variant = null
 var center := Vector2i(2147483647, 2147483647)
 var data = WORLD_DATA.new()
+var mechanical_data := MECHANICAL_DATA.new()
+var mechanical_dirty := false
+var mechanical_save_delay := 0.0
+const MECHANICAL_SAVE_DELAY_SEC := 1.5
 var material := StandardMaterial3D.new()
 var water: MeshInstance3D
 
@@ -64,6 +69,7 @@ func configure(streaming_target: Node3D) -> void:
 	material.metallic = 0.0
 	material.cull_mode = BaseMaterial3D.CULL_BACK
 	_create_water()
+	load_mechanical_blocks()
 	if is_instance_valid(target):
 		target_physics_enabled = target.is_physics_processing()
 		target.set_physics_process(false)
@@ -86,6 +92,7 @@ func tick(delta: float) -> void:
 	_pump_collisions()
 	_prepare_spawn()
 	data.tick_save(delta)
+	_tick_mechanical_save(delta)
 
 
 func shutdown() -> void:
@@ -101,6 +108,8 @@ func shutdown() -> void:
 	worker_result_mutex.unlock()
 	if data.dirty:
 		data.save_world()
+	if mechanical_dirty:
+		save_mechanical_blocks()
 
 
 func world_to_chunk(position: Vector3) -> Vector2i:
@@ -187,6 +196,49 @@ func set_block(cell: Vector3i, block_id: int) -> bool:
 		return false
 	_schedule_affected_rebuilds(cell)
 	return true
+
+
+func place_mechanical_block(cell: Vector3i, type_id: int, axis: int) -> bool:
+	if data.get_block(cell) != WORLD_DATA.BLOCK_AIR:
+		return false
+	if not mechanical_data.place_block(cell, type_id, axis):
+		return false
+	mechanical_dirty = true
+	mechanical_save_delay = MECHANICAL_SAVE_DELAY_SEC
+	return true
+
+
+func remove_mechanical_block(cell: Vector3i) -> bool:
+	if not mechanical_data.remove_block(cell):
+		return false
+	mechanical_dirty = true
+	mechanical_save_delay = MECHANICAL_SAVE_DELAY_SEC
+	return true
+
+
+func get_mechanical_block(cell: Vector3i) -> Dictionary:
+	return mechanical_data.get_block(cell)
+
+
+func has_mechanical_block(cell: Vector3i) -> bool:
+	return mechanical_data.has_block(cell)
+
+
+func load_mechanical_blocks() -> void:
+	mechanical_data.load_from_save_dict(SaveManager.get_saved_mechanical_blocks())
+
+
+func save_mechanical_blocks() -> void:
+	SaveManager.write_mechanical_blocks_state(mechanical_data.to_save_dict())
+	mechanical_dirty = false
+
+
+func _tick_mechanical_save(delta: float) -> void:
+	if not mechanical_dirty:
+		return
+	mechanical_save_delay -= delta
+	if mechanical_save_delay <= 0.0:
+		save_mechanical_blocks()
 
 
 func collision_ring_ready() -> bool:
