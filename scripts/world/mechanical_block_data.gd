@@ -18,6 +18,16 @@ extends RefCounted
 #   "state": Dictionary,
 # }
 
+# Voxel block_ids occupy roughly 1-6 (see playable_world_data.gd's BLOCK_*
+# constants). Mechanical items share the same hotbar/inventory item
+# namespace (a single int block_id per stack), so they're given a disjoint
+# range starting well above any current or near-future voxel block_id to
+# avoid collisions -- placement code branches on `id >= MECH_ID_START` to
+# decide whether a given block_id goes through mechanical placement or
+# normal voxel placement.
+const MECH_ID_START := 100
+const MECH_SHAFT := 100
+
 var _blocks: Dictionary = {}
 
 
