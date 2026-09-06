@@ -53,6 +53,22 @@ tools/reference/   reference material, not shipped code
 acceptance/         one step_N_passed.md per completed build-plan step
 ```
 
+## Which world-gen class is actually live (don't assume, this bit twice already)
+There are many `playable_world_*` files in `scripts/world/` — most are **staged snapshots**, not dead code, but also not what the running game uses directly. The chain that matters:
+
+```
+ChunkManager (class_name, in playable_world_port.gd)
+  -> _runtime = playable_world_generation_runtime.gd   <-- this is what ChunkManager actually instantiates
+       extends playable_world_stage11_generation_runtime.gd
+         extends playable_world_stage4_generation_runtime.gd
+           extends playable_world_stage3_generation_runtime.gd
+             extends playable_world_stage2_generation_runtime.gd
+               extends playable_world_runtime.gd        <-- the root base class
+```
+`data` (the terrain/override store) gets reassigned at multiple levels too — the live one ends up as `playable_world_carpathian_data.gd` (set in `playable_world_generation_runtime.gd`'s own `_init()`), not `playable_world_data.gd`. Both share the same `BLOCK_AIR := 0` convention, so constant references across the two are safe, but don't assume method-for-method compatibility beyond what you've actually checked.
+
+**Practical rule:** before adding anything to `playable_world_runtime.gd` (or any stage file) expecting it to reach the real game, verify the whole chain: (1) confirm `playable_world_port.gd`'s `PORT_RUNTIME`/`SHIPPING_DATA` consts still point where you think, (2) grep the live chain (stage2 -> stage3 -> stage4 -> stage11 -> generation_runtime, currently) for any override of the method/var you're touching, and confirm every override that exists calls `super.foo(...)` rather than replacing it outright. This is the exact "stale reference" failure mode from past sessions (biome/water bugs traced to comparing against frozen old-stage classes) — it applies to *adding* code, not just comparing gate assertions.
+
 ## Test Convention
 - File name: `<feature>_gate.gd` (or `_benchmark.gd`, `_diagnostic.gd` for non-pass/fail runs).
 - `extends SceneTree`, `_initialize()` → `call_deferred("_run_gate")`.
