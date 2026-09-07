@@ -71,6 +71,22 @@ func _run_gate() -> void:
 		_finish()
 		return
 
+	# Closed by default -- Minecraft's book-icon model, not a permanent
+	# third of the screen.
+	if crafting_panel.visible:
+		_fail("CraftingPanel should start closed when the inventory is opened")
+
+	var toggle_button: Node = panel.find_child("CraftingToggle", true, false)
+	if toggle_button == null:
+		_fail("CraftingToggle button not found")
+		_finish()
+		return
+	toggle_button.pressed.emit()
+	await _wait_frames(1)
+	if not crafting_panel.visible:
+		_fail("CraftingPanel did not open after pressing the CraftingToggle button")
+	print("CHECKPOINT: crafting panel opened via toggle")
+
 	var recipe_row: Node = crafting_panel.find_child("Recipe_shaft", true, false)
 	if recipe_row == null:
 		_fail("Recipe row for 'shaft' not found in the crafting panel")

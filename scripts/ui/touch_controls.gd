@@ -75,10 +75,29 @@ func _exit_tree() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _is_inventory_open():
+		return
 	if event is InputEventScreenTouch:
 		_handle_screen_touch(event)
 	elif event is InputEventScreenDrag:
 		_handle_screen_drag(event)
+
+
+# A modal (currently just the inventory screen) should own all touch input
+# while it's open -- world-interaction touch controls (joystick, look drag)
+# have no business still responding underneath it. Without this check they
+# stayed fully active the whole time the inventory was open, with no
+# mutual exclusion at all.
+func _is_inventory_open() -> bool:
+	var player := get_node_or_null("../Player")
+	if player == null or not player.has_method("get_inventory_screen"):
+		return false
+	var inventory_screen = player.get_inventory_screen()
+	return (
+		inventory_screen != null
+		and inventory_screen.has_method("is_inventory_open")
+		and inventory_screen.is_inventory_open()
+	)
 
 
 func get_joystick_center() -> Vector2:

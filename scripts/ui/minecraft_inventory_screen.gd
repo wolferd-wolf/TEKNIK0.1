@@ -10,6 +10,8 @@ const HOTBAR_SLOT_COUNT := 9
 const STORAGE_SLOT_COUNT := 27
 const STORAGE_START_INDEX := HOTBAR_SLOT_COUNT
 const LONG_PRESS_SECONDS := 0.45
+const PANEL_WIDTH_COLLAPSED := 1000.0
+const PANEL_WIDTH_EXPANDED := 1320.0
 
 var _inventory: BlockInventory
 var _player: Node
@@ -27,6 +29,9 @@ var _hotbar_swatches: Array[Panel] = []
 var _slot_buttons: Dictionary = {}
 var _craft_buttons: Dictionary = {}
 var _craft_cost_labels: Dictionary = {}
+var _crafting_panel: PanelContainer
+var _crafting_divider: ColorRect
+var _crafting_toggle_button: Button
 var _cursor_stack: Dictionary = {"block_id": 0, "count": 0}
 var _active_touch_index := -1
 var _active_touch_slot := -1
@@ -196,8 +201,24 @@ func _set_open(value: bool) -> void:
 	if is_instance_valid(_toggle_button):
 		_toggle_button.text = "CLOSE" if value else "INVENTORY"
 	if value:
+		_reset_crafting_panel_closed()
 		_refresh()
 	inventory_visibility_changed.emit(value)
+
+
+# Reopening the inventory always starts with the crafting book closed,
+# matching Minecraft's own behavior -- predictable default rather than
+# remembering whatever state it was left in last time.
+func _reset_crafting_panel_closed() -> void:
+	if is_instance_valid(_crafting_panel):
+		_crafting_panel.visible = false
+	if is_instance_valid(_crafting_divider):
+		_crafting_divider.visible = false
+	if is_instance_valid(_crafting_toggle_button):
+		_crafting_toggle_button.text = "\u2318 CRAFTING"
+	if is_instance_valid(_inventory_panel):
+		_inventory_panel.offset_left = -PANEL_WIDTH_COLLAPSED / 2.0
+		_inventory_panel.offset_right = PANEL_WIDTH_COLLAPSED / 2.0
 
 
 func _refresh() -> void:
@@ -366,9 +387,9 @@ func _build_screen() -> void:
 	_inventory_panel.anchor_top = 0.5
 	_inventory_panel.anchor_right = 0.5
 	_inventory_panel.anchor_bottom = 0.5
-	_inventory_panel.offset_left = -640.0
+	_inventory_panel.offset_left = -PANEL_WIDTH_COLLAPSED / 2.0
 	_inventory_panel.offset_top = -300.0
-	_inventory_panel.offset_right = 640.0
+	_inventory_panel.offset_right = PANEL_WIDTH_COLLAPSED / 2.0
 	_inventory_panel.offset_bottom = 300.0
 	_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_inventory_panel.add_theme_stylebox_override("panel", THEME.panel_style(THEME.COLOR_PANEL_BG_RAISED))
@@ -405,18 +426,36 @@ func _build_screen() -> void:
 	THEME.style_label(_cursor_label, 17, THEME.COLOR_ACCENT)
 	column.add_child(_cursor_label)
 
+	var toolbar := HBoxContainer.new()
+	toolbar.name = "Toolbar"
+	toolbar.alignment = BoxContainer.ALIGNMENT_BEGIN
+	column.add_child(toolbar)
+
+	# Closed by default, like Minecraft's recipe book icon -- the crafting
+	# list is an opt-in overlay, not a permanent third of the screen.
+	_crafting_toggle_button = Button.new()
+	_crafting_toggle_button.name = "CraftingToggle"
+	_crafting_toggle_button.text = "\u2318 CRAFTING"
+	_crafting_toggle_button.custom_minimum_size = Vector2(160.0, 40.0)
+	_crafting_toggle_button.focus_mode = Control.FOCUS_NONE
+	THEME.style_button(_crafting_toggle_button)
+	_crafting_toggle_button.pressed.connect(_toggle_crafting_panel)
+	toolbar.add_child(_crafting_toggle_button)
+
 	var body := HBoxContainer.new()
 	body.name = "Body"
 	body.add_theme_constant_override("separation", 20)
 	column.add_child(body)
 
-	_build_crafting_panel(body)
+	_crafting_panel = _build_crafting_panel(body)
+	_crafting_panel.visible = false
 
-	var divider := ColorRect.new()
-	divider.name = "Divider"
-	divider.color = THEME.COLOR_BORDER
-	divider.custom_minimum_size = Vector2(2.0, 0.0)
-	body.add_child(divider)
+	_crafting_divider = ColorRect.new()
+	_crafting_divider.name = "Divider"
+	_crafting_divider.color = THEME.COLOR_BORDER
+	_crafting_divider.custom_minimum_size = Vector2(2.0, 0.0)
+	_crafting_divider.visible = false
+	body.add_child(_crafting_divider)
 
 	var storage_column := VBoxContainer.new()
 	storage_column.name = "StorageColumn"
@@ -469,7 +508,7 @@ func _build_screen() -> void:
 	column.add_child(_close_button)
 
 
-func _build_crafting_panel(body: HBoxContainer) -> void:
+func _build_crafting_panel(body: HBoxContainer) -> PanelContainer:
 	var crafting_panel := PanelContainer.new()
 	crafting_panel.name = "CraftingPanel"
 	crafting_panel.custom_minimum_size = Vector2(300.0, 0.0)
@@ -495,6 +534,21 @@ func _build_crafting_panel(body: HBoxContainer) -> void:
 
 	for recipe in RECIPE_REGISTRY.get_recipes():
 		crafting_column.add_child(_build_recipe_row(recipe))
+
+	return crafting_panel
+
+
+func _toggle_crafting_panel() -> void:
+	var opening := not _crafting_panel.visible
+	_crafting_panel.visible = opening
+	_crafting_divider.visible = opening
+	_crafting_toggle_button.text = "\u2715 CLOSE CRAFTING" if opening else "\u2318 CRAFTING"
+	if is_instance_valid(_inventory_panel):
+		var width := PANEL_WIDTH_EXPANDED if opening else PANEL_WIDTH_COLLAPSED
+		_inventory_panel.offset_left = -width / 2.0
+		_inventory_panel.offset_right = width / 2.0
+	if opening:
+		_refresh_crafting_panel()
 
 
 func _build_recipe_row(recipe: Dictionary) -> PanelContainer:
