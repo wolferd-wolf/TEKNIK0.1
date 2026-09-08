@@ -30,6 +30,14 @@ const RECIPES: Array[Dictionary] = [
 		"output_block_id": MECHANICAL_DATA.MECH_SHAFT,
 		"output_count": 1,
 	},
+	{
+		"id": "hand_crank",
+		"name": "Hand Crank",
+		"input_block_id": WORLD_DATA.BLOCK_LOG,
+		"input_count": 6,
+		"output_block_id": MECHANICAL_DATA.MECH_HAND_CRANK,
+		"output_count": 1,
+	},
 ]
 
 

@@ -95,6 +95,7 @@ const BLOCK_COLORS := {
 	5: Color(0.42, 0.29, 0.16, 1.0),  # log
 	6: Color(0.24, 0.5, 0.22, 1.0),   # leaves
 	100: Color(0.58, 0.63, 0.68, 1.0), # shaft (mechanical item range starts at 100)
+	101: Color(0.72, 0.42, 0.24, 1.0), # hand crank
 }
 
 
@@ -115,6 +116,7 @@ const BLOCK_NAMES := {
 	5: "LOG",
 	6: "LEAVES",
 	100: "SHAFT",
+	101: "HAND CRANK",
 }
 
 

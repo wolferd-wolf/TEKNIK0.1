@@ -3,6 +3,8 @@ extends Node3D
 const WORLD_DATA := preload("res://scripts/world/playable_world_data.gd")
 const WORLD_MESHER := preload("res://scripts/world/playable_world_mesher.gd")
 const MECHANICAL_DATA := preload("res://scripts/world/mechanical_block_data.gd")
+const KINETIC_NETWORK := preload("res://scripts/world/kinetic_network.gd")
+const THEME := preload("res://scripts/ui/teknik_theme.gd")
 
 const CHUNK_SIZE := 12
 const RENDER_RADIUS := 3
@@ -25,6 +27,7 @@ var mechanical_data := MECHANICAL_DATA.new()
 var mechanical_dirty := false
 var mechanical_save_delay := 0.0
 const MECHANICAL_SAVE_DELAY_SEC := 1.5
+var mechanical_visuals: Dictionary = {}
 var material := StandardMaterial3D.new()
 var water: MeshInstance3D
 
@@ -93,6 +96,7 @@ func tick(delta: float) -> void:
 	_prepare_spawn()
 	data.tick_save(delta)
 	_tick_mechanical_save(delta)
+	_tick_mechanical_visuals(delta)
 
 
 func shutdown() -> void:
@@ -203,6 +207,8 @@ func place_mechanical_block(cell: Vector3i, type_id: int, axis: int) -> bool:
 		return false
 	if not mechanical_data.place_block(cell, type_id, axis):
 		return false
+	_create_mechanical_visual(cell, type_id, axis)
+	_rebuild_kinetic_networks()
 	mechanical_dirty = true
 	mechanical_save_delay = MECHANICAL_SAVE_DELAY_SEC
 	return true
@@ -211,6 +217,8 @@ func place_mechanical_block(cell: Vector3i, type_id: int, axis: int) -> bool:
 func remove_mechanical_block(cell: Vector3i) -> bool:
 	if not mechanical_data.remove_block(cell):
 		return false
+	_destroy_mechanical_visual(cell)
+	_rebuild_kinetic_networks()
 	mechanical_dirty = true
 	mechanical_save_delay = MECHANICAL_SAVE_DELAY_SEC
 	return true
@@ -226,6 +234,11 @@ func has_mechanical_block(cell: Vector3i) -> bool:
 
 func load_mechanical_blocks() -> void:
 	mechanical_data.load_from_save_dict(SaveManager.get_saved_mechanical_blocks())
+	for cell_key in mechanical_data.get_all_cells():
+		var cell := _cell_from_key(cell_key)
+		var entry := mechanical_data.get_block(cell)
+		_create_mechanical_visual(cell, int(entry.get("type_id", 0)), int(entry.get("axis", Vector3i.AXIS_Y)))
+	_rebuild_kinetic_networks()
 
 
 func save_mechanical_blocks() -> void:
@@ -239,6 +252,90 @@ func _tick_mechanical_save(delta: float) -> void:
 	mechanical_save_delay -= delta
 	if mechanical_save_delay <= 0.0:
 		save_mechanical_blocks()
+
+
+# Recomputes every kinetic network from scratch and writes the result back
+# into each block's state dict (merged, not replaced -- a future recipe
+# system will also want state on the same blocks). Full rebuild on every
+# placement/removal is the deliberately simple version; see
+# kinetic_network.gd's own note about when that stops being fine.
+func _rebuild_kinetic_networks() -> void:
+	var results := KINETIC_NETWORK.resolve(mechanical_data)
+	for cell_key in mechanical_data.get_all_cells():
+		var cell := _cell_from_key(cell_key)
+		var existing_state := mechanical_data.get_block_state(cell)
+		var network_result: Dictionary = results.get(cell_key, {})
+		for field_key in network_result.keys():
+			existing_state[field_key] = network_result[field_key]
+		mechanical_data.set_block_state(cell, existing_state)
+
+
+func _tick_mechanical_visuals(delta: float) -> void:
+	for cell_key in mechanical_visuals.keys():
+		var mesh_instance: MeshInstance3D = mechanical_visuals[cell_key]
+		if not is_instance_valid(mesh_instance):
+			continue
+		var cell := _cell_from_key(cell_key)
+		var state := mechanical_data.get_block_state(cell)
+		var speed := float(state.get("rotation_speed", 0.0))
+		if speed == 0.0:
+			continue
+		var entry := mechanical_data.get_block(cell)
+		var axis := int(entry.get("axis", Vector3i.AXIS_Y))
+		var spin := speed * delta * TAU
+		match axis:
+			Vector3i.AXIS_X:
+				mesh_instance.rotate_x(spin)
+			Vector3i.AXIS_Z:
+				mesh_instance.rotate_z(spin)
+			_:
+				mesh_instance.rotate_y(spin)
+
+
+func _create_mechanical_visual(cell: Vector3i, type_id: int, axis: int) -> void:
+	var cell_key := MECHANICAL_DATA.cell_key(cell)
+	if mechanical_visuals.has(cell_key):
+		return
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = "Mechanical_%s" % cell_key
+	var cylinder := CylinderMesh.new()
+	if type_id == MECHANICAL_DATA.MECH_HAND_CRANK:
+		cylinder.top_radius = 0.32
+		cylinder.bottom_radius = 0.32
+		cylinder.height = 0.55
+	else:
+		cylinder.top_radius = 0.11
+		cylinder.bottom_radius = 0.11
+		cylinder.height = 0.96
+	var block_material := StandardMaterial3D.new()
+	block_material.albedo_color = THEME.block_color(type_id)
+	cylinder.material = block_material
+	mesh_instance.mesh = cylinder
+	# CylinderMesh's long axis is Y by default; rotate to match a block
+	# placed along X or Z. Y-axis blocks need no rotation.
+	match axis:
+		Vector3i.AXIS_X:
+			mesh_instance.rotation_degrees = Vector3(0.0, 0.0, 90.0)
+		Vector3i.AXIS_Z:
+			mesh_instance.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+		_:
+			pass
+	mesh_instance.position = Vector3(cell) + Vector3(0.5, 0.5, 0.5)
+	add_child(mesh_instance)
+	mechanical_visuals[cell_key] = mesh_instance
+
+
+func _destroy_mechanical_visual(cell: Vector3i) -> void:
+	var cell_key := MECHANICAL_DATA.cell_key(cell)
+	var mesh_instance: Variant = mechanical_visuals.get(cell_key)
+	if mesh_instance is MeshInstance3D and is_instance_valid(mesh_instance):
+		mesh_instance.queue_free()
+	mechanical_visuals.erase(cell_key)
+
+
+func _cell_from_key(cell_key: String) -> Vector3i:
+	var parts := cell_key.split(",")
+	return Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
 
 
 func collision_ring_ready() -> bool:

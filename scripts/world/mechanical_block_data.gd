@@ -27,6 +27,7 @@ extends RefCounted
 # normal voxel placement.
 const MECH_ID_START := 100
 const MECH_SHAFT := 100
+const MECH_HAND_CRANK := 101
 
 var _blocks: Dictionary = {}
 
