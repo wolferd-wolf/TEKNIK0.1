@@ -79,16 +79,24 @@ func _input(event: InputEvent) -> void:
 			var slot_index := _slot_at_position(touch.position)
 			if slot_index >= 0:
 				_begin_touch_slot(touch.index, slot_index)
-			get_viewport().set_input_as_handled()
+				get_viewport().set_input_as_handled()
+			# Anything else (crafting toggle, per-recipe CRAFT buttons, any
+			# future button added to this screen) is deliberately NOT
+			# marked handled here -- it falls through to normal Control
+			# click routing so the actual button underneath receives it.
+			# This used to be an unconditional set_input_as_handled() for
+			# every touch while open, which silently swallowed clicks on
+			# anything that wasn't the toggle/close button or a slot --
+			# exactly what was blocking the crafting panel's buttons.
 		else:
 			if touch.index == _active_touch_index:
 				_finish_touch_slot()
 				get_viewport().set_input_as_handled()
-			elif _is_open:
+			elif _is_open and _slot_at_position(touch.position) >= 0:
 				get_viewport().set_input_as_handled()
 	elif event is InputEventScreenDrag:
 		var drag := event as InputEventScreenDrag
-		if _is_open or drag.index == _active_touch_index:
+		if drag.index == _active_touch_index:
 			get_viewport().set_input_as_handled()
 
 
