@@ -21,8 +21,17 @@ extends Node
 #     "pitch": float,
 #     "inventory": [ {"block_id": int, "count": int}, ... ],
 #     "selected_slot": int
+#   },
+#   "mechanical_blocks": {
+#     "x,y,z": { "type_id": int, "axis": int, "state": Dictionary },
+#     ...
 #   }
 # }
+#
+# mechanical_blocks is additive: a save file written before it existed simply
+# lacks the key, and get_saved_mechanical_blocks() falls back to {} for that
+# case -- no version bump needed for an additive field, same tolerance the
+# other getters already use.
 
 const SAVE_PATH := "user://teknik_save.json"
 const AUTOSAVE_INTERVAL_SEC := 8.0
@@ -120,6 +129,13 @@ func get_saved_selected_slot() -> int:
 	return int(player.get("selected_slot", 0))
 
 
+func get_saved_mechanical_blocks() -> Dictionary:
+	if not has_save():
+		return {}
+	var blocks: Variant = _cached_save.get("mechanical_blocks", {})
+	return blocks if blocks is Dictionary else {}
+
+
 # Called by playable_world_data.gd's existing autosave (tick_save/shutdown).
 func write_world_state(seed_value: int, overrides: Dictionary) -> void:
 	_cached_save["version"] = 2
@@ -144,6 +160,14 @@ func write_player_state(
 		"inventory": inventory_slots,
 		"selected_slot": selected_slot,
 	}
+	_write_to_disk()
+
+
+# Called by MechanicalBlockData owners' autosave/exit hooks, same pattern
+# as write_world_state / write_player_state.
+func write_mechanical_blocks_state(blocks: Dictionary) -> void:
+	_cached_save["version"] = 2
+	_cached_save["mechanical_blocks"] = blocks
 	_write_to_disk()
 
 

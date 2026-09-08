@@ -94,8 +94,31 @@ const BLOCK_COLORS := {
 	4: Color(0.82, 0.74, 0.52, 1.0),  # sand
 	5: Color(0.42, 0.29, 0.16, 1.0),  # log
 	6: Color(0.24, 0.5, 0.22, 1.0),   # leaves
+	100: Color(0.58, 0.63, 0.68, 1.0), # shaft (mechanical item range starts at 100)
+	101: Color(0.72, 0.42, 0.24, 1.0), # hand crank
 }
 
 
 static func block_color(block_id: int) -> Color:
 	return BLOCK_COLORS.get(block_id, Color(0.5, 0.5, 0.5, 1.0))
+
+
+# Single source of truth for item display names -- previously duplicated
+# per-screen (each UI script kept its own copy), which is how a new item
+# type quietly shows up as "BLOCK 100" in one place and the real name in
+# another. Extend this dict, not a local copy, when a new item is added.
+const BLOCK_NAMES := {
+	0: "EMPTY",
+	1: "GRASS",
+	2: "DIRT",
+	3: "STONE",
+	4: "SAND",
+	5: "LOG",
+	6: "LEAVES",
+	100: "SHAFT",
+	101: "HAND CRANK",
+}
+
+
+static func block_name(block_id: int) -> String:
+	return String(BLOCK_NAMES.get(block_id, "BLOCK %d" % block_id))

@@ -4,6 +4,7 @@ class_name InventoryFirstPersonController
 const BLOCK_INVENTORY_SCRIPT := preload("res://scripts/inventory/block_inventory.gd")
 const INVENTORY_HOTBAR_SCRIPT := preload("res://scripts/ui/inventory_hotbar.gd")
 const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/ui/minecraft_inventory_screen.gd")
+const MECHANICAL_DATA_SCRIPT := preload("res://scripts/world/mechanical_block_data.gd")
 const HOTBAR_SLOT_COUNT := 9
 const HOTBAR_SLOT_ACTIONS := [
 	"select_hotbar_1",
@@ -33,6 +34,9 @@ const TEST_RECIPE_INPUT_BLOCK_ID := BLOCK_DIRT
 const TEST_RECIPE_INPUT_COUNT := 4
 const TEST_RECIPE_OUTPUT_BLOCK_ID := BLOCK_STONE
 const TEST_RECIPE_OUTPUT_COUNT := 1
+const TEST_MECH_RECIPE_INPUT_BLOCK_ID := BLOCK_STONE
+const TEST_MECH_RECIPE_INPUT_COUNT := 4
+const TEST_MECH_RECIPE_OUTPUT_COUNT := 1
 
 var _inventory: BlockInventory = BLOCK_INVENTORY_SCRIPT.new()
 var _selected_inventory_slot: int = 0
@@ -161,6 +165,19 @@ func craft_test_recipe() -> bool:
 	)
 
 
+# Real recipes (with power/RPM requirements etc.) are Phase 3 scope. This
+# is a placeholder so mechanical items are obtainable through the same
+# craft_item() path real recipes will use, rather than only reachable via
+# a debug/give command -- keeps "craft it, then place it" true today.
+func craft_test_shaft_recipe() -> bool:
+	return _inventory.craft_item(
+		TEST_MECH_RECIPE_INPUT_BLOCK_ID,
+		TEST_MECH_RECIPE_INPUT_COUNT,
+		MECHANICAL_DATA_SCRIPT.MECH_SHAFT,
+		TEST_MECH_RECIPE_OUTPUT_COUNT
+	)
+
+
 func mine_targeted_block() -> bool:
 	var target := get_block_target()
 	if target.is_empty() or _chunk_manager == null:
@@ -196,15 +213,41 @@ func place_block_at(world_block_coord: Vector3i) -> bool:
 	var count := int(selected_item.get("count", 0))
 	if block_id == BLOCK_AIR or count <= 0:
 		return false
-	if not _chunk_manager.place_block_world(world_block_coord, block_id):
+
+	var is_mechanical := block_id >= MECHANICAL_DATA_SCRIPT.MECH_ID_START
+	var placed := false
+	if is_mechanical:
+		placed = _chunk_manager.place_mechanical_block_world(world_block_coord, block_id, _facing_axis())
+	else:
+		placed = _chunk_manager.place_block_world(world_block_coord, block_id)
+	if not placed:
 		return false
 
 	if not _inventory.remove_from_slot(_selected_inventory_slot, 1):
-		var rolled_back: bool = bool(_chunk_manager.set_block_world(world_block_coord, BLOCK_AIR))
+		var rolled_back := false
+		if is_mechanical:
+			rolled_back = _chunk_manager.remove_mechanical_block_world(world_block_coord)
+		else:
+			rolled_back = bool(_chunk_manager.set_block_world(world_block_coord, BLOCK_AIR))
 		if not rolled_back:
 			push_error("Inventory placement rollback failed at %s" % world_block_coord)
 		return false
 	return true
+
+
+# Mechanical blocks default-orient to whichever cardinal axis the player is
+# most directly facing when placed (a shaft placed while looking along X
+# runs along X, etc). Good enough default for Phase 1; a manual rotate
+# key can replace this later without changing the placement API.
+func _facing_axis() -> int:
+	var look := -camera.global_transform.basis.z
+	var facing := look.abs()
+	if facing.y >= facing.x and facing.y >= facing.z:
+		return Vector3i.AXIS_Y
+	elif facing.x >= facing.z:
+		return Vector3i.AXIS_X
+	else:
+		return Vector3i.AXIS_Z
 
 
 func _update_hotbar_selection() -> void:

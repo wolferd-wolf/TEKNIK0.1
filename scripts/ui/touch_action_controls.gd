@@ -49,6 +49,8 @@ func _input(event: InputEvent) -> void:
 			_toggle_inventory_screen()
 			get_viewport().set_input_as_handled()
 			return
+		if _is_inventory_open():
+			return
 		_touch_actions[touch.index] = action
 		_press_action(action)
 		get_viewport().set_input_as_handled()
@@ -59,6 +61,18 @@ func _input(event: InputEvent) -> void:
 		_touch_actions.erase(touch.index)
 		_release_action(action)
 		get_viewport().set_input_as_handled()
+
+
+func _is_inventory_open() -> bool:
+	var player := get_node_or_null("../Player")
+	if player == null or not player.has_method("get_inventory_screen"):
+		return false
+	var inventory_screen = player.get_inventory_screen()
+	return (
+		inventory_screen != null
+		and inventory_screen.has_method("is_inventory_open")
+		and inventory_screen.is_inventory_open()
+	)
 
 
 func _exit_tree() -> void:

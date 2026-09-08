@@ -148,6 +148,30 @@ func place_block_world(world_block_coord: Vector3i, block_id: int) -> bool:
 	return _runtime.place_block(world_block_coord, block_id)
 
 
+func place_mechanical_block_world(world_block_coord: Vector3i, type_id: int, axis: int) -> bool:
+	if not is_block_world_available(world_block_coord):
+		return false
+	return _runtime.place_mechanical_block(world_block_coord, type_id, axis)
+
+
+func remove_mechanical_block_world(world_block_coord: Vector3i) -> bool:
+	if not is_block_world_available(world_block_coord):
+		return false
+	return _runtime.remove_mechanical_block(world_block_coord)
+
+
+func get_mechanical_block_world(world_block_coord: Vector3i) -> Dictionary:
+	if _runtime == null:
+		return {}
+	return _runtime.get_mechanical_block(world_block_coord)
+
+
+func has_mechanical_block_world(world_block_coord: Vector3i) -> bool:
+	if _runtime == null:
+		return false
+	return _runtime.has_mechanical_block(world_block_coord)
+
+
 func get_recovery_position(position: Vector3) -> Vector3:
 	if _runtime == null:
 		return position
